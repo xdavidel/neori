@@ -538,7 +538,7 @@ neori.layout {
 
 ### `insert-hint`
 
-<sup>Since: 0.1.10</sup> 
+<sup>Since: 0.1.10</sup>
 
 Settings for the window insert position hint during an interactive window move.
 
