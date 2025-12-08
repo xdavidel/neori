@@ -23,6 +23,7 @@ pub struct Layout {
     pub gaps: f64,
     pub struts: Struts,
     pub background_color: Color,
+    pub fullscreen_backdrop_color: Color,
 }
 
 impl Default for Layout {
@@ -51,6 +52,7 @@ impl Default for Layout {
                 PresetSize::Proportion(2. / 3.),
             ],
             background_color: DEFAULT_BACKGROUND_COLOR,
+            fullscreen_backdrop_color: Color::from_array_unpremul([0., 0., 0., 1.]),
         }
     }
 }
@@ -73,6 +75,7 @@ pub struct LayoutPart {
     pub gaps: Option<FloatOrInt<0, 65535>>,
     pub struts: Option<Struts>,
     pub background_color: Option<Color>,
+    pub fullscreen_backdrop_color: Option<Color>,
 }
 
 impl MergeWith<LayoutPart> for Layout {
@@ -121,6 +124,9 @@ impl MergeWith<LayoutPart> for Layout {
         }
         if let Some(x) = &part.background_color {
             self.background_color = *x;
+        }
+        if let Some(x) = &part.fullscreen_backdrop_color {
+            self.fullscreen_backdrop_color = *x;
         }
     }
 }

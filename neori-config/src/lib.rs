@@ -2699,6 +2699,42 @@ mod tests {
     }
 
     #[test]
+    fn fullscreen_backdrop_color() {
+        let config = Config::parse_mem(
+            r##"
+            neori.layout { fullscreen_backdrop_color = "transparent" }
+            neori.workspace("chat", { layout = { ["fullscreen-backdrop-color"] = "#ff000080" } })
+            "##,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.layout.fullscreen_backdrop_color,
+            Color::from_array_unpremul([0., 0., 0., 0.])
+        );
+
+        // Workspace layout overrides merge on top of the global layout.
+        let part = &config.workspaces[0].layout.as_ref().unwrap().0;
+        assert_eq!(
+            part.fullscreen_backdrop_color,
+            Some(Color::from_array_unpremul([1., 0., 0., 128. / 255.]))
+        );
+        let mut layout = config.layout.clone();
+        crate::utils::MergeWith::merge_with(&mut layout, part);
+        assert_eq!(
+            layout.fullscreen_backdrop_color,
+            Color::from_array_unpremul([1., 0., 0., 128. / 255.])
+        );
+
+        // Opaque black by default.
+        let config = Config::parse_mem("").unwrap();
+        assert_eq!(
+            config.layout.fullscreen_backdrop_color,
+            Color::from_array_unpremul([0., 0., 0., 1.])
+        );
+    }
+
+    #[test]
     fn neori_api_merges_with_returned_table() {
         let config = Config::parse_mem(
             r#"

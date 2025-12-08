@@ -12,6 +12,7 @@ neori.layout {
     empty_workspace_above_first = true,
     default_column_display = "tabbed",
     background_color = "#003300",
+    fullscreen_backdrop_color = "#000000ff",
     preset_column_widths = {
         { proportion = 0.33333 },
         { proportion = 0.5 },
@@ -619,3 +620,19 @@ neori.layout {
 ```
 
 You can also set the color per-output [in the output config](./Configuration:-Outputs.md#layout-config-overrides).
+
+### `fullscreen-backdrop-color`
+
+<sup>Since: next release</sup>
+
+Set the backdrop color that neori draws behind fullscreen windows.
+By default, it is black.
+
+You can set this to `"transparent"`, or just a transparent color, to enable transparency for fullscreen windows.
+
+```lua
+-- Let fullscreen windows be semitransparent.
+neori.layout {
+    fullscreen_backdrop_color = "transparent",
+}
+```

@@ -3652,6 +3652,10 @@ fn parse_layout_section(table: LuaTable, config: &mut Config) -> Result<(), Stri
                 let s = value_to_string(&value)?;
                 config.layout.background_color = parse_css_color(&s)?;
             }
+            "fullscreen_backdrop_color" | "fullscreen-backdrop-color" => {
+                let s = value_to_string(&value)?;
+                config.layout.fullscreen_backdrop_color = parse_css_color(&s)?;
+            }
             _ => unknown_key("layout", &ks)?,
         }
     }
@@ -3900,6 +3904,10 @@ fn parse_layout_part(table: &LuaTable) -> Result<LayoutPart, String> {
             "background_color" | "background-color" => {
                 let s = value_to_string(&value)?;
                 part.background_color = Some(parse_css_color(&s)?);
+            }
+            "fullscreen_backdrop_color" | "fullscreen-backdrop-color" => {
+                let s = value_to_string(&value)?;
+                part.fullscreen_backdrop_color = Some(parse_css_color(&s)?);
             }
             _ => unknown_key("layout part", &ks)?,
         }

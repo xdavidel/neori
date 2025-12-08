@@ -96,6 +96,7 @@ neori.layout {
   -- empty_workspace_above_first = false,
   -- default_column_display = "normal",    -- or "tabbed"
   -- background_color = "#404040",
+  -- fullscreen_backdrop_color = "#000000ff",
   -- struts = { left = 0, right = 0, top = 0, bottom = 0 },
 
   focus_ring = {
