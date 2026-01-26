@@ -5068,6 +5068,7 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
             Action::ToggleWindowRuleOpacity { id: None }
         }
         "toggle_debug_tint" | "toggle-debug-tint" => Action::ToggleDebugTint {},
+        "toggle_touchpad" | "toggle-touchpad" => Action::ToggleTouchpad {},
         "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
             Action::DebugToggleOpaqueRegions {}
         }
@@ -5350,6 +5351,7 @@ fn action_from_table_key(
             Some(Action::ToggleWindowRuleOpacity { id: None })
         }
         "toggle_debug_tint" | "toggle-debug-tint" => Some(Action::ToggleDebugTint {}),
+        "toggle_touchpad" | "toggle-touchpad" => Some(Action::ToggleTouchpad {}),
         "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
             Some(Action::DebugToggleOpaqueRegions {})
         }

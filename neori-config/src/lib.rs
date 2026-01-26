@@ -2348,6 +2348,23 @@ mod tests {
     }
 
     #[test]
+    fn toggle_touchpad_action() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+F9", "toggle-touchpad")
+            neori.bind("Mod+F10", { toggle_touchpad = true })
+            "#,
+        )
+        .unwrap();
+
+        let actions = actions(&config);
+        assert_eq!(
+            actions,
+            [Action::ToggleTouchpad {}, Action::ToggleTouchpad {}]
+        );
+    }
+
+    #[test]
     fn neori_api_screenshot_and_debug_actions() {
         let config = Config::parse_mem(
             r#"

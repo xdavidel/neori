@@ -282,6 +282,8 @@ pub struct Neori {
     /// Like the lid switch, the tablet mode switch starts off, and libinput immediately sends an
     /// event if the device was in tablet mode at startup.
     pub is_tablet_mode: bool,
+    /// Runtime toggle for touchpad disabled state (combined with config.touchpad.off).
+    pub touchpad_disabled_by_toggle: bool,
 
     pub devices: HashSet<input::Device>,
     pub tablets: HashMap<input::Device, TabletData>,
@@ -2042,7 +2044,11 @@ impl State {
         if libinput_config_changed {
             let config = self.neori.config.borrow();
             for mut device in self.neori.devices.iter().cloned() {
-                apply_libinput_settings(&config.input, &mut device);
+                apply_libinput_settings(
+                    &config.input,
+                    &mut device,
+                    self.neori.touchpad_disabled_by_toggle,
+                );
             }
         }
 
@@ -2943,6 +2949,7 @@ impl Neori {
             monitors_active: true,
             is_lid_closed: false,
             is_tablet_mode: false,
+            touchpad_disabled_by_toggle: false,
 
             devices: HashSet::new(),
             tablets: HashMap::new(),

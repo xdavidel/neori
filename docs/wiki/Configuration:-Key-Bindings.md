@@ -411,3 +411,17 @@ They will always be handled by neori and never passed to the window.
 -- This bind will always work, even when using a virtual machine.
 neori.bind("Super+Alt+L", neori.spawn("swaylock", { allow_inhibiting = false }))
 ```
+
+#### `toggle-touchpad`
+
+<sup>Since: next release</sup>
+
+Toggle the touchpad on or off at runtime.
+This provides a quick way to disable the touchpad without editing the config file.
+
+```lua
+neori.bind("Mod+F9", "toggle-touchpad")
+```
+
+The toggle state is combined with the [`off` setting](./Configuration:-Input.md#pointing-devices) in the config: both the config and the toggle must allow the touchpad for it to be enabled.
+The toggle state resets when neori restarts, and applies to newly hot-plugged touchpads.
