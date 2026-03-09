@@ -132,6 +132,8 @@ use crate::dbus::freedesktop_locale1::Locale1ToNeori;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_login1::Login1ToNeori;
 #[cfg(feature = "dbus")]
+use crate::dbus::gnome_shell::{GlobalShortcutsPortalBinds, ShellToNeori};
+#[cfg(feature = "dbus")]
 use crate::dbus::gnome_shell_introspect::{self, IntrospectToNeori, NeoriToIntrospect};
 #[cfg(feature = "dbus")]
 use crate::dbus::gnome_shell_screenshot::{NeoriToScreenshot, ScreenshotToNeori};
@@ -466,6 +468,8 @@ pub struct Neori {
     pub config_error_notification: ConfigErrorNotification,
     pub hotkey_overlay: HotkeyOverlay,
     pub exit_confirm_dialog: ExitConfirmDialog,
+    #[cfg(feature = "dbus")]
+    pub global_shortcuts_portal_binds: GlobalShortcutsPortalBinds,
 
     pub window_mru_ui: WindowMruUi,
     pub pending_mru_commit: Option<PendingMruCommit>,
@@ -484,6 +488,8 @@ pub struct Neori {
     pub a11y: A11y,
     #[cfg(feature = "dbus")]
     pub inhibit_power_key_fd: Option<zbus::zvariant::OwnedFd>,
+    #[cfg(feature = "dbus")]
+    pub gnome_shell: Option<crate::dbus::gnome_shell::Shell>,
 
     pub ipc_server: Option<IpcServer>,
     pub ipc_outputs_changed: bool,
@@ -2720,6 +2726,42 @@ impl State {
     }
 
     #[cfg(feature = "dbus")]
+    pub fn on_gnome_shell_msg(&mut self, msg: ShellToNeori) {
+        match msg {
+            ShellToNeori::GrabAccelerators {
+                accelerators,
+                results: tx,
+            } => {
+                trace!("GrabAccelerators: requesting grab accelerators: {accelerators:?}");
+                let results = self
+                    .neori
+                    .global_shortcuts_portal_binds
+                    .grab_accelerators(&accelerators);
+
+                trace!("GrabAccelerators: returning actions: {results:?}");
+                if let Err(err) = tx.send_blocking(results) {
+                    warn!("error sending grab accelerators result to gnome shell: {err:?}");
+                }
+            }
+            ShellToNeori::UngrabAccelerators {
+                actions,
+                result: tx,
+            } => {
+                trace!("UngrabAccelerators: requesting ungrab accelerators: {actions:?}",);
+                let result = self
+                    .neori
+                    .global_shortcuts_portal_binds
+                    .ungrab_accelerators(&actions);
+
+                trace!("UngrabAccelerators: returning result: {result:?}");
+                if let Err(err) = tx.send_blocking(result) {
+                    warn!("error sending ungrab accelerators result to gnome shell: {err:?}");
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "dbus")]
     pub fn on_introspect_msg(
         &mut self,
         to_introspect: &async_channel::Sender<NeoriToIntrospect>,
@@ -3026,6 +3068,9 @@ impl Neori {
         let exit_confirm_dialog = ExitConfirmDialog::new(animation_clock.clone(), config.clone());
 
         #[cfg(feature = "dbus")]
+        let global_shortcuts = GlobalShortcutsPortalBinds::new();
+
+        #[cfg(feature = "dbus")]
         let a11y = A11y::new(event_loop.clone());
 
         event_loop
@@ -3224,6 +3269,8 @@ impl Neori {
             config_error_notification,
             hotkey_overlay,
             exit_confirm_dialog,
+            #[cfg(feature = "dbus")]
+            global_shortcuts_portal_binds: global_shortcuts,
 
             window_mru_ui,
             pending_mru_commit: None,
@@ -3242,6 +3289,8 @@ impl Neori {
             a11y,
             #[cfg(feature = "dbus")]
             inhibit_power_key_fd: None,
+            #[cfg(feature = "dbus")]
+            gnome_shell: None,
 
             ipc_server,
             ipc_outputs_changed: false,

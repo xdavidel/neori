@@ -1280,6 +1280,28 @@ pub enum Action {
         /// Id of the function in the config's script host.
         id: u64,
     },
+    /// Activate a shortcut registered through the GlobalShortcuts portal.
+    ///
+    /// This action is internal, and usable neither from the config file nor over IPC.
+    #[doc(hidden)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    GlobalShortcutActivateAction {
+        /// Id of the portal action.
+        action: u32,
+    },
+    /// Deactivate a shortcut registered through the GlobalShortcuts portal.
+    ///
+    /// This action is internal, and usable neither from the config file nor over IPC.
+    #[doc(hidden)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    GlobalShortcutDeactivateAction {
+        /// Id of the portal action.
+        action: u32,
+    },
     /// Increment a counter in the compositor's tests; does nothing otherwise.
     ///
     /// This action is internal, and usable neither from the config file nor over IPC.
@@ -2685,6 +2707,8 @@ mod tests {
             r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
             r#""TestAction""#,
             r#"{"ScriptFunction":{"id":1}}"#,
+            r#"{"GlobalShortcutActivateAction":{"action":1}}"#,
+            r#"{"GlobalShortcutDeactivateAction":{"action":1}}"#,
         ] {
             assert!(
                 serde_json::from_str::<Action>(json).is_err(),

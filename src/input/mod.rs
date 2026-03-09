@@ -50,6 +50,8 @@ use self::resize_grab::ResizeGrab;
 use self::spatial_movement_grab::SpatialMovementGrab;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_a11y::KbMonBlock;
+#[cfg(feature = "dbus")]
+use crate::dbus::gnome_shell::GlobalShortcutsPortalBinds;
 use crate::layout::scrolling::ScrollDirection;
 use crate::layout::{ActivateWindow, LayoutElement as _};
 use crate::neori::{CastTarget, Neori, PointerVisibility, State};
@@ -698,6 +700,8 @@ impl State {
                         &config,
                         &this.neori.screenshot_ui,
                         &mut this.neori.window_mru_ui,
+                        #[cfg(feature = "dbus")]
+                        &this.neori.global_shortcuts_portal_binds,
                         this.neori.keyboard_focus.is_overview(),
                         modifiers,
                     );
@@ -2890,6 +2894,36 @@ impl State {
                     self.neori.queue_redraw_mru_output();
                 }
             }
+            Action::GlobalShortcutActivateAction { action } => {
+                #[cfg(not(feature = "dbus"))]
+                let _ = action;
+                #[cfg(feature = "dbus")]
+                {
+                    let Some(shell) = self.neori.gnome_shell.as_ref() else {
+                        error!(
+                            "attempted to activate global shortcut {action} \
+                             but gnome_shell is missing"
+                        );
+                        return;
+                    };
+                    shell.activate_action(action, time, &mut self.neori.activation_state);
+                }
+            }
+            Action::GlobalShortcutDeactivateAction { action } => {
+                #[cfg(not(feature = "dbus"))]
+                let _ = action;
+                #[cfg(feature = "dbus")]
+                {
+                    let Some(shell) = self.neori.gnome_shell.as_ref() else {
+                        error!(
+                            "attempted to deactivate global shortcut {action} \
+                             but gnome_shell is missing"
+                        );
+                        return;
+                    };
+                    shell.deactivate_action(action, time, &mut self.neori.activation_state);
+                }
+            }
             Action::ScriptFunction { id } => {
                 self.call_script_function(id, allow_when_locked, time);
             }
@@ -3268,6 +3302,8 @@ impl State {
             &config,
             &self.neori.screenshot_ui,
             &mut self.neori.window_mru_ui,
+            #[cfg(feature = "dbus")]
+            &self.neori.global_shortcuts_portal_binds,
             self.neori.keyboard_focus.is_overview(),
             modifiers,
         );
@@ -5985,6 +6021,7 @@ fn make_binds_iter<'a>(
     config: &'a Config,
     screenshot_ui: &'a ScreenshotUi,
     mru: &'a mut WindowMruUi,
+    #[cfg(feature = "dbus")] global_shortcuts: &'a GlobalShortcutsPortalBinds,
     overview_focused: bool,
     mods: Modifiers,
 ) -> impl Iterator<Item = &'a Bind> + Clone {
@@ -6010,11 +6047,17 @@ fn make_binds_iter<'a>(
         .flatten();
 
     // The precedence is screenshot UI, then general, then MRU binds.
-    screenshot_binds
+    let all_binds = screenshot_binds
         .chain(general_binds)
         .chain(mru_binds)
         .chain(mru_open_binds)
-        .chain(overview_binds)
+        .chain(overview_binds);
+
+    // The GlobalShortcuts portal binds go last.
+    #[cfg(feature = "dbus")]
+    let all_binds = all_binds.chain(global_shortcuts.binds());
+
+    all_binds
 }
 
 #[cfg(test)]
