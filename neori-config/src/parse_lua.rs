@@ -3058,6 +3058,7 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
         let scale: Option<f64> = t.get("scale").map_err(|e| format!("{e}")).ok();
         let transform_str: Option<String> = t.get("transform").map_err(|e| format!("{e}")).ok();
         let focus_at_startup: bool = t.get("focus_at_startup").unwrap_or(false);
+        let drm_lease = value_is_truthy(&table_get_alias(&t, "drm_lease", "drm-lease")?);
 
         let transform = match transform_str.as_deref() {
             Some("normal") | None => Transform::Normal,
@@ -3213,6 +3214,7 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
             modeline,
             variable_refresh_rate,
             focus_at_startup,
+            drm_lease,
             background_color,
             backdrop_color,
             hot_corners,

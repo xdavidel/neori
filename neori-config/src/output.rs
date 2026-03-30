@@ -39,6 +39,7 @@ pub struct Output {
     pub mode: Option<Mode>,
     pub modeline: Option<Modeline>,
     pub variable_refresh_rate: Option<Vrr>,
+    pub drm_lease: bool,
     pub focus_at_startup: bool,
     pub background_color: Option<Color>,
     pub backdrop_color: Option<Color>,
@@ -65,6 +66,7 @@ impl Default for Output {
         Self {
             off: false,
             create_virtual: false,
+            drm_lease: false,
             focus_at_startup: false,
             name: String::new(),
             scale: None,

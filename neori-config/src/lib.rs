@@ -2751,6 +2751,22 @@ mod tests {
     }
 
     #[test]
+    fn output_drm_lease() {
+        let config = Config::parse_mem(
+            r#"
+            neori.output("HMD", { drm_lease = true })
+            neori.output("DP-2", { ["drm-lease"] = true })
+            neori.output("eDP-1", {})
+            "#,
+        )
+        .unwrap();
+        let outputs = &config.outputs.0;
+        assert!(outputs[0].drm_lease);
+        assert!(outputs[1].drm_lease);
+        assert!(!outputs[2].drm_lease);
+    }
+
+    #[test]
     fn neori_api_named_output_and_workspace() {
         let config = Config::parse_mem(
             r#"

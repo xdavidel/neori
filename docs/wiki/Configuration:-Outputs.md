@@ -19,6 +19,7 @@ neori.output("eDP-1", {
     -- on-demand=true
     variable_refresh_rate = true,
     focus_at_startup = true,
+    -- drm_lease = true
     backdrop_color = "#001100",
     -- max_bpc = 8
     hot_corners = {
@@ -270,6 +271,22 @@ neori.output("HDMI-A-1", {
     variable_refresh_rate = {
         on_demand = true,
     },
+})
+```
+
+### `drm-lease`
+
+<sup>Since: next release</sup>
+
+Force this output to be offered for [DRM leasing](https://wayland.app/protocols/drm-lease-v1) instead of being used as a regular monitor.
+
+Normally, neori automatically offers connectors with the `non-desktop` DRM property for DRM leasing (e.g. VR headsets).
+However, some drivers (notably NVIDIA) do not always set this property.
+In that case, you can use `drm-lease` to manually mark the output for leasing.
+
+```lua
+neori.output("Your VR Headset Name", {
+    drm_lease = true,
 })
 ```
 
