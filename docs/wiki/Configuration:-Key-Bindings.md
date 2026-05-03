@@ -104,6 +104,9 @@ neori.bind("Mod+TouchpadScrollUp", neori.spawn("wpctl", "set-volume", "@DEFAULT_
 Both mouse wheel and touchpad scroll binds will prevent applications from receiving any scroll events when their modifiers are held down.
 For example, if you have a `Mod+WheelScrollDown` bind, then while holding `Mod`, all mouse wheel scrolling will be consumed by neori.
 
+<sup>Since: next release</sup> Mouse wheel bindings are consumed by neori per axis.
+If you bind just `Mod+WheelScrollDown` and hold `Mod`, neori will consume vertical scrolling, but not horizontal scrolling.
+
 ### Mouse Click Bindings
 
 <sup>Since: 25.01</sup>
