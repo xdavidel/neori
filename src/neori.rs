@@ -440,6 +440,8 @@ pub struct Neori {
     pub casting: Screencasting,
 }
 
+smithay::delegate_dispatch2!(State);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PointerVisibility {
     /// The pointer is visible.
