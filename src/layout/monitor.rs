@@ -414,6 +414,14 @@ impl<W: LayoutElement> Monitor<W> {
         &mut self.workspaces[self.active_workspace_idx]
     }
 
+    pub fn idx_of_ws(&self, id: WorkspaceId) -> Option<usize> {
+        self.workspaces.iter().position(|ws| ws.id() == id)
+    }
+
+    pub fn has_ws(&self, id: WorkspaceId) -> bool {
+        self.idx_of_ws(id).is_some()
+    }
+
     pub fn windows(&self) -> impl Iterator<Item = &W> {
         self.workspaces.iter().flat_map(|ws| ws.windows())
     }
@@ -538,7 +546,7 @@ impl<W: LayoutElement> Monitor<W> {
                 (self.active_workspace_idx, WorkspaceAddWindowTarget::Auto)
             }
             MonitorAddWindowTarget::Workspace { id, column_idx } => {
-                let idx = self.workspaces.iter().position(|ws| ws.id() == id).unwrap();
+                let idx = self.idx_of_ws(id).unwrap();
                 let target = if let Some(column_idx) = column_idx {
                     WorkspaceAddWindowTarget::NewColumnAt(column_idx)
                 } else {
@@ -687,9 +695,10 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn unname_workspace(&mut self, id: WorkspaceId) -> bool {
-        let Some(ws) = self.workspaces.iter_mut().find(|ws| ws.id() == id) else {
+        let Some(idx) = self.idx_of_ws(id) else {
             return false;
         };
+        let ws = &mut self.workspaces[idx];
 
         ws.unname();
 
@@ -951,7 +960,7 @@ impl<W: LayoutElement> Monitor<W> {
 
     fn previous_workspace_idx(&self) -> Option<usize> {
         let id = self.previous_workspace_id?;
-        self.workspaces.iter().position(|w| w.id() == id)
+        self.idx_of_ws(id)
     }
 
     pub fn switch_workspace(&mut self, idx: usize) {
@@ -1053,7 +1062,8 @@ impl<W: LayoutElement> Monitor<W> {
         if let Some(hint) = &self.insert_hint {
             match hint.workspace {
                 InsertWorkspace::Existing(ws_id) => {
-                    if let Some(ws) = self.workspaces.iter().find(|ws| ws.id() == ws_id) {
+                    if let Some(idx) = self.idx_of_ws(ws_id) {
+                        let ws = &self.workspaces[idx];
                         if let Some(mut area) = ws.insert_hint_area(hint.position) {
                             let scale = ws.scale().fractional_scale();
                             let view_size = ws.view_size();
