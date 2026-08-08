@@ -1151,6 +1151,12 @@ impl State {
     }
 
     pub fn refresh_pointer_contents(&mut self) {
+        // Don't move the mouse pointer while the user is interacting with the tablet, as it causes
+        // unwanted jumps for the client.
+        if self.neori.tablet_cursor_location.is_some() {
+            return;
+        }
+
         let _span = tracy_client::span!("Neori::refresh_pointer_contents");
 
         let pointer = &self.neori.seat.get_pointer().unwrap();
