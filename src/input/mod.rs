@@ -66,7 +66,6 @@ pub mod shake;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
 pub mod touch_overview_grab;
-pub mod touch_resize_grab;
 
 use backend_ext::{NeoriInputBackend as InputBackend, NeoriInputDevice as _};
 
@@ -3268,6 +3267,7 @@ impl State {
                                 button: button_code,
                                 location,
                             };
+                            let start_data = PointerOrTouchStartData::Pointer(start_data);
                             let grab = ResizeGrab::new(start_data, window.clone());
                             pointer.set_grab(self, grab, serial, Focus::Clear);
                             self.neori
