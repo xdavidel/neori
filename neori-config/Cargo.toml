@@ -13,7 +13,7 @@ csscolorparser = "0.8.3"
 miette = { version = "5.10.0", features = ["fancy-no-backtrace"] }
 mlua = { workspace = true, features = ["serialize"] }
 neori-ipc = { version = "0.1.0", path = "../neori-ipc" }
-regex = "1.12.3"
+regex = "1.13.1"
 smithay = { workspace = true, features = ["backend_libinput"] }
 tracing.workspace = true
 tracy-client.workspace = true
