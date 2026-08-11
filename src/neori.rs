@@ -2274,11 +2274,15 @@ impl State {
         if let Some(touch) = self.neori.seat.get_touch() {
             touch.unset_grab(self);
         }
-        self.neori.seat.tablet_seat().with_tools(|tools| {
-            for tool in tools.values() {
-                tool.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
-            }
+
+        // Can't unset_grab() from with_tools(), will deadlock on tablet seat mutex...
+        let mut tools = Vec::new();
+        self.neori.seat.tablet_seat().with_tools(|map| {
+            tools = Vec::from_iter(map.values().cloned());
         });
+        for tool in tools {
+            tool.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
+        }
 
         self.backend.with_primary_renderer(|renderer| {
             self.neori
