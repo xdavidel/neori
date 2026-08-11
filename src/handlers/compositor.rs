@@ -396,6 +396,9 @@ impl CompositorHandler for State {
             }
 
             // This is a commit of a non-toplevel root.
+
+            // This might be a popup.
+            self.popups_handle_commit(surface);
         }
 
         // This is a commit of a non-root or a non-toplevel root.
@@ -415,9 +418,10 @@ impl CompositorHandler for State {
             return;
         }
 
-        // This might be a popup.
+        // This might be a popup, or a popup's unsync subsurface — use the root
+        // surface so subsurface commits still trigger the popup lookup.
         self.popups_handle_commit(surface);
-        if let Some(popup) = self.neori.popups.find_popup(surface) {
+        if let Some(popup) = self.neori.popups.find_popup(&root_surface) {
             if let Some(output) = self.output_for_popup(&popup) {
                 self.neori.queue_redraw(&output.clone());
             }
