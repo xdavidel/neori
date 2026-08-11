@@ -298,6 +298,7 @@ neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.
 --   keep_laptop_panel_on_when_lid_is_closed = false,
 --   disable_monitor_names = false,
 --   skip_cursor_only_updates_during_vrr = false,
+--   disable_10bit_output = false,
 -- }
 
 --------------------------------------------------------------------------------

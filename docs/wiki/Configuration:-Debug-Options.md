@@ -35,6 +35,7 @@ neori.debug {
     honor_xdg_activation_with_invalid_serial = true,
     skip_cursor_only_updates_during_vrr = true,
     deactivate_unfocused_windows = true,
+    disable_10bit_output = true,
 }
 neori.bind("Mod+Shift+Ctrl+T", "toggle-debug-tint")
 neori.bind("Mod+Shift+Ctrl+O", "debug-toggle-opaque-regions")
@@ -308,6 +309,21 @@ neori.debug {
 }
 ```
 
+### `disable-10bit-output`
+
+<sup>Since: next release</sup>
+
+By default, neori will try to output a 10-bit color format to the monitor (before falling back to 8-bit).
+However, this can currently cause problems on some Intel + NVIDIA mixed-GPU setups: the screen doesn't light up, or displays only white, etc.
+
+Until this is fixed in Smithay, you can disable 10-bit color formats by setting this debug flag.
+
+```lua
+neori.debug {
+    disable_10bit_output = true,
+}
+```
+
 ### `deactivate-unfocused-windows`
 
 <sup>Since: 25.08</sup>
@@ -321,6 +337,21 @@ It will cause neori to drop the Activated state for all unfocused windows.
 ```lua
 neori.debug {
     deactivate_unfocused_windows = true,
+}
+```
+
+### `disable-10bit-output`
+
+<sup>Since: next release</sup>
+
+By default, neori will try to output a 10-bit color format to the monitor (before falling back to 8-bit).
+However, this can currently cause problems on some Intel + NVIDIA mixed-GPU setups: the screen doesn't light up, or displays only white, etc.
+
+Until this is fixed in Smithay, you can disable 10-bit color formats by setting this debug flag.
+
+```kdl
+debug {
+    disable-10bit-output
 }
 ```
 

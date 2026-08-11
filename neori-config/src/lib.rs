@@ -2320,6 +2320,22 @@ mod tests {
     }
 
     #[test]
+    fn debug_disable_10bit_output() {
+        let config = Config::parse_mem("neori.debug { disable_10bit_output = true }").unwrap();
+        assert!(config.debug.disable_10bit_output);
+
+        let config =
+            Config::parse_mem(r#"neori.debug { ["disable-10bit-output"] = true }"#).unwrap();
+        assert!(config.debug.disable_10bit_output);
+
+        let config = Config::parse_mem("neori.debug { disable_10bit_output = false }").unwrap();
+        assert!(!config.debug.disable_10bit_output);
+
+        let config = Config::parse_mem("").unwrap();
+        assert!(!config.debug.disable_10bit_output);
+    }
+
+    #[test]
     fn neori_api_screenshot_and_debug_actions() {
         let config = Config::parse_mem(
             r#"

@@ -24,6 +24,7 @@ pub struct Debug {
     pub honor_xdg_activation_with_invalid_serial: bool,
     pub deactivate_unfocused_windows: bool,
     pub skip_cursor_only_updates_during_vrr: bool,
+    pub disable_10bit_output: bool,
 }
 
 #[allow(dead_code)]
@@ -49,6 +50,7 @@ pub struct DebugPart {
     pub honor_xdg_activation_with_invalid_serial: Option<Flag>,
     pub deactivate_unfocused_windows: Option<Flag>,
     pub skip_cursor_only_updates_during_vrr: Option<Flag>,
+    pub disable_10bit_output: Option<Flag>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

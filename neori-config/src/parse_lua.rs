@@ -4276,6 +4276,9 @@ fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
                     debug.disable_direct_scanout = *b;
                 }
             }
+            "disable_10bit_output" | "disable-10bit-output" => {
+                debug.disable_10bit_output = value_is_truthy(&value);
+            }
             _ => unknown_key("debug", &ks)?,
         }
     }
