@@ -85,6 +85,7 @@ neori.window_rule {
         relative_to = "bottom-left",
     },
     scroll_factor = 0.75,
+    focus_on_xdg_activate = true,
     focus_ring = {
         -- off = true
         on = true,
@@ -704,6 +705,26 @@ neori.window_rule {
 >
 > This is because window title (and app ID) are not double-buffered in the Wayland protocol, so they are not tied to specific window contents.
 > There's no robust way for Firefox to synchronize visibly showing a different tab and changing the window title.
+
+#### `focus-on-xdg-activate`
+
+<sup>Since: next release</sup>
+
+Set this to `false` to prevent the window from receiving focus when it requests activation.
+This is useful for apps that steal focus on incoming messages or when opening popup windows like Picture-in-Picture.
+
+When set to `false`, the window will instead be marked as urgent.
+
+```lua
+-- Don't let Firefox PiP steal focus.
+neori.window_rule {
+    match = {
+        title = "^Picture-in-Picture$",
+    },
+    open_floating = true,
+    focus_on_xdg_activate = false,
+}
+```
 
 #### `opacity`
 

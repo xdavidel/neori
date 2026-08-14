@@ -21,6 +21,7 @@ pub struct WindowRule {
     pub open_fullscreen: Option<bool>,
     pub open_floating: Option<bool>,
     pub open_focused: Option<bool>,
+    pub focus_on_xdg_activate: Option<bool>,
     pub min_width: Option<u16>,
     pub min_height: Option<u16>,
     pub max_width: Option<u16>,

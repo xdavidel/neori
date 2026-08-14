@@ -2716,6 +2716,22 @@ mod tests {
     }
 
     #[test]
+    fn window_rule_focus_on_xdg_activate() {
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule { focus_on_xdg_activate = false }
+            neori.window_rule { ["focus-on-xdg-activate"] = true }
+            neori.window_rule { open_focused = true }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.window_rules[0].focus_on_xdg_activate, Some(false));
+        assert_eq!(config.window_rules[1].focus_on_xdg_activate, Some(true));
+        assert_eq!(config.window_rules[2].focus_on_xdg_activate, None);
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"
