@@ -77,15 +77,15 @@ elif hash dinitctl >/dev/null 2>&1; then
     fi
 
     # Create the directory for the logfile, if doesn't exist
-    mkdir --parents $HOME/.local/share/neori
+    mkdir --parents "$HOME/.local/share/neori"
     # Start neori
     dinitctl --quiet --user start neori.target 2>&1
 
     # Wait for termination
-    dinit-monitor --user --initial -c $'sh -c " 
+    dinit-monitor --user --initial -c 'sh -c "
         if [ "%s" = "stopped" ] || [ "%s" = "failed" ]; then
             ppid=$(ps -o ppid= -p $$)
-            kill $ppid
+            kill "$ppid"
         fi"' neori >/dev/null 2>&1
 
     # Unset environment that we've set.
