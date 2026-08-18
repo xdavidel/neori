@@ -21,7 +21,7 @@ pub struct WindowRule {
     pub open_fullscreen: Option<bool>,
     pub open_floating: Option<bool>,
     pub open_focused: Option<bool>,
-    pub focus_on_xdg_activate: Option<bool>,
+    pub on_xdg_activate: Option<OnXdgActivate>,
     pub min_width: Option<u16>,
     pub min_height: Option<u16>,
     pub max_width: Option<u16>,
@@ -99,6 +99,13 @@ impl Default for FloatingPosition {
             relative_to: RelativeTo::TopLeft,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnXdgActivate {
+    Ignore,
+    SetUrgent,
+    Focus,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

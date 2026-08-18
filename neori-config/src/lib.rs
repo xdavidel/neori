@@ -65,7 +65,7 @@ pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, 
 pub use crate::scratchpad::Scratchpad;
 pub use crate::utils::FloatOrInt;
 pub use crate::window_rule::{
-    FloatingPosition, PopupsRule, RelativeTo, ResolvedPopupsRules, WindowRule,
+    FloatingPosition, OnXdgActivate, PopupsRule, RelativeTo, ResolvedPopupsRules, WindowRule,
 };
 pub use crate::workspace::{Workspace, WorkspaceLayoutPart};
 
@@ -2716,19 +2716,47 @@ mod tests {
     }
 
     #[test]
-    fn window_rule_focus_on_xdg_activate() {
+    fn window_rule_on_xdg_activate() {
         let config = Config::parse_mem(
             r#"
-            neori.window_rule { focus_on_xdg_activate = false }
-            neori.window_rule { ["focus-on-xdg-activate"] = true }
+            neori.window_rule { on_xdg_activate = "ignore" }
+            neori.window_rule { ["on-xdg-activate"] = "set-urgent" }
+            neori.window_rule { on_xdg_activate = "focus" }
             neori.window_rule { open_focused = true }
             "#,
         )
         .unwrap();
 
-        assert_eq!(config.window_rules[0].focus_on_xdg_activate, Some(false));
-        assert_eq!(config.window_rules[1].focus_on_xdg_activate, Some(true));
-        assert_eq!(config.window_rules[2].focus_on_xdg_activate, None);
+        assert_eq!(
+            config
+                .window_rules
+                .iter()
+                .map(|rule| rule.on_xdg_activate)
+                .collect::<Vec<_>>(),
+            vec![
+                Some(OnXdgActivate::Ignore),
+                Some(OnXdgActivate::SetUrgent),
+                Some(OnXdgActivate::Focus),
+                None,
+            ]
+        );
+    }
+
+    #[test]
+    fn window_rule_on_xdg_activate_invalid_value() {
+        // Lenient mode warns and leaves the rule unset.
+        let config =
+            Config::parse_mem(r#"neori.window_rule { on_xdg_activate = "steal" }"#).unwrap();
+        assert_eq!(config.window_rules[0].on_xdg_activate, None);
+
+        // Strict mode rejects the value.
+        let err = Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.window_rule { on_xdg_activate = "steal" }
+            "#,
+        );
+        assert!(err.is_err());
     }
 
     #[test]

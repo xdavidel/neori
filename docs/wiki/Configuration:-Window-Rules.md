@@ -85,7 +85,7 @@ neori.window_rule {
         relative_to = "bottom-left",
     },
     scroll_factor = 0.75,
-    focus_on_xdg_activate = true,
+    on_xdg_activate = "focus",
     focus_ring = {
         -- off = true
         on = true,
@@ -706,14 +706,24 @@ neori.window_rule {
 > This is because window title (and app ID) are not double-buffered in the Wayland protocol, so they are not tied to specific window contents.
 > There's no robust way for Firefox to synchronize visibly showing a different tab and changing the window title.
 
-#### `focus-on-xdg-activate`
+#### `on-xdg-activate`
 
 <sup>Since: next release</sup>
 
-Set this to `false` to prevent the window from receiving focus when it requests activation.
-This is useful for apps that steal focus on incoming messages or when opening popup windows like Picture-in-Picture.
+Set what neori does when a window requests activation through [xdg-activation](https://wayland.app/protocols/xdg-activation-v1).
 
-When set to `false`, the window will instead be marked as urgent.
+Values:
+
+- `"ignore"`: do nothing: neither focus the window nor mark it urgent.
+- `"set-urgent"`: always mark the window urgent instead of focusing it.
+- `"focus"`: always focus the window, even for activation requests without a serial.
+
+The default behavior, when this rule is unset, picks between focusing and marking the window urgent based on the serial that the application provides when creating the activation token.
+Requests with a valid serial focus the target window, and requests without a serial mark it urgent.
+
+Requests with a set, but invalid, serial, are always ignored, which you can change with the [`honor-xdg-activation-with-invalid-serial`](./Configuration:-Debug-Options.md#honor-xdg-activation-with-invalid-serial) debug flag.
+
+This is useful for apps that steal focus on incoming messages or when opening popup windows like Picture-in-Picture.
 
 ```lua
 -- Don't let Firefox PiP steal focus.
@@ -722,7 +732,7 @@ neori.window_rule {
         title = "^Picture-in-Picture$",
     },
     open_floating = true,
-    focus_on_xdg_activate = false,
+    on_xdg_activate = "set-urgent",
 }
 ```
 

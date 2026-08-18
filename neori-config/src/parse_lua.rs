@@ -3162,8 +3162,19 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
             "open_focused" | "open-focused" => {
                 rule.open_focused = Some(value_is_truthy(&value));
             }
-            "focus_on_xdg_activate" | "focus-on-xdg-activate" => {
-                rule.focus_on_xdg_activate = Some(value_is_truthy(&value));
+            "on_xdg_activate" | "on-xdg-activate" => {
+                let s = value_to_string(&value)?;
+                rule.on_xdg_activate = match s.as_str() {
+                    "ignore" => Some(OnXdgActivate::Ignore),
+                    "set-urgent" | "set_urgent" => Some(OnXdgActivate::SetUrgent),
+                    "focus" => Some(OnXdgActivate::Focus),
+                    other => {
+                        invalid_config(&format!(
+                            "invalid on_xdg_activate `{other}`, expected \"ignore\", \"set-urgent\" or \"focus\""
+                        ))?;
+                        None
+                    }
+                };
             }
             "min_width" | "min-width" => {
                 rule.min_width = Some(value_to_u16(&value)?);
