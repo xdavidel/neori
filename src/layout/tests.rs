@@ -1,6 +1,6 @@
 use std::cell::{Cell, OnceCell, RefCell};
 
-use neori_config::utils::{Flag, MergeWith as _};
+use neori_config::utils::Flag;
 use neori_config::workspace::WorkspaceName;
 use neori_config::{
     CenterFocusedColumn, FloatOrInt, OutputName, Struts, TabIndicatorLength, TabIndicatorPosition,

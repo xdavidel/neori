@@ -12,7 +12,6 @@ mod imp {
 
     use anyhow::{ensure, Context};
     use gtk::gdk;
-    use gtk::prelude::*;
     use neori::animation::Clock;
     use neori::render_helpers::{resources, shaders};
     use smithay::backend::egl::ffi::egl;

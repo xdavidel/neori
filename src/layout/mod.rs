@@ -5693,10 +5693,7 @@ impl<W: LayoutElement> Layout<W> {
     pub fn workspaces(
         &self,
     ) -> impl Iterator<Item = (Option<&Monitor<W>>, usize, &Workspace<W>)> + '_ {
-        let iter_normal;
-        let iter_no_outputs;
-
-        match &self.monitor_set {
+        let (iter_normal, iter_no_outputs) = match &self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 let it = monitors.iter().flat_map(|mon| {
                     mon.workspaces
@@ -5705,8 +5702,7 @@ impl<W: LayoutElement> Layout<W> {
                         .map(move |(idx, ws)| (Some(mon), idx, ws))
                 });
 
-                iter_normal = Some(it);
-                iter_no_outputs = None;
+                (Some(it), None)
             }
             MonitorSet::NoOutputs { workspaces } => {
                 let it = workspaces
@@ -5714,10 +5710,9 @@ impl<W: LayoutElement> Layout<W> {
                     .enumerate()
                     .map(|(idx, ws)| (None, idx, ws));
 
-                iter_normal = None;
-                iter_no_outputs = Some(it);
+                (None, Some(it))
             }
-        }
+        };
 
         let iter_normal = iter_normal.into_iter().flatten();
         let iter_no_outputs = iter_no_outputs.into_iter().flatten();
@@ -5725,25 +5720,20 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn workspaces_mut(&mut self) -> impl Iterator<Item = &mut Workspace<W>> + '_ {
-        let iter_normal;
-        let iter_no_outputs;
-
-        match &mut self.monitor_set {
+        let (iter_normal, iter_no_outputs) = match &mut self.monitor_set {
             MonitorSet::Normal { monitors, .. } => {
                 let it = monitors
                     .iter_mut()
                     .flat_map(|mon| mon.workspaces.iter_mut());
 
-                iter_normal = Some(it);
-                iter_no_outputs = None;
+                (Some(it), None)
             }
             MonitorSet::NoOutputs { workspaces } => {
                 let it = workspaces.iter_mut();
 
-                iter_normal = None;
-                iter_no_outputs = Some(it);
+                (None, Some(it))
             }
-        }
+        };
 
         let iter_normal = iter_normal.into_iter().flatten();
         let iter_no_outputs = iter_no_outputs.into_iter().flatten();
