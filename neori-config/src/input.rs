@@ -139,6 +139,7 @@ pub struct Touchpad {
     pub disabled_on_external_mouse: bool,
     pub middle_emulation: bool,
     pub scroll_factor: Option<ScrollFactor>,
+    pub pinch_sensitivity: Option<FloatOrInt<0, 100>>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]

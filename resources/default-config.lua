@@ -40,6 +40,7 @@ neori.input {
     -- disabled_on_external_mouse = false,
     -- middle_emulation = false,
     -- scroll_factor = { base = 1.0, horizontal = 1.0, vertical = 1.0 },
+    -- pinch_sensitivity = 1.0,
   },
   -- mouse = {
   --   off = false,

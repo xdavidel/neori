@@ -40,6 +40,7 @@ pub struct WindowRule {
     pub default_column_display: Option<ColumnDisplay>,
     pub default_floating_position: Option<FloatingPosition>,
     pub scroll_factor: Option<FloatOrInt<0, 100>>,
+    pub pinch_sensitivity: Option<FloatOrInt<0, 100>>,
     pub tiled_state: Option<bool>,
     pub background_effect: BackgroundEffectRule,
     pub popups: PopupsRule,

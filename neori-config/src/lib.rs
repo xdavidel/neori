@@ -2728,6 +2728,50 @@ mod tests {
     }
 
     #[test]
+    fn pinch_sensitivity() {
+        let config = Config::parse_mem(
+            r#"
+            neori.input { touchpad = { pinch_sensitivity = 1.5 } }
+            neori.window_rule { pinch_sensitivity = 1.25 }
+            neori.window_rule { ["pinch-sensitivity"] = 2 }
+            neori.window_rule { opacity = 0.5 }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.input.touchpad.pinch_sensitivity, Some(FloatOrInt(1.5)));
+        assert_eq!(config.window_rules[0].pinch_sensitivity, Some(FloatOrInt(1.25)));
+        assert_eq!(config.window_rules[1].pinch_sensitivity, Some(FloatOrInt(2.)));
+        assert_eq!(config.window_rules[2].pinch_sensitivity, None);
+
+        let config = Config::parse_mem("").unwrap();
+        assert_eq!(config.input.touchpad.pinch_sensitivity, None);
+    }
+
+    #[test]
+    fn pinch_sensitivity_out_of_range() {
+        // Lenient mode warns and leaves the value unset.
+        let config = Config::parse_mem(
+            r#"
+            neori.input { touchpad = { pinch_sensitivity = -1 } }
+            neori.window_rule { pinch_sensitivity = 101 }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.input.touchpad.pinch_sensitivity, None);
+        assert_eq!(config.window_rules[0].pinch_sensitivity, None);
+
+        // Strict mode rejects it.
+        assert!(Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.window_rule { pinch_sensitivity = 101 }
+            "#,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn window_rule_on_xdg_activate() {
         let config = Config::parse_mem(
             r#"

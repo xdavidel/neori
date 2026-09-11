@@ -2705,6 +2705,9 @@ fn parse_touchpad(table: &LuaTable, tp: &mut Touchpad) -> Result<(), String> {
             "scroll_factor" | "scroll-factor" => {
                 tp.scroll_factor = Some(parse_scroll_factor(&value)?);
             }
+            "pinch_sensitivity" | "pinch-sensitivity" => {
+                tp.pinch_sensitivity = parse_pinch_sensitivity(&value, "input.touchpad")?;
+            }
             _ => unknown_key("input.touchpad", &ks)?,
         }
     }
@@ -2874,6 +2877,21 @@ fn parse_touch(table: &LuaTable, touch: &mut Touch) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Parses a pinch sensitivity multiplier, which must lie within `0..=100`.
+fn parse_pinch_sensitivity(
+    val: &Value,
+    section: &str,
+) -> Result<Option<FloatOrInt<0, 100>>, String> {
+    let v = value_to_f64(val)?;
+    if !(0. ..=100.).contains(&v) {
+        invalid_config(&format!(
+            "{section}: pinch_sensitivity must be between 0 and 100, got {v}"
+        ))?;
+        return Ok(None);
+    }
+    Ok(Some(FloatOrInt(v)))
 }
 
 fn parse_scroll_factor(val: &Value) -> Result<ScrollFactor, String> {
@@ -3225,6 +3243,9 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
             }
             "opacity" => {
                 rule.opacity = Some(value_to_f64(&value)? as f32);
+            }
+            "pinch_sensitivity" | "pinch-sensitivity" => {
+                rule.pinch_sensitivity = parse_pinch_sensitivity(&value, "window_rule")?;
             }
             "geometry_corner_radius" | "geometry-corner-radius" => {
                 rule.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
