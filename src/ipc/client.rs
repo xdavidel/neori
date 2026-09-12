@@ -816,6 +816,7 @@ fn print_cast(cast: &Cast) {
     let kind = match cast.kind {
         CastKind::PipeWire => "PipeWire",
         CastKind::WlrScreencopy => "wlr-screencopy",
+        CastKind::ExtImageCopyCapture => "ext-image-copy-capture",
     };
     println!("  Kind: {kind}");
 

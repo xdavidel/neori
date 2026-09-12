@@ -7,7 +7,7 @@ You can screencast both monitors and individual windows.
 In order to use it, you need a working D-Bus session, pipewire, `xdg-desktop-portal-gnome`, and [running neori as a session](./Getting-Started.md) (i.e. through `neori-session` or from a display manager).
 On widely used distros this should all "just work".
 
-Alternatively, you can use tools that rely on the `wlr-screencopy` protocol, which neori also supports.
+Alternatively, you can use tools that rely on the `ext-image-copy-capture` protocol, or the older `wlr-screencopy`, both of which neori also supports.
 
 There are several features in neori designed for screencasting.
 Let's take a look!
