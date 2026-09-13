@@ -2320,6 +2320,18 @@ mod tests {
     }
 
     #[test]
+    fn debug_disable_pipewire_dmabuf() {
+        let config = Config::parse_mem("neori.debug { disable_pipewire_dmabuf = true }").unwrap();
+        assert!(config.debug.disable_pipewire_dmabuf);
+
+        let config = Config::parse_mem(r#"neori.debug { ["disable-pipewire-dmabuf"] = true }"#).unwrap();
+        assert!(config.debug.disable_pipewire_dmabuf);
+
+        let config = Config::parse_mem("").unwrap();
+        assert!(!config.debug.disable_pipewire_dmabuf);
+    }
+
+    #[test]
     fn debug_disable_10bit_output() {
         let config = Config::parse_mem("neori.debug { disable_10bit_output = true }").unwrap();
         assert!(config.debug.disable_10bit_output);

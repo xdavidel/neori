@@ -15,6 +15,7 @@ pub struct Debug {
     pub render_drm_device: Option<PathBuf>,
     pub ignored_drm_devices: Vec<PathBuf>,
     pub force_pipewire_invalid_modifier: bool,
+    pub disable_pipewire_dmabuf: bool,
     pub emulate_zero_presentation_time: bool,
     pub disable_resize_throttling: bool,
     pub disable_transactions: bool,
@@ -51,6 +52,7 @@ pub struct DebugPart {
     pub deactivate_unfocused_windows: Option<Flag>,
     pub skip_cursor_only_updates_during_vrr: Option<Flag>,
     pub disable_10bit_output: Option<Flag>,
+    pub disable_pipewire_dmabuf: Option<Flag>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

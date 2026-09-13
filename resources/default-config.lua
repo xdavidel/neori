@@ -299,6 +299,7 @@ neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.
 --   disable_monitor_names = false,
 --   skip_cursor_only_updates_during_vrr = false,
 --   disable_10bit_output = false,
+--   disable_pipewire_dmabuf = false,
 -- }
 
 --------------------------------------------------------------------------------

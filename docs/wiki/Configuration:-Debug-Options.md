@@ -36,6 +36,7 @@ neori.debug {
     skip_cursor_only_updates_during_vrr = true,
     deactivate_unfocused_windows = true,
     disable_10bit_output = true,
+    disable_pipewire_dmabuf = true,
 }
 neori.bind("Mod+Shift+Ctrl+T", "toggle-debug-tint")
 neori.bind("Mod+Shift+Ctrl+O", "debug-toggle-opaque-regions")
@@ -158,6 +159,18 @@ Useful for testing the invalid modifier code path that is hit by drivers that do
 ```lua
 neori.debug {
     force_pipewire_invalid_modifier = true,
+}
+```
+
+### `disable-pipewire-dmabuf`
+
+Disable DMA-BUF sharing for PipeWire screencasts, forcing shared-memory buffers instead.
+
+Useful for testing shm screencasting.
+
+```kdl
+debug {
+    disable-pipewire-dmabuf
 }
 ```
 
@@ -323,6 +336,18 @@ Until this is fixed in Smithay, you can disable 10-bit color formats by setting 
 ```lua
 neori.debug {
     disable_10bit_output = true,
+}
+```
+
+### `disable-pipewire-dmabuf`
+
+Disable DMA-BUF sharing for PipeWire screencasts, forcing shared-memory buffers instead.
+
+Useful for testing shm screencasting.
+
+```lua
+neori.debug {
+    disable_pipewire_dmabuf = true,
 }
 ```
 

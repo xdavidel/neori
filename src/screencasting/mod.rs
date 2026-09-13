@@ -87,6 +87,10 @@ impl State {
             self.neori.casting.pipewire = Some(pw);
         }
 
+        if self.neori.config.borrow().debug.disable_pipewire_dmabuf {
+            return Ok(None);
+        }
+
         let Some(gbm) = self.backend.gbm_device() else {
             // We will offer shm only.
             return Ok(None);
