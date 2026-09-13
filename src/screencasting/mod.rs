@@ -7,13 +7,12 @@ use anyhow::Context as _;
 use calloop::LoopHandle;
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::GbmDevice;
-use smithay::backend::drm::DrmDeviceFd;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::Window;
 use smithay::output::Output;
 use smithay::reexports::gbm::Modifier;
-use smithay::utils::{Physical, Point, Scale, Size};
+use smithay::utils::{DeviceFd, Physical, Point, Scale, Size};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode, ScreenCastToNeori, StreamTargetId};
@@ -77,7 +76,7 @@ impl Screencasting {
 }
 
 impl State {
-    fn prepare_pw_cast(&mut self) -> anyhow::Result<Option<(GbmDevice<DrmDeviceFd>, FormatSet)>> {
+    fn prepare_pw_cast(&mut self) -> anyhow::Result<Option<(GbmDevice<DeviceFd>, FormatSet)>> {
         // Ensure PipeWire is initialized.
         if self.neori.casting.pipewire.is_none() {
             let pw = PipeWire::new(

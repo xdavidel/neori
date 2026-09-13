@@ -36,7 +36,6 @@ use smithay::backend::allocator::dmabuf::{AsDmabuf, Dmabuf};
 use smithay::backend::allocator::format::FormatSet;
 use smithay::backend::allocator::gbm::{GbmBuffer, GbmBufferFlags, GbmDevice};
 use smithay::backend::allocator::Fourcc;
-use smithay::backend::drm::DrmDeviceFd;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
 use smithay::backend::renderer::element::{Element, RenderElement, RenderElementStates};
@@ -52,7 +51,7 @@ use smithay::reexports::rustix::fs::{
     fcntl_add_seals, ftruncate, memfd_create, MemfdFlags, SealFlags,
 };
 use smithay::reexports::rustix::mm::{mmap, munmap, MapFlags, ProtFlags};
-use smithay::utils::{Logical, Physical, Point, Scale, Size, Transform};
+use smithay::utils::{DeviceFd, Logical, Physical, Point, Scale, Size, Transform};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode};
@@ -400,7 +399,7 @@ impl PipeWire {
     #[allow(clippy::too_many_arguments)]
     pub fn start_cast(
         &self,
-        gbm: Option<(GbmDevice<DrmDeviceFd>, FormatSet)>,
+        gbm: Option<(GbmDevice<DeviceFd>, FormatSet)>,
         session_id: CastSessionId,
         stream_id: CastStreamId,
         target: CastTarget,
@@ -1390,7 +1389,7 @@ impl Cast {
 impl CastInner {
     unsafe fn on_add_buffer(
         &mut self,
-        gbm: Option<&GbmDevice<DrmDeviceFd>>,
+        gbm: Option<&GbmDevice<DeviceFd>>,
         buffer: *mut pw_buffer,
     ) -> anyhow::Result<bool> {
         let CastState::Ready {
@@ -1553,7 +1552,7 @@ fn make_pod(buffer: &mut Vec<u8>, object: pod::Object) -> &Pod {
 }
 
 fn find_preferred_modifier(
-    gbm: &GbmDevice<DrmDeviceFd>,
+    gbm: &GbmDevice<DeviceFd>,
     size: Size<u32, Physical>,
     fourcc: Fourcc,
     modifiers: Vec<i64>,
@@ -1573,7 +1572,7 @@ fn find_preferred_modifier(
 }
 
 fn allocate_buffer(
-    gbm: &GbmDevice<DrmDeviceFd>,
+    gbm: &GbmDevice<DeviceFd>,
     size: Size<u32, Physical>,
     fourcc: Fourcc,
     modifiers: &[i64],
@@ -1605,7 +1604,7 @@ fn allocate_buffer(
 }
 
 fn allocate_dmabuf(
-    gbm: &GbmDevice<DrmDeviceFd>,
+    gbm: &GbmDevice<DeviceFd>,
     size: Size<u32, Physical>,
     fourcc: Fourcc,
     modifier: Modifier,
