@@ -195,7 +195,7 @@ impl Backend {
     ) -> Option<smithay::backend::allocator::gbm::GbmDevice<smithay::utils::DeviceFd>> {
         match self {
             Backend::Tty(tty) => tty.primary_gbm_device(),
-            Backend::Winit(_) => None,
+            Backend::Winit(winit) => winit.gbm_device(),
             Backend::Headless(headless) => headless.gbm_device(),
         }
     }

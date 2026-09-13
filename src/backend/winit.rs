@@ -35,6 +35,8 @@ pub struct Winit {
     damage_tracker: OutputDamageTracker,
     render_node: Option<DrmNode>,
     dmabuf_global: Option<DmabufGlobal>,
+    #[cfg(feature = "xdp-gnome-screencast")]
+    gbm_device: Option<smithay::backend::allocator::gbm::GbmDevice<smithay::utils::DeviceFd>>,
     ipc_outputs: Arc<Mutex<IpcOutputMap>>,
 }
 
@@ -148,6 +150,8 @@ impl Winit {
             damage_tracker,
             render_node: None,
             dmabuf_global: None,
+            #[cfg(feature = "xdp-gnome-screencast")]
+            gbm_device: None,
             ipc_outputs,
         })
     }
@@ -197,6 +201,11 @@ impl Winit {
 
         self.create_dmabuf_global(neori);
 
+        #[cfg(feature = "xdp-gnome-screencast")]
+        if let Err(err) = self.create_gbm_device() {
+            debug!("couldn't create GBM device for screencasting: {err:?}");
+        };
+
         neori.add_output(self.output.clone(), None, false);
     }
 
@@ -237,6 +246,38 @@ impl Winit {
             }
         };
         assert!(self.dmabuf_global.replace(dmabuf_global).is_none());
+    }
+
+    #[cfg(feature = "xdp-gnome-screencast")]
+    fn create_gbm_device(&mut self) -> anyhow::Result<()> {
+        use std::os::fd::OwnedFd;
+
+        use smithay::backend::allocator::gbm::GbmDevice;
+        use smithay::utils::DeviceFd;
+
+        let node = self
+            .render_node
+            .as_ref()
+            .context("no render node available")?;
+        let path = node.dev_path().context("render node has no device path")?;
+        let file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(path)
+            .context("error opening render node")?;
+
+        let gbm_device = GbmDevice::new(DeviceFd::from(OwnedFd::from(file)))
+            .context("error creating GBM device")?;
+
+        self.gbm_device = Some(gbm_device);
+        Ok(())
+    }
+
+    #[cfg(feature = "xdp-gnome-screencast")]
+    pub fn gbm_device(
+        &self,
+    ) -> Option<smithay::backend::allocator::gbm::GbmDevice<smithay::utils::DeviceFd>> {
+        self.gbm_device.clone()
     }
 
     pub fn seat_name(&self) -> String {
