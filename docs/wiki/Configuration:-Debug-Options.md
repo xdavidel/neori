@@ -182,7 +182,8 @@ Make neori create its D-Bus interfaces even if it's not running as a `--session`
 
 Useful for testing screencasting changes without having to relogin.
 
-The main neori instance will *not* currently take back the interfaces when you close the test instance, so you will need to relogin in the end to make screencasting work again.
+<sup>Since: next release</sup>
+The main neori instance will automatically take back the interfaces once the new instance quits.
 
 ```lua
 neori.debug {
