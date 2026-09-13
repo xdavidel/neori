@@ -33,6 +33,7 @@ pub struct Winit {
     output: Output,
     backend: WinitGraphicsBackend<GlesRenderer>,
     damage_tracker: OutputDamageTracker,
+    render_node: Option<DrmNode>,
     dmabuf_global: Option<DmabufGlobal>,
     ipc_outputs: Arc<Mutex<IpcOutputMap>>,
 }
@@ -145,6 +146,7 @@ impl Winit {
             output,
             backend,
             damage_tracker,
+            render_node: None,
             dmabuf_global: None,
             ipc_outputs,
         })
@@ -176,23 +178,45 @@ impl Winit {
 
         neori.update_shaders();
 
+        // Winit creates a single EGL display, so its render node cannot change.
+        self.render_node = match self.fetch_render_node() {
+            Ok(node) => {
+                if let Some(path) = node.dev_path() {
+                    debug!("using as the render node: {path:?}");
+                } else {
+                    debug!("using as the render node: {node}");
+                }
+
+                Some(node)
+            }
+            Err(err) => {
+                debug!("failed querying render node: {err:?}");
+                None
+            }
+        };
+
         self.create_dmabuf_global(neori);
 
         neori.add_output(self.output.clone(), None, false);
+    }
+
+    fn fetch_render_node(&mut self) -> anyhow::Result<DrmNode> {
+        let display = self.backend.renderer().egl_context().display();
+        EGLDevice::device_for_display(display)
+            .context("error getting EGL device")?
+            .try_get_render_node()
+            .context("error getting EGL device render node")?
+            .context("failed to query EGL device render node")
     }
 
     pub fn create_dmabuf_global(&mut self, neori: &mut Neori) {
         let renderer = self.backend.renderer();
 
         let default_feedback = || {
-            let display = renderer.egl_context().display();
-            let device =
-                EGLDevice::device_for_display(display).context("error getting EGL device")?;
-            let node = device
-                .try_get_render_node()
-                .context("error getting EGL device render node")?
-                .context("failed to query EGL device render node")?;
-
+            let node = self
+                .render_node
+                .as_ref()
+                .context("no render node available")?;
             let primary_formats = renderer.dmabuf_formats();
             DmabufFeedbackBuilder::new(node.dev_id(), primary_formats)
                 .build()
@@ -227,13 +251,7 @@ impl Winit {
     }
 
     pub fn primary_render_node(&mut self) -> Option<DrmNode> {
-        // Winit creates a single EGL display, so querying the device from it is fine here, unlike
-        // on the TTY backend (see Tty::primary_render_node()).
-        let display = self.backend.renderer().egl_context().display();
-        EGLDevice::device_for_display(display)
-            .ok()?
-            .try_get_render_node()
-            .ok()?
+        self.render_node
     }
 
     pub fn render(&mut self, neori: &mut Neori, output: &Output) -> RenderResult {
