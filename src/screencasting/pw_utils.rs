@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::{mem, slice};
 
-use anyhow::{ensure, Context as _};
+use anyhow::{bail, ensure, Context as _};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::RegistrationToken;
 use pipewire::context::ContextRc;
@@ -400,8 +400,7 @@ impl PipeWire {
     #[allow(clippy::too_many_arguments)]
     pub fn start_cast(
         &self,
-        gbm: GbmDevice<DrmDeviceFd>,
-        formats: FormatSet,
+        gbm: Option<(GbmDevice<DrmDeviceFd>, FormatSet)>,
         session_id: CastSessionId,
         stream_id: CastStreamId,
         target: CastTarget,
@@ -444,6 +443,13 @@ impl PipeWire {
         }
 
         let pending_size = Size::from((size.w as u32, size.h as u32));
+
+        let (gbm, formats) = if let Some((gbm, formats)) = gbm {
+            (Some(gbm), formats)
+        } else {
+            debug!("no gbm device; advertising only shm formats");
+            (None, FormatSet::default())
+        };
 
         // Like in good old wayland-rs times...
         let inner = Rc::new(RefCell::new(CastInner {
@@ -597,6 +603,12 @@ impl PipeWire {
                             {
                                 debug!("fixating the modifier");
 
+                                let Some(gbm) = &gbm else {
+                                    error!("negotiated dmabuf without gbm");
+                                    stop_cast();
+                                    return;
+                                };
+
                                 let pod_modifier = prop_modifier.value();
                                 let Ok((_, modifiers)) =
                                     PodDeserializer::deserialize_from::<Choice<i64>>(
@@ -615,7 +627,7 @@ impl PipeWire {
                                 };
 
                                 let (modifier, plane_count) = match find_preferred_modifier(
-                                    &gbm,
+                                    gbm,
                                     format_size,
                                     fourcc,
                                     alternatives,
@@ -718,10 +730,16 @@ impl PipeWire {
                                     dma_negotiation.plane_count
                                 }
                                 _ => {
+                                    let Some(gbm) = &gbm else {
+                                        error!("negotiated dmabuf without gbm");
+                                        stop_cast();
+                                        return;
+                                    };
+
                                     // We're negotiating a single modifier, or alpha or modifier
                                     // changed, so we need to do a test allocation.
                                     let (modifier, plane_count) = match find_preferred_modifier(
-                                        &gbm,
+                                        gbm,
                                         format_size,
                                         fourcc,
                                         vec![format.modifier() as i64],
@@ -874,7 +892,7 @@ impl PipeWire {
                     move |stream, (), buffer| {
                         let _span = debug_span!("add_buffer", %stream_id).entered();
 
-                        match unsafe { inner.borrow_mut().on_add_buffer(&gbm, buffer) } {
+                        match unsafe { inner.borrow_mut().on_add_buffer(gbm.as_ref(), buffer) } {
                             Ok(redraw) => {
                                 // During size re-negotiation, the stream sometimes just keeps
                                 // running, in which case we may need to force a redraw once we got
@@ -1372,7 +1390,7 @@ impl Cast {
 impl CastInner {
     unsafe fn on_add_buffer(
         &mut self,
-        gbm: &GbmDevice<DrmDeviceFd>,
+        gbm: Option<&GbmDevice<DrmDeviceFd>>,
         buffer: *mut pw_buffer,
     ) -> anyhow::Result<bool> {
         let CastState::Ready {
@@ -1392,6 +1410,12 @@ impl CastInner {
                     "pw stream: add_buffer (dma), size={size:?}, \
                      alpha={alpha}, modifier={modifier:?}"
                 );
+
+                let Some(gbm) = gbm else {
+                    error!("add_buffer(dma) without gbm");
+                    bail!("missing gbm");
+                };
+
                 unsafe {
                     let spa_buffer = (*buffer).buffer;
 
