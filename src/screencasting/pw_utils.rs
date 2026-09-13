@@ -412,17 +412,18 @@ impl PipeWire {
         signal_ctx: SignalEmitter<'static>,
     ) -> anyhow::Result<Cast> {
         let _span = tracy_client::span!("PipeWire::start_cast");
+        let _span = debug_span!("start_cast", %session_id).entered();
 
         let to_neori_ = self.to_neori.clone();
         let stop_cast = move || {
             if let Err(err) = to_neori_.send(PwToNeori::StopCast { session_id }) {
-                warn!(%session_id, "error sending StopCast to neori: {err:?}");
+                warn!("error sending StopCast to neori: {err:?}");
             }
         };
         let to_neori_ = self.to_neori.clone();
         let redraw = move || {
             if let Err(err) = to_neori_.send(PwToNeori::Redraw { stream_id }) {
-                warn!(%stream_id, "error sending Redraw to neori: {err:?}");
+                warn!("error sending Redraw to neori: {err:?}");
             }
         };
         let redraw_ = redraw.clone();
@@ -902,10 +903,7 @@ impl PipeWire {
                 .register()
                 .unwrap();
 
-        trace!(
-            %stream_id,
-            "starting pw stream with size={pending_size:?}, refresh={refresh:?}"
-        );
+        trace!("starting pw stream with size={pending_size:?}, refresh={refresh:?}");
 
         make_params!(params, &formats, pending_size, refresh, alpha);
         stream
