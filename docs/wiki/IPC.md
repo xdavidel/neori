@@ -47,14 +47,20 @@ $ socat STDIO "$NEORI_SOCKET"
 
 The reply is an `Ok` or an `Err` wrapping the same JSON object as you get from `neori msg --json`.
 
-For more complex requests, you can use `socat` to find how `neori msg` formats them:
+<sup>Since: next release</sup>
+For more complex requests, you can pass `--print-request` to `neori msg` to see how the request should be formatted:
 
 ```sh
-$ socat STDIO UNIX-LISTEN:temp.sock
-# then, in a different terminal:
-$ env NEORI_SOCKET=./temp.sock neori msg action focus-workspace 2
-# then, look in the socat terminal:
+$ neori msg --print-request action focus-workspace 2
 {"Action":{"FocusWorkspace":{"reference":{"Index":2}}}}
+```
+
+This is the format that you should use for communicating with the neori socket directly.
+You can also use `neori msg raw-request` to send a raw JSON request without `socat`:
+
+```sh
+$ echo '{"Action":{"FocusWorkspace":{"reference":{"Id":8}}}}' | neori msg raw-request
+"Handled"
 ```
 
 You can find all available requests and response types in the [neori-ipc sub-crate documentation](https://neori-wm.github.io/neori/neori_ipc/).
