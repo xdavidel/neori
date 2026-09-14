@@ -16,4 +16,5 @@ mod scratchpad;
 mod scripting;
 mod transactions;
 mod virtual_output;
+mod virtual_pointer;
 mod window_opening;
