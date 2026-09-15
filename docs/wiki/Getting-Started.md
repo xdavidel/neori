@@ -46,6 +46,10 @@ If you're not using a display manager, you should run `neori-session` (systemd/d
 The `--session` flag will make neori import its environment variables globally into the system manager and D-Bus, and start its D-Bus services.
 The `neori-session` script will additionally start neori as a systemd/dinit service, which starts up a graphical session target required by some services like portals.
 
+> [!WARNING]
+> Running neori directly from a TTY means that exiting or crashing neori will put the user straight into an unlocked shell prompt.
+> Set up a display manager to avoid this.
+
 You can also run `neori` inside an existing desktop session.
 Then it will open as a window, where you can give it a try.
 Note that this windowed mode is mainly meant for development, so it is a bit buggy (in particular, there are issues with hotkeys).
