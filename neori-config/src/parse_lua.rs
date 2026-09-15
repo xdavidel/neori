@@ -1220,7 +1220,7 @@ impl ScriptHost {
             &self.pending_warps,
             &self.keyboard_layout,
             &self.device_cache,
-            search_dir,
+            search_dir.clone(),
             Arc::clone(&includes),
         )
         .map_err(&parse_err)?;
@@ -1246,7 +1246,10 @@ impl ScriptHost {
         };
 
         let mut config = Config::default();
-        parse_table_into_config(table, &mut config).map_err(parse_err)?;
+        PARSE_ENV.with(|env| *env.borrow_mut() = Some((search_dir, Arc::clone(&includes))));
+        let res = parse_table_into_config(table, &mut config);
+        PARSE_ENV.with(|env| *env.borrow_mut() = None);
+        res.map_err(parse_err)?;
         let includes = includes.lock().unwrap().clone();
         Ok((config, includes))
     }
@@ -2289,6 +2292,47 @@ thread_local! {
     /// Set from `NEORI_STRICT_CONFIG` at the start of each [`ScriptHost::run`] and toggled by
     /// the `neori.strict()` API. Thread-local so parallel test runs don't interfere.
     static STRICT_CONFIG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Files that the config depends on, watched for changes to reload the config.
+type WatchedFiles = Arc<Mutex<Vec<PathBuf>>>;
+
+thread_local! {
+    /// The config file's directory and the shared list of watched files, available while
+    /// [`ScriptHost::run`] converts the evaluated Lua table into a [`Config`].
+    ///
+    /// Options that reference other files (like `custom_shader = { path = ... }`) resolve
+    /// relative paths against the directory and register the file for the config watcher.
+    static PARSE_ENV: std::cell::RefCell<Option<(PathBuf, WatchedFiles)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Resolves a path from the config: `~` expands to the home directory, and relative paths
+/// are taken relative to the config file's directory.
+fn resolve_config_path(path: &str) -> Result<PathBuf, String> {
+    let path = Path::new(path);
+    if let Ok(rest) = path.strip_prefix("~") {
+        let home = std::env::home_dir()
+            .ok_or_else(|| format!("error retrieving home directory to expand {path:?}"))?;
+        return Ok(home.join(rest));
+    }
+    let base = PARSE_ENV.with(|env| env.borrow().as_ref().map(|(dir, _)| dir.clone()));
+    Ok(match base {
+        Some(base) => base.join(path),
+        None => path.to_path_buf(),
+    })
+}
+
+/// Registers a file that the config depends on, so that changing it reloads the config.
+fn watch_config_file(path: &Path) {
+    PARSE_ENV.with(|env| {
+        if let Some((_, includes)) = env.borrow().as_ref() {
+            let mut includes = includes.lock().unwrap();
+            if !includes.iter().any(|p| p == path) {
+                includes.push(path.to_path_buf());
+            }
+        }
+    });
 }
 
 /// Returns whether strict config parsing is enabled in the current thread.
@@ -5462,18 +5506,36 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
                 }
             }
             "window_open" | "window-open" => {
-                if let Some(a) = parse_animation_switch(&value, anims.window_open.anim)? {
+                let mut shader = None;
+                if let Some(a) =
+                    parse_animation_switch_with_shader(&value, anims.window_open.anim, &mut shader)?
+                {
                     anims.window_open.anim = a;
+                }
+                if shader.is_some() {
+                    anims.window_open.custom_shader = shader;
                 }
             }
             "window_close" | "window-close" => {
-                if let Some(a) = parse_animation_switch(&value, anims.window_close.anim)? {
+                let mut shader = None;
+                if let Some(a) =
+                    parse_animation_switch_with_shader(&value, anims.window_close.anim, &mut shader)?
+                {
                     anims.window_close.anim = a;
+                }
+                if shader.is_some() {
+                    anims.window_close.custom_shader = shader;
                 }
             }
             "window_resize" | "window-resize" => {
-                if let Some(a) = parse_animation_switch(&value, anims.window_resize.anim)? {
+                let mut shader = None;
+                if let Some(a) =
+                    parse_animation_switch_with_shader(&value, anims.window_resize.anim, &mut shader)?
+                {
                     anims.window_resize.anim = a;
+                }
+                if shader.is_some() {
+                    anims.window_resize.custom_shader = shader;
                 }
             }
             "config_notification_open_close" | "config-notification-open-close" => {
@@ -5514,8 +5576,26 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
 /// Parses a single animation value, accepting either a table of animation settings or a
 /// bare boolean (`true` for on, `false` for off).
 fn parse_animation_switch(value: &Value, default: Animation) -> Result<Option<Animation>, String> {
+    parse_animation_switch_inner(value, default, None)
+}
+
+/// Like [`parse_animation_switch`], but also accepts a `custom_shader` key in the table form,
+/// for the animations that support custom shaders.
+fn parse_animation_switch_with_shader(
+    value: &Value,
+    default: Animation,
+    shader: &mut Option<String>,
+) -> Result<Option<Animation>, String> {
+    parse_animation_switch_inner(value, default, Some(shader))
+}
+
+fn parse_animation_switch_inner(
+    value: &Value,
+    default: Animation,
+    shader: Option<&mut Option<String>>,
+) -> Result<Option<Animation>, String> {
     match value {
-        Value::Table(t) => Ok(Some(parse_animation(t, default)?)),
+        Value::Table(t) => Ok(Some(parse_animation(t, default, shader)?)),
         Value::Boolean(on) => Ok(Some(Animation {
             off: !*on,
             kind: default.kind,
@@ -5568,7 +5648,40 @@ fn parse_curve_value(value: &Value) -> Result<Curve, String> {
     })
 }
 
-fn parse_animation(table: &LuaTable, default: Animation) -> Result<Animation, String> {
+/// Parses a `custom_shader` value: either the GLSL source as a string, or a
+/// `{ path = "..." }` table pointing at a file with the source.
+fn parse_custom_shader(value: &Value) -> Result<String, String> {
+    match value {
+        Value::String(s) => Ok(s.to_str().map_err(|e| format!("custom_shader: {e}"))?.to_string()),
+        Value::Table(t) => {
+            let mut path = None;
+            for pair in t.pairs::<Value, Value>() {
+                let (key, value) = pair.map_err(|e| format!("custom_shader error: {e}"))?;
+                let ks = key_str(&key)?;
+                match ks.as_str() {
+                    "path" => path = Some(value_to_string(&value)?),
+                    _ => unknown_key("custom_shader", &ks)?,
+                }
+            }
+            let path = path.ok_or_else(|| "custom shader path missing".to_string())?;
+            let path = resolve_config_path(&path)?;
+            // Watch the shader file even if reading fails, so that fixing it reloads the config.
+            watch_config_file(&path);
+            std::fs::read_to_string(&path)
+                .map_err(|e| format!("failed to read custom shader from {path:?}: {e}"))
+        }
+        other => Err(format!(
+            "custom_shader must be a string or a {{ path = ... }} table, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+fn parse_animation(
+    table: &LuaTable,
+    default: Animation,
+    mut shader: Option<&mut Option<String>>,
+) -> Result<Animation, String> {
     let mut off = false;
     let mut kind = default.kind;
 
@@ -5619,6 +5732,11 @@ fn parse_animation(table: &LuaTable, default: Animation) -> Result<Animation, St
                         duration_ms: 250,
                         curve,
                     });
+                }
+            }
+            "custom_shader" | "custom-shader" if shader.is_some() => {
+                if let Some(shader) = shader.as_deref_mut() {
+                    *shader = Some(parse_custom_shader(&value)?);
                 }
             }
             _ => unknown_key("animation", &ks)?,

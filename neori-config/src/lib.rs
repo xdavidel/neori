@@ -2728,6 +2728,109 @@ mod tests {
     }
 
     #[test]
+    fn custom_shader_inline() {
+        let config = Config::parse_mem(
+            r#"
+            neori.animations {
+                window_open = { duration_ms = 250, custom_shader = "open();" },
+                window_close = { ["custom-shader"] = "close();" },
+                window_resize = { custom_shader = [[resize();]] },
+            }
+            "#,
+        )
+        .unwrap();
+
+        let anims = &config.animations;
+        assert_eq!(anims.window_open.custom_shader.as_deref(), Some("open();"));
+        assert_eq!(anims.window_close.custom_shader.as_deref(), Some("close();"));
+        assert_eq!(anims.window_resize.custom_shader.as_deref(), Some("resize();"));
+        // Other animation settings in the same table still apply.
+        let crate::animations::Kind::Easing(params) = anims.window_open.anim.kind else {
+            panic!("expected an easing animation");
+        };
+        assert_eq!(params.duration_ms, 250);
+
+        let config = Config::parse_mem("").unwrap();
+        assert_eq!(config.animations.window_open.custom_shader, None);
+    }
+
+    #[test]
+    fn custom_shader_from_path() {
+        let dir = std::env::temp_dir().join(format!(
+            "neori-config-shader-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(dir.join("shaders")).unwrap();
+        let shader = dir.join("shaders/open.frag");
+        std::fs::write(&shader, "from_file();").unwrap();
+        let config_path = dir.join("config.lua");
+
+        // Relative paths resolve against the config file's directory, and the shader file
+        // gets watched for changes.
+        let res = Config::parse(
+            &config_path,
+            r#"neori.animations { window_open = { custom_shader = { path = "shaders/open.frag" } } }"#,
+        );
+        let config = res.config.unwrap();
+        assert_eq!(
+            config.animations.window_open.custom_shader.as_deref(),
+            Some("from_file();")
+        );
+        assert!(res.includes.contains(&shader));
+
+        // Absolute paths work too.
+        let config = Config::parse(
+            &config_path,
+            &format!(
+                r#"neori.animations {{ window_close = {{ custom_shader = {{ path = "{}" }} }} }}"#,
+                shader.display()
+            ),
+        )
+        .config
+        .unwrap();
+        assert_eq!(
+            config.animations.window_close.custom_shader.as_deref(),
+            Some("from_file();")
+        );
+
+        // A missing file is an error, but stays watched so that creating it reloads.
+        let missing = dir.join("missing.frag");
+        let res = Config::parse(
+            &config_path,
+            r#"neori.animations { window_open = { custom_shader = { path = "missing.frag" } } }"#,
+        );
+        let err = res.config.unwrap_err();
+        assert!(err.main.contains("failed to read custom shader"), "{}", err.main);
+        assert!(res.includes.contains(&missing));
+
+        // The table form requires a path.
+        let res = Config::parse_mem(r#"neori.animations { window_open = { custom_shader = {} } }"#);
+        assert!(res.unwrap_err().main.contains("custom shader path missing"));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn custom_shader_only_on_supported_animations() {
+        // Lenient mode ignores the key on animations without shader support.
+        let config = Config::parse_mem(
+            r#"neori.animations { workspace_switch = { custom_shader = "x();" } }"#,
+        )
+        .unwrap();
+        assert_eq!(config.animations.window_open.custom_shader, None);
+
+        // Strict mode rejects it.
+        assert!(Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.animations { workspace_switch = { custom_shader = "x();" } }
+            "#,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn pinch_sensitivity() {
         let config = Config::parse_mem(
             r#"
