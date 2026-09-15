@@ -53,8 +53,11 @@ When the session is locked via [ext-session-lock](https://wayland.app/protocols/
 Only a very small set of safe actions is allowed.
 In particular, spawning will not work, with the exception of binds explicitly configured with `allow-when-locked=true`.
 
+<sup>Until: next release</sup>
 Importantly, the **quit** action is allowed—you can always quit neori, even when on a lock screen.
-Therefore, you must ensure that quitting neori does not drop you into an unprotected TTY commandline.
+
+Be careful if you allow the **quit** action, or if your lock screen has a way to exit neori.
+You must ensure that quitting neori does not drop you into an unprotected TTY commandline.
 Usually, a display manager, like GDM, will do this for you: when neori exits (via the quit bind or if it crashes), it'll put you back into a safe password prompt.
 
 Other than quitting, the only way to exit a lock screen is for the lock screen client to tell neori to unlock the session.
