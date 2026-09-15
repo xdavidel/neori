@@ -494,6 +494,22 @@ neori.animations {
 }
 ```
 
+### Specifying `custom-shader` by Path
+
+<sup>Since: next release</sup>
+
+For animations that accept a `custom-shader`, you can also attach the shader by path, rather than writing it out inline.
+Relative paths are resolved against the directory of the config file, and `~` expands to your home directory.
+Editing the shader file reloads the config, just like editing the config itself.
+
+```lua,must-fail
+neori.animations {
+    window_open = {
+        custom_shader = { path = "./my-shader.glsl" },
+    },
+}
+```
+
 ### Synchronized Animations
 
 <sup>Since: 0.1.5</sup>
