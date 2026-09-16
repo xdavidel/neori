@@ -31,7 +31,7 @@ use smithay::backend::renderer::element::utils::{
     RescaleRenderElement,
 };
 use smithay::backend::renderer::element::{
-    default_primary_scanout_output_compare, Element, Id, Kind, PrimaryScanoutOutput,
+    default_primary_scanout_output_compare, Element, Id, Kind, PrimaryScanoutOutput, RenderElement,
     RenderElementStates,
 };
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -194,7 +194,7 @@ use crate::utils::{
     make_screenshot_path, output_matches_name, output_size, panel_orientation,
     send_scale_transform, winit_scale, write_png_rgba8, xwayland,
 };
-use crate::window::mapped::MappedId;
+use crate::window::mapped::{MappedId, WindowCastRenderElements};
 use crate::window::{InitialConfigureState, Mapped, ResolvedWindowRules, Unmapped, WindowRef};
 
 const CLEAR_COLOR_LOCKED: [f32; 4] = [0.3, 0.1, 0.1, 1.];
@@ -1044,34 +1044,62 @@ impl State {
 
         let mut sessions = mem::take(&mut self.neori.image_copy_sessions);
         sessions.retain_mut(|s| {
-            let Some(output) = live_output(&self.neori, &s.session.source()) else {
-                return false;
-            };
+            use image_copy_capture_impl::{output_capture_constraints, window_capture_constraints};
+
+            let source = s.session.source();
 
             // This runs once per event loop iteration, and building the full
             // constraints is expensive. We only compare the size, so a change
             // in the dmabuf formats or device alone doesn't matter to us here
             // (and if it does, polling is not the way to check for it).
-            let Some(mode) = output.current_mode() else {
+            let constraints = if let Some(id) = image_copy_capture_impl::source_mapped_id(&source) {
+                let Some((mapped, o)) = self.neori.find_mapped_output_by_id(id) else {
+                    // The window was closed.
+                    return false;
+                };
+                let Some(output) = o else {
+                    // All outputs are gone, but the window is there, so the stream will resume once
+                    // an output reappears.
+                    return true;
+                };
+                if !self.neori.output_state.contains_key(output) {
+                    return false;
+                }
+                let scale = Scale::from(output.current_scale().fractional_scale());
+                let size = mapped.capture_bbox(scale).size;
+                let size = Size::<i32, BufferCoords>::from((size.w, size.h));
+                if s.session
+                    .current_constraints()
+                    .is_some_and(|c| c.size == size)
+                {
+                    // The constraints match.
+                    return true;
+                }
+
+                let render_node = self.backend.primary_render_node();
+                self.backend.with_primary_renderer(|renderer| {
+                    window_capture_constraints(renderer, render_node, mapped, output)
+                })
+            } else if let Some(output) = live_output(&self.neori, &source) {
+                let Some(mode) = output.current_mode() else {
+                    return false;
+                };
+                let size = Size::<i32, BufferCoords>::from((mode.size.w, mode.size.h));
+                if s.session.current_constraints().map(|c| c.size) == Some(size) {
+                    return true;
+                }
+
+                // The size changed, so build the full constraints and send them to the client
+                // below.
+                let render_node = self.backend.primary_render_node();
+                self.backend
+                    .with_primary_renderer(|renderer| {
+                        output_capture_constraints(renderer, render_node, &output)
+                    })
+                    .flatten()
+            } else {
                 return false;
             };
-            let size = Size::<i32, BufferCoords>::from((mode.size.w, mode.size.h));
-            if s.session.current_constraints().map(|c| c.size) == Some(size) {
-                return true;
-            }
-
-            // The size changed, so build the full constraints and send them to the client below.
-            let render_node = self.backend.primary_render_node();
-            let constraints = self
-                .backend
-                .with_primary_renderer(|renderer| {
-                    image_copy_capture_impl::output_capture_constraints(
-                        renderer,
-                        render_node,
-                        &output,
-                    )
-                })
-                .flatten();
             let Some(constraints) = constraints else {
                 return false;
             };
@@ -1097,7 +1125,15 @@ impl State {
 
         // Cursor session constraints are refreshed in refresh_image_copy_cursor_sessions().
         let mut cursor_sessions = mem::take(&mut self.neori.image_copy_cursor_sessions);
-        cursor_sessions.retain(|s| live_output(&self.neori, &s.session.source()).is_some());
+        cursor_sessions.retain(|s| {
+            let source = s.session.source();
+
+            if let Some(id) = image_copy_capture_impl::source_mapped_id(&source) {
+                self.neori.find_mapped_output_by_id(id).is_some()
+            } else {
+                live_output(&self.neori, &source).is_some()
+            }
+        });
         // This shouldn't be possible since sessions are only added from the
         // ImageCopyCaptureHandler callbacks, which run in dispatch_clients()
         // (i.e., not in here), but append just in case it ever changes...
@@ -5355,6 +5391,7 @@ impl Neori {
 
             self.render_for_screencopy_with_damage(renderer, output);
             self.render_for_image_copy_capture(renderer, output, target_presentation_time);
+            self.render_windows_for_image_copy_capture(renderer, output, target_presentation_time);
             self.render_for_image_copy_cursor_capture(renderer, output, target_presentation_time);
         });
     }
@@ -6094,6 +6131,50 @@ impl Neori {
         res
     }
 
+    /// Renders the elements into the frame's buffer and completes the frame.
+    ///
+    /// Returns `true` if it succeeded and `false` otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn capture_image_copy_frame(
+        &self,
+        renderer: &mut GlesRenderer,
+        s: &mut ImageCopySession,
+        damage: Vec<Rectangle<i32, BufferCoords>>,
+        transform: Transform,
+        buffer_size: Size<i32, BufferCoords>,
+        elements: &[impl RenderElement<GlesRenderer>],
+        states: RenderElementStates,
+        target_presentation_time: Duration,
+    ) -> bool {
+        let frame = s.pending_frame.take().unwrap();
+        let buffer = frame.buffer();
+        let Some(capture_buffer) = image_copy_capture_impl::capture_buffer(&buffer, buffer_size)
+        else {
+            frame.fail(CaptureFailureReason::BufferConstraints);
+            return false;
+        };
+
+        let res = capture_buffer.render(renderer, &mut s.damage_tracker, elements, states);
+        match res {
+            Ok(sync) => {
+                image_copy_capture_impl::frame_success_after_sync(
+                    frame,
+                    transform,
+                    damage,
+                    target_presentation_time,
+                    sync,
+                    &self.event_loop,
+                );
+                true
+            }
+            Err(err) => {
+                warn!("error rendering for image copy capture: {err:?}");
+                frame.fail(CaptureFailureReason::Unknown);
+                false
+            }
+        }
+    }
+
     pub fn render_for_image_copy_capture(
         &mut self,
         renderer: &mut GlesRenderer,
@@ -6163,35 +6244,108 @@ impl Neori {
                 })
                 .collect();
 
-            let frame = s.pending_frame.take().unwrap();
-            let buffer = frame.buffer();
             let buffer_size = Size::<i32, BufferCoords>::from((size.w, size.h));
-            let capture_buffer = image_copy_capture_impl::capture_buffer(&buffer, buffer_size);
-            let Some(capture_buffer) = capture_buffer else {
-                frame.fail(CaptureFailureReason::BufferConstraints);
+            if !self.capture_image_copy_frame(
+                renderer,
+                s,
+                damage,
+                transform,
+                buffer_size,
+                elements,
+                states,
+                target_presentation_time,
+            ) {
                 // Report full damage next time.
                 s.damage_tracker = OutputDamageTracker::new(size, scale, transform);
+            }
+        }
+
+        if !self.image_copy_sessions.is_empty() {
+            error!("session added while rendering image-copy-capture frame");
+            sessions.append(&mut self.image_copy_sessions);
+        }
+        self.image_copy_sessions = sessions;
+    }
+
+    pub fn render_windows_for_image_copy_capture(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        output: &Output,
+        target_presentation_time: Duration,
+    ) {
+        let _span = tracy_client::span!("Neori::render_windows_for_image_copy_capture");
+
+        let scale: Scale<f64> = output.current_scale().fractional_scale().into();
+
+        let mut sessions = mem::take(&mut self.image_copy_sessions);
+        for s in &mut sessions {
+            if s.pending_frame.is_none() {
+                continue;
+            }
+
+            let source = s.session.source();
+            let Some(id) = image_copy_capture_impl::source_mapped_id(&source) else {
+                continue;
+            };
+            let Some((mapped, Some(win_output))) = self.find_mapped_output_by_id(id) else {
+                continue;
+            };
+            if *win_output != *output {
+                continue;
+            }
+
+            let bbox = mapped.capture_bbox(scale);
+            let size = bbox.size;
+            let buffer_size = Size::<_, BufferCoords>::from((size.w, size.h));
+
+            // Recreate the damage tracker if the buffer size or output scale changed.
+            reset_damage_tracker_if_changed(&mut s.damage_tracker, size, scale, Transform::Normal);
+
+            let mut elements = Vec::new();
+            if s.session.draw_cursor() && self.pointer_visibility.is_visible() {
+                // We ignore pointer_pos, but we're drawing in output coordinates, so it's fine.
+                if let Some((_, win_pos)) = self.pointer_pos_for_window_cast(mapped) {
+                    let buf_pos = win_pos + bbox.loc.to_f64().to_logical(scale);
+                    let pos = buf_pos.to_physical_precise_round(scale).upscale(-1);
+                    self.render_pointer(renderer, output, &mut |elem| {
+                        elements.push(WindowCaptureRenderElement::Pointer(
+                            RelocateRenderElement::from_element(elem, pos, Relocate::Relative),
+                        ));
+                    });
+                }
+            }
+            mapped.render_for_screen_cast(renderer, scale, &mut |elem| {
+                elements.push(WindowCaptureRenderElement::Window(elem));
+            });
+
+            let (damage, states) = s.damage_tracker.damage_output(1, &elements).unwrap();
+            let Some(damage) = damage else {
+                // No damage, capture the frame later.
                 continue;
             };
 
-            let res = capture_buffer.render(renderer, &mut s.damage_tracker, elements, states);
-            match res {
-                Ok(sync) => {
-                    image_copy_capture_impl::frame_success_after_sync(
-                        frame,
-                        transform,
-                        damage,
-                        target_presentation_time,
-                        sync,
-                        &self.event_loop,
-                    );
-                }
-                Err(err) => {
-                    warn!("error rendering for image copy capture: {err:?}");
-                    frame.fail(CaptureFailureReason::Unknown);
-                    // Report full damage next time.
-                    s.damage_tracker = OutputDamageTracker::new(size, scale, transform);
-                }
+            let damage: Vec<Rectangle<i32, BufferCoords>> = damage
+                .iter()
+                .map(|dmg| {
+                    Rectangle::new(
+                        (dmg.loc.x, dmg.loc.y).into(),
+                        (dmg.size.w, dmg.size.h).into(),
+                    )
+                })
+                .collect();
+
+            if !self.capture_image_copy_frame(
+                renderer,
+                s,
+                damage,
+                Transform::Normal,
+                buffer_size,
+                &elements,
+                states,
+                target_presentation_time,
+            ) {
+                // Report full damage next time.
+                s.damage_tracker = OutputDamageTracker::new(size, scale, Transform::Normal);
             }
         }
 
@@ -6223,7 +6377,10 @@ impl Neori {
             if s.pending_frame.is_none() {
                 continue;
             }
-            let Some(s_output) = image_copy_capture_impl::source_output(&s.session.source()) else {
+
+            let Some(s_output) =
+                image_copy_capture_impl::source_session_output(self, &s.session.source())
+            else {
                 continue;
             };
             if s_output != *output {
@@ -6357,10 +6514,22 @@ impl Neori {
 
         let mut sessions = mem::take(&mut self.image_copy_cursor_sessions);
         for s in &mut sessions {
-            let Some(output) = image_copy_capture_impl::source_output(&s.session.source()) else {
-                s.session.set_cursor_pos(None);
-                continue;
+            let source = s.session.source();
+
+            let (_, output) = if let Some(id) = image_copy_capture_impl::source_mapped_id(&source) {
+                let Some((mapped, Some(output))) = self.find_mapped_output_by_id(id) else {
+                    s.session.set_cursor_pos(None);
+                    continue;
+                };
+                (Some(mapped), output.clone())
+            } else {
+                let Some(output) = image_copy_capture_impl::source_output(&source) else {
+                    s.session.set_cursor_pos(None);
+                    continue;
+                };
+                (None, output)
             };
+
             let Some(geo) = self.global_space.output_geometry(&output) else {
                 s.session.set_cursor_pos(None);
                 continue;
@@ -7584,6 +7753,13 @@ neori_render_elements! {
     PointerRenderElements<R> => {
         Wayland = WaylandSurfaceRenderElement<R>,
         NamedPointer = MemoryRenderBufferRenderElement<R>,
+    }
+}
+
+neori_render_elements! {
+    WindowCaptureRenderElement<R> => {
+        Window = WindowCastRenderElements<R>,
+        Pointer = RelocateRenderElement<PointerRenderElements<R>>,
     }
 }
 
