@@ -4224,6 +4224,11 @@ impl Neori {
             .map(|(_, m)| m.window.clone())
     }
 
+    pub fn find_mapped_output_by_id(&self, id: MappedId) -> Option<(&Mapped, Option<&Output>)> {
+        let (mon, mapped) = self.layout.windows().find(|(_, m)| m.id() == id)?;
+        Some((mapped, mon.map(|mon| mon.output())))
+    }
+
     pub fn output_for_tablet(&self) -> Option<&Output> {
         let config = self.config.borrow();
         if config.input.tablet.map_to_focused_output {

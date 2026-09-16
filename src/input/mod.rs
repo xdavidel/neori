@@ -57,6 +57,7 @@ use crate::ui::mru::{WindowMru, WindowMruUi};
 use crate::ui::screenshot_ui::ScreenshotUi;
 use crate::utils::spawning::{spawn, spawn_sh};
 use crate::utils::{center, get_monotonic_time, CastSessionId, ResizeEdge};
+use crate::window::mapped::MappedId;
 
 pub mod backend_ext;
 pub mod click_grab;
@@ -1135,10 +1136,8 @@ impl State {
                 show_pointer,
                 path,
             } => {
-                let mut windows = self.neori.layout.windows();
-                let window = windows.find(|(_, m)| m.id().get() == id);
-                if let Some((Some(monitor), mapped)) = window {
-                    let output = monitor.output();
+                let id = MappedId::specific(id);
+                if let Some((mapped, Some(output))) = self.neori.find_mapped_output_by_id(id) {
                     self.backend.with_primary_renderer(|renderer| {
                         if let Err(err) = self.neori.screenshot_window(
                             renderer,
@@ -1172,12 +1171,8 @@ impl State {
                 }
             }
             Action::CloseWindow { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                if let Some((_, mapped)) = window {
+                let id = MappedId::specific(id);
+                if let Some((mapped, _)) = self.neori.find_mapped_output_by_id(id) {
                     mapped.toplevel().send_close();
                 }
             }
@@ -1190,13 +1185,8 @@ impl State {
                 }
             }
             Action::FullscreenWindow { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_fullscreen(&window);
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -1211,26 +1201,16 @@ impl State {
                 }
             }
             Action::ToggleWindowedFullscreen { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_windowed_fullscreen(&window);
                     // FIXME: granular
                     self.neori.queue_redraw_all();
                 }
             }
             Action::FocusWindow { id } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.focus_window(&window);
                 }
             }
@@ -1394,16 +1374,9 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::ConsumeOrExpelWindowLeft { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
-                    self.neori
-                        .layout
-                        .consume_or_expel_window_left(Some(&window));
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.consume_or_expel_window_left(Some(&window));
                     self.maybe_warp_cursor_to_focus();
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -1416,13 +1389,8 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::ConsumeOrExpelWindowRight { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori
                         .layout
                         .consume_or_expel_window_right(Some(&window));
@@ -1721,13 +1689,8 @@ impl State {
                 reference,
                 focus,
             } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     if let Some((target_output, index)) =
                         self.neori.find_output_and_workspace_index(reference)
                     {
@@ -1995,24 +1958,14 @@ impl State {
                 self.neori.layout.toggle_window_width(None, false);
             }
             Action::SwitchPresetWindowWidth { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_window_width(Some(&window), true);
                 }
             }
             Action::SwitchPresetWindowWidthBack { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_window_width(Some(&window), false);
                 }
             }
@@ -2023,24 +1976,14 @@ impl State {
                 self.neori.layout.toggle_window_height(None, false);
             }
             Action::SwitchPresetWindowHeight { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_window_height(Some(&window), true);
                 }
             }
             Action::SwitchPresetWindowHeightBack { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_window_height(Some(&window), false);
                 }
             }
@@ -2055,13 +1998,8 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::CenterWindow { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.center_window(Some(&window));
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -2084,13 +2022,8 @@ impl State {
                 }
             }
             Action::MaximizeWindowToEdges { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_maximized(&window);
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -2279,14 +2212,8 @@ impl State {
                 output,
             } => {
                 if let Some(output) = self.neori.output_by_name_match(&output).cloned() {
-                    let window = self
-                        .neori
-                        .layout
-                        .windows()
-                        .find(|(_, m)| m.id().get() == id);
-                    let window = window.map(|(_, m)| m.window.clone());
-
-                    if let Some(window) = window {
+                    let id = MappedId::specific(id);
+                    if let Some(window) = self.neori.find_window_by_id(id) {
                         let target_was_active = self
                             .neori
                             .layout
@@ -2433,13 +2360,8 @@ impl State {
                 id: Some(id),
                 change,
             } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.set_window_width(Some(&window), change);
                 }
             }
@@ -2457,13 +2379,8 @@ impl State {
                 id: Some(id),
                 change,
             } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.set_window_height(Some(&window), change);
                 }
             }
@@ -2471,13 +2388,8 @@ impl State {
                 self.neori.layout.reset_window_height(None);
             }
             Action::ResetWindowHeight { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.reset_window_height(Some(&window));
                 }
             }
@@ -2580,13 +2492,8 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::ToggleWindowFloating { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.toggle_window_floating(Some(&window));
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -2598,13 +2505,8 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::MoveWindowToFloating { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.set_window_floating(Some(&window), true);
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -2616,13 +2518,8 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::MoveWindowToTiling { id: Some(id) } => {
-                let window = self
-                    .neori
-                    .layout
-                    .windows()
-                    .find(|(_, m)| m.id().get() == id);
-                let window = window.map(|(_, m)| m.window.clone());
-                if let Some(window) = window {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
                     self.neori.layout.set_window_floating(Some(&window), false);
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -2648,12 +2545,8 @@ impl State {
             }
             Action::MoveFloatingWindow { id, x, y } => {
                 let window = if let Some(id) = id {
-                    let window = self
-                        .neori
-                        .layout
-                        .windows()
-                        .find(|(_, m)| m.id().get() == id);
-                    let window = window.map(|(_, m)| m.window.clone());
+                    let id = MappedId::specific(id);
+                    let window = self.neori.find_window_by_id(id);
                     if window.is_none() {
                         return;
                     }
