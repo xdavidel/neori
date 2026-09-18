@@ -6143,15 +6143,12 @@ impl Neori {
         anyhow::ensure!(outputs.len() == 1);
 
         let output = outputs.into_iter().next().unwrap();
-        let geom = self.global_space.output_geometry(&output).unwrap();
 
-        let output_scale = output.current_scale().integer_scale();
-        let geom = geom.to_physical(output_scale);
-
-        let size = geom.size;
+        let size = output.current_mode().unwrap().size;
         let transform = output.current_transform();
         let size = transform.transform_size(size);
 
+        let scale = Scale::from(output.current_scale().fractional_scale());
         let ctx = RenderCtx {
             renderer,
             target: RenderTarget::ScreenCapture,
@@ -6162,7 +6159,7 @@ impl Neori {
         let pixels = render_to_vec(
             renderer,
             size,
-            Scale::from(f64::from(output_scale)),
+            scale,
             Transform::Normal,
             Fourcc::Abgr8888,
             elements,
