@@ -510,7 +510,19 @@ neori.bind("XF86MonBrightnessDown", neori.spawn({ "brightnessctl", "--class=back
 neori.bind("XF86TouchpadToggle", { toggle_touchpad = true, ["repeat"] = false })
 
 -- Open/close the Overview: a zoomed-out view of workspaces and windows.
-neori.bind("Mod+O", { toggle_overview = true, ["repeat"] = false })
+--
+-- This is a release bind.
+-- Press and release Mod by itself to trigger it.
+neori.bind("Mod", { release = "toggle-overview" })
+
+-- You can also bind both press and release actions like so.
+-- If the press action fires, the release action
+-- is also guaranteed to fire.
+-- This is useful for binds like push-to-talk.
+-- neori.bind("Alt+Shift", {
+--   press = neori.spawn("notify-send", "Enable push-to-talk!"),
+--   release = neori.spawn("notify-send", "Disable push-to-talk!"),
+-- })
 
 -- Go back to the previously focused workspace.
 neori.bind("Mod+Tab", { focus_workspace_previous = true, ["repeat"] = false })

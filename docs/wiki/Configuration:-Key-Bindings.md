@@ -98,6 +98,66 @@ neori.bind("Mod+T", neori.spawn("alacritty", { cooldown_ms = 500 }))
 
 This is mostly useful for the scroll bindings.
 
+### Press and Release Bindings
+
+<sup>Since: next release</sup>
+
+Binds can be set to trigger on key press, on key release, or both.
+By default, binds trigger on key press.
+You can change it using the `press` and `release` fields of a bind.
+Each of them takes anything that a bind itself takes: an action, `neori.spawn(...)`, or a Lua function.
+
+```lua
+-- Trigger on press (default behavior).
+neori.bind("Mod+T", neori.spawn("alacritty"))
+
+-- Trigger on release.
+-- Press and release Mod by itself to open the overview.
+neori.bind("Mod", { release = "toggle-overview" })
+
+-- Trigger on both press and release with different actions.
+--
+-- If the press action runs, the release action is guaranteed to run,
+-- no matter how you release the keys.
+-- You can safely use these binds for things like push-to-talk.
+neori.bind("Control_R", {
+    press = neori.spawn("notify-send", "Enable push-to-talk"),
+    release = neori.spawn("notify-send", "Disable push-to-talk"),
+})
+
+-- Release binds trigger only if you don't press anything else in between.
+-- So, an Alt+Shift bind like this still lets you hit
+-- Alt+Shift+arrows and other shortcuts in applications.
+neori.bind("Alt+Shift", { release = neori.spawn("notify-send", "Alt+Shift tapped") })
+
+-- Lua functions work for both press and release.
+neori.bind("Mod+Shift+P", {
+    press = function() print("pressed") end,
+    release = function() print("released") end,
+})
+```
+
+Release bindings are especially useful when you want to bind a modifier key.
+A normal press bind would effectively prevent you from having any other bind containing that modifier.
+
+Release-only binds only trigger when you don't press anything else while holding it.
+If you have a release-only `Mod` bind from the example above, and press any other key or mouse button while holding `Mod`, the bind will not trigger (the overview won't open).
+
+In bindings with both press and release, the release action is guaranteed to trigger if the press action triggers.
+So, your push-to-talk press-release binding will never get stuck pressed, no matter how you release the keys.
+
+By default, any bind with a release action does not repeat.
+You can explicitly set `repeat = true` if needed:
+
+```lua
+-- Wouldn't repeat automatically because it has a release action.
+neori.bind("Mod+Shift+Q", {
+    press = neori.spawn("notify-send", "Pressed (repeating)"),
+    release = neori.spawn("notify-send", "Released"),
+    ["repeat"] = true,
+})
+```
+
 ### Scroll Bindings
 
 You can bind mouse wheel scroll ticks using the following syntax.
