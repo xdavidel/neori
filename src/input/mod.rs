@@ -3190,6 +3190,22 @@ impl State {
         self.neori.queue_redraw_all();
     }
 
+    fn find_pointer_bind(
+        &mut self,
+        mod_key: ModKey,
+        trigger: Trigger,
+        mods: ModifiersState,
+    ) -> Option<Bind> {
+        let modifiers = modifiers_from_state(mods);
+
+        let config = self.neori.config.borrow();
+        let bindings = make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
+
+        find_configured_bind(bindings, mod_key, trigger, mods).filter(|bind| {
+            !self.neori.screenshot_ui.is_open() || bind_allowed_during_screenshot(bind, true)
+        })
+    }
+
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
         let pointer = self.neori.seat.get_pointer().unwrap();
 
@@ -3245,15 +3261,8 @@ impl State {
                     Some(MouseButton::Forward) => Some(Trigger::MouseForward),
                     _ => None,
                 }
-                .and_then(|trigger| {
-                    let config = self.neori.config.borrow();
-                    let bindings =
-                        make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
-                    find_configured_bind(bindings, mod_key, trigger, mods)
-                })
-                .filter(|bind| {
-                    !self.neori.screenshot_ui.is_open() || bind_allowed_during_screenshot(bind, true)
-                }) {
+                .and_then(|trigger| self.find_pointer_bind(mod_key, trigger, mods))
+                {
                     self.neori.suppressed_buttons.insert(button_code);
                     if bind.has_press() {
                         self.handle_bind(bind.clone(), true);
@@ -3609,30 +3618,10 @@ impl State {
                             });
                             (bind_left, bind_right)
                         } else {
-                            let config = self.neori.config.borrow();
-                            let bindings =
-                                make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
-                            let bind_left = find_configured_bind(
-                                bindings.clone(),
-                                mod_key,
-                                Trigger::WheelScrollLeft,
-                                mods,
+                            (
+                                self.find_pointer_bind(mod_key, Trigger::WheelScrollLeft, mods),
+                                self.find_pointer_bind(mod_key, Trigger::WheelScrollRight, mods),
                             )
-                            .filter(|bind| {
-                                !self.neori.screenshot_ui.is_open()
-                                    || bind_allowed_during_screenshot(bind, true)
-                            });
-                            let bind_right = find_configured_bind(
-                                bindings,
-                                mod_key,
-                                Trigger::WheelScrollRight,
-                                mods,
-                            )
-                            .filter(|bind| {
-                                !self.neori.screenshot_ui.is_open()
-                                    || bind_allowed_during_screenshot(bind, true)
-                            });
-                            (bind_left, bind_right)
                         };
 
                     if let Some(right) = bind_right {
@@ -3715,26 +3704,10 @@ impl State {
                         });
                         (bind_up, bind_down)
                     } else {
-                        let config = self.neori.config.borrow();
-                        let bindings =
-                            make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
-                        let bind_up = find_configured_bind(
-                            bindings.clone(),
-                            mod_key,
-                            Trigger::WheelScrollUp,
-                            mods,
+                        (
+                            self.find_pointer_bind(mod_key, Trigger::WheelScrollUp, mods),
+                            self.find_pointer_bind(mod_key, Trigger::WheelScrollDown, mods),
                         )
-                        .filter(|bind| {
-                            !self.neori.screenshot_ui.is_open()
-                                || bind_allowed_during_screenshot(bind, true)
-                        });
-                        let bind_down =
-                            find_configured_bind(bindings, mod_key, Trigger::WheelScrollDown, mods)
-                                .filter(|bind| {
-                                    !self.neori.screenshot_ui.is_open()
-                                        || bind_allowed_during_screenshot(bind, true)
-                                });
-                        (bind_up, bind_down)
                     };
 
                     if let Some(down) = bind_down {
@@ -3872,26 +3845,10 @@ impl State {
                     .horizontal_finger_scroll_tracker
                     .accumulate(horizontal);
                 if ticks != 0 {
-                    let config = self.neori.config.borrow();
-                    let bindings =
-                        make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
-                    let bind_left = find_configured_bind(
-                        bindings.clone(),
-                        mod_key,
-                        Trigger::TouchpadScrollLeft,
-                        mods,
-                    )
-                    .filter(|bind| {
-                        !self.neori.screenshot_ui.is_open()
-                            || bind_allowed_during_screenshot(bind, true)
-                    });
-                    let bind_right =
-                        find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollRight, mods)
-                            .filter(|bind| {
-                                !self.neori.screenshot_ui.is_open()
-                                    || bind_allowed_during_screenshot(bind, true)
-                            });
-                    drop(config);
+                    let (bind_left, bind_right) = (
+                        self.find_pointer_bind(mod_key, Trigger::TouchpadScrollLeft, mods),
+                        self.find_pointer_bind(mod_key, Trigger::TouchpadScrollRight, mods),
+                    );
 
                     if let Some(right) = bind_right {
                         for _ in 0..ticks {
@@ -3910,26 +3867,10 @@ impl State {
                     .vertical_finger_scroll_tracker
                     .accumulate(vertical);
                 if ticks != 0 {
-                    let config = self.neori.config.borrow();
-                    let bindings =
-                        make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
-                    let bind_up = find_configured_bind(
-                        bindings.clone(),
-                        mod_key,
-                        Trigger::TouchpadScrollUp,
-                        mods,
-                    )
-                    .filter(|bind| {
-                        !self.neori.screenshot_ui.is_open()
-                            || bind_allowed_during_screenshot(bind, true)
-                    });
-                    let bind_down =
-                        find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollDown, mods)
-                            .filter(|bind| {
-                                !self.neori.screenshot_ui.is_open()
-                                    || bind_allowed_during_screenshot(bind, true)
-                            });
-                    drop(config);
+                    let (bind_up, bind_down) = (
+                        self.find_pointer_bind(mod_key, Trigger::TouchpadScrollUp, mods),
+                        self.find_pointer_bind(mod_key, Trigger::TouchpadScrollDown, mods),
+                    );
 
                     if let Some(down) = bind_down {
                         for _ in 0..ticks {
@@ -4357,21 +4298,8 @@ impl State {
                     let mods = self.neori.seat.get_keyboard().unwrap().modifier_state();
                     let modifiers = modifiers_from_state(mods);
 
-                    if self
-                        .neori
-                        .mods_with_tablet_stylus_binds
-                        .contains(&modifiers)
-                    {
-                        let bind = {
-                            let config = self.neori.config.borrow();
-                            let bindings = config.binds.0.iter();
-                            find_configured_bind(bindings, mod_key, trigger, mods)
-                        }
-                        .filter(|bind| {
-                            !self.neori.screenshot_ui.is_open()
-                                || bind_allowed_during_screenshot(bind, true)
-                        });
-                        if let Some(bind) = bind {
+                    if self.neori.mods_with_tablet_stylus_binds.contains(&modifiers) {
+                        if let Some(bind) = self.find_pointer_bind(mod_key, trigger, mods) {
                             self.neori.suppressed_buttons.insert(button);
                             if bind.has_press() {
                                 self.handle_bind(bind.clone(), true);
@@ -5943,7 +5871,7 @@ fn make_binds_iter<'a>(
     config: &'a Config,
     mru: &'a mut WindowMruUi,
     mods: Modifiers,
-) -> impl Iterator<Item = &'a Bind> + Clone {
+) -> impl Iterator<Item = &'a Bind> {
     // Figure out the binds to use depending on whether the MRU is enabled and/or open.
     let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
     let general_binds = general_binds.into_iter().flatten();
