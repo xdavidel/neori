@@ -17,7 +17,8 @@ Binds can also take a Lua function — see [Lua Scripting](./Lua-Scripting.md) f
 runtime API (`neori.bind("key", function() … end)`, `neori.action(name, args)`, Lua event
 handlers).
 
-The hotkey consists of modifiers separated by `+` signs, followed by an XKB key name in the end.
+The hotkey consists of modifiers separated by `+` signs, followed by a trigger key in the end.
+The trigger key can be either an XKB key name or <sup>Since: next release</sup> a modifier.
 
 Valid modifiers are:
 
@@ -32,6 +33,24 @@ Valid modifiers are:
 `Mod` is a special modifier that is equal to `Super` when running neori on a TTY, and to `Alt` when running neori as a nested winit window.
 This way, you can test neori in a window without causing too many conflicts with the host compositor's key bindings.
 For this reason, most of the default keys use the `Mod` modifier.
+
+Specific left or right modifier keys like `Alt_L` or `Alt_R` can be used as triggers, but not as modifiers:
+
+```lua
+-- Valid:
+neori.bind("Ctrl+Alt_L", neori.spawn("alacritty"))
+
+-- Invalid:
+-- neori.bind("Alt_L+Ctrl", neori.spawn("alacritty"))
+
+-- Also, this is equivalent to just Alt_L
+-- because Alt_L implies the Alt modifier:
+neori.bind("Alt+Alt_L", neori.spawn("the Alt here is unnecessary but allowed"))
+-- This is the same:
+-- neori.bind("Alt_L", neori.spawn("alacritty"))
+```
+
+Modifier keys always match by keysym, even though other keys match by keycode by default.
 
 <sup>Since: 25.05</sup> You can customize the `Mod` key [in the `input` section of the config](./Configuration:-Input.md#mod-key-mod-key-nested).
 

@@ -4475,6 +4475,35 @@ fn parse_environment_section(table: LuaTable, config: &mut Config) -> Result<(),
     Ok(())
 }
 
+/// Checks that a recent windows switcher bind can work, and doesn't conflict with an earlier one.
+fn validate_recent_windows_bind(name: &str, bind: &Bind, previous: &[Bind]) -> Result<(), String> {
+    // A modifier is required because the switcher remains on screen as long as any modifier is
+    // held. The trigger's own modifier doesn't count, since releasing the trigger releases it.
+    let mut modifiers = bind.key.modifiers;
+    modifiers &= !bind.key.trigger.implied_modifier();
+    if modifiers.is_empty() {
+        return Err(format!(
+            "recent_windows bind `{name}` must have a modifier key other than the trigger"
+        ));
+    }
+
+    // FIXME: To support this, all the mods_with_mouse_binds()/mods_with_*wheel_binds()/etc.
+    // will need to learn about recent-windows bindings.
+    if !bind.key.trigger.is_keyboard() {
+        return Err(format!(
+            "recent_windows bind `{name}` must use a keyboard key (others are unsupported here for now)"
+        ));
+    }
+
+    if previous.iter().any(|prev| prev.key.conflicts_with(&bind.key)) {
+        return Err(format!(
+            "recent_windows bind `{name}` conflicts with another recent_windows bind"
+        ));
+    }
+
+    Ok(())
+}
+
 fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
     let rw = &mut config.recent_windows;
     for pair in table.pairs::<Value, Value>() {
@@ -4514,13 +4543,18 @@ fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<
             }
             "binds" => {
                 if let Value::Table(t) = &value {
-                    let mut binds = Vec::new();
+                    let mut binds: Vec<Bind> = Vec::new();
                     for bpair in t.clone().pairs::<Value, Value>() {
                         let (bk, bv) = bpair.map_err(|e| format!("{e}"))?;
                         let bks = key_str(&bk)?;
-                        if let Ok(bind) = parse_bind_entry(&bks, bv) {
-                            binds.push(bind);
+                        let Ok(bind) = parse_bind_entry(&bks, bv) else {
+                            continue;
+                        };
+                        if let Err(err) = validate_recent_windows_bind(&bks, &bind, &binds) {
+                            invalid_config(&err)?;
+                            continue;
                         }
+                        binds.push(bind);
                     }
                     rw.binds = binds;
                 }
@@ -4533,7 +4567,7 @@ fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<
 
 fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
     let mut bvec = Vec::new();
-    let mut seen_keys: HashMap<String, Key> = HashMap::new();
+    let mut seen_keys: Vec<(String, Key)> = Vec::new();
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair.map_err(|e| format!("binds error: {e}"))?;
         // Sequence entries produced by neori.bind carry their key inside the entry;
@@ -4559,10 +4593,19 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
             k => (key_str(&k)?, value),
         };
         let bind = parse_bind_entry(&key_name, action)?;
-        if seen_keys.contains_key(&key_name) {
-            return Err(format!("duplicate keybind: {key_name}"));
+        if let Some((prev_name, prev_key)) = seen_keys
+            .iter()
+            .find(|(_, prev_key)| prev_key.conflicts_with(&bind.key))
+        {
+            return Err(if *prev_name == key_name || *prev_key == bind.key {
+                format!("duplicate keybind: {key_name}")
+            } else {
+                format!(
+                    "conflicting keybinds: `{prev_name}` and `{key_name}` are triggered by the same key press"
+                )
+            });
         }
-        seen_keys.insert(key_name, bind.key);
+        seen_keys.push((key_name, bind.key));
         bvec.push(bind);
     }
     config.binds.0 = bvec;
@@ -5790,4 +5833,41 @@ fn parse_animation(
     }
 
     Ok(Animation { off, kind })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn bind(lua: &Lua, key: &str) -> Bind {
+        let action = Value::String(lua.create_string("close-window").unwrap());
+        parse_bind_entry(key, action).unwrap()
+    }
+
+    #[test]
+    fn recent_windows_bind_validation() {
+        let lua = Lua::new();
+        let ok = |key: &str, previous: &[&str]| {
+            let previous: Vec<_> = previous.iter().map(|k| bind(&lua, k)).collect();
+            validate_recent_windows_bind(key, &bind(&lua, key), &previous)
+        };
+
+        // A modifier other than the trigger is required.
+        assert!(ok("Alt+Tab", &[]).is_ok());
+        assert!(ok("Ctrl+Alt", &[]).is_ok());
+        assert!(ok("Tab", &[]).unwrap_err().contains("must have a modifier"));
+        assert!(ok("Alt", &[]).unwrap_err().contains("must have a modifier"));
+        assert!(ok("Alt+Alt_L", &[]).unwrap_err().contains("must have a modifier"));
+
+        // Only keyboard triggers are supported.
+        assert!(ok("Alt+WheelScrollDown", &[])
+            .unwrap_err()
+            .contains("keyboard key"));
+
+        // Binds triggered by the same key press conflict.
+        assert!(ok("Ctrl+Alt_L", &["Ctrl+Alt"])
+            .unwrap_err()
+            .contains("conflicts"));
+        assert!(ok("Ctrl+Alt", &["Alt+Tab"]).is_ok());
+    }
 }

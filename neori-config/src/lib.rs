@@ -2089,6 +2089,79 @@ mod tests {
     }
 
     #[test]
+    fn modifier_binds_keep_their_trigger() {
+        use crate::binds::{Modifiers, Trigger};
+        use crate::input::ModKey;
+
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod", "close-window")
+            neori.bind("Ctrl+Alt", "close-window")
+            neori.bind("Shift+Alt_L", "close-window")
+            neori.bind("Super+Q", "close-window")
+            "#,
+        )
+        .unwrap();
+        let triggers: Vec<_> = config.binds.0.iter().map(|b| b.key.trigger).collect();
+
+        // Bare modifiers and modifier keysyms aren't converted to keycodes, even though
+        // keycode binds are the default; other keys still are.
+        assert_eq!(triggers[0], Trigger::CompositorMod);
+        assert_eq!(triggers[1], Trigger::Modifier(ModKey::Alt));
+        assert_eq!(
+            triggers[2],
+            Trigger::Keysym(smithay::input::keyboard::Keysym::Alt_L)
+        );
+        assert_eq!(triggers[3], Trigger::Keycode(16));
+
+        // The trigger's own modifier is implied.
+        assert_eq!(
+            config.binds.0[2].key.modifiers,
+            Modifiers::SHIFT | Modifiers::ALT
+        );
+
+        // An explicit keycode request on a modifier keysym also keeps the keysym.
+        let config = Config::parse_mem(r#"neori.bind("Alt_L", { close_window = true, keycode = true })"#)
+            .unwrap();
+        assert_eq!(
+            config.binds.0[0].key.trigger,
+            Trigger::Keysym(smithay::input::keyboard::Keysym::Alt_L)
+        );
+    }
+
+    #[test]
+    fn conflicting_modifier_binds_are_rejected() {
+        // `Alt+Alt_L` normalizes to the same key as `Alt_L`.
+        let err = Config::parse_mem(
+            r#"
+            neori.bind("Alt_L", "close-window")
+            neori.bind("Alt+Alt_L", "close-window")
+            "#,
+        )
+        .unwrap_err();
+        assert!(err.main.contains("duplicate keybind: Alt+Alt_L"), "{err}");
+
+        // `Alt` and `Alt_R` are different keys triggered by the same key press.
+        let err = Config::parse_mem(
+            r#"
+            neori.bind("Alt", "close-window")
+            neori.bind("Alt_R", "close-window")
+            "#,
+        )
+        .unwrap_err();
+        assert!(err.main.contains("conflicting keybinds"), "{err}");
+
+        // Different held modifiers don't conflict.
+        Config::parse_mem(
+            r#"
+            neori.bind("Alt", "close-window")
+            neori.bind("Ctrl+Alt", "close-window")
+            "#,
+        )
+        .unwrap();
+    }
+
+    #[test]
     fn keycode_is_the_default() {
         let config = Config::parse_mem(
             r#"

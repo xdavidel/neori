@@ -559,50 +559,37 @@ fn action_name(action: &Action) -> String {
 fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
     let mut name = String::new();
 
-    let has_comp_mod = key.modifiers.contains(Modifiers::COMPOSITOR);
+    // Do not show modifiers implied by the trigger.
+    let modifiers = key.modifiers & !key.trigger.implied_modifier();
+
+    let has_comp_mod = modifiers.contains(Modifiers::COMPOSITOR);
+
+    let mod_key_pretty = modifier_name(mod_key);
 
     // Compositor mod goes first.
     if has_comp_mod {
-        match mod_key {
-            ModKey::Super => {
-                name.push_str("Super + ");
-            }
-            ModKey::Alt => {
-                name.push_str("Alt + ");
-            }
-            ModKey::Shift => {
-                name.push_str("Shift + ");
-            }
-            ModKey::Ctrl => {
-                name.push_str("Ctrl + ");
-            }
-            ModKey::IsoLevel3Shift => {
-                name.push_str("Mod5 + ");
-            }
-            ModKey::IsoLevel5Shift => {
-                name.push_str("Mod3 + ");
-            }
-        }
+        name.push_str(mod_key_pretty);
+        name.push_str(" + ");
     }
 
-    if key.modifiers.contains(Modifiers::SUPER) && !(has_comp_mod && mod_key == ModKey::Super) {
+    if modifiers.contains(Modifiers::SUPER) && !(has_comp_mod && mod_key == ModKey::Super) {
         name.push_str("Super + ");
     }
-    if key.modifiers.contains(Modifiers::CTRL) && !(has_comp_mod && mod_key == ModKey::Ctrl) {
+    if modifiers.contains(Modifiers::CTRL) && !(has_comp_mod && mod_key == ModKey::Ctrl) {
         name.push_str("Ctrl + ");
     }
-    if key.modifiers.contains(Modifiers::SHIFT) && !(has_comp_mod && mod_key == ModKey::Shift) {
+    if modifiers.contains(Modifiers::SHIFT) && !(has_comp_mod && mod_key == ModKey::Shift) {
         name.push_str("Shift + ");
     }
-    if key.modifiers.contains(Modifiers::ALT) && !(has_comp_mod && mod_key == ModKey::Alt) {
+    if modifiers.contains(Modifiers::ALT) && !(has_comp_mod && mod_key == ModKey::Alt) {
         name.push_str("Alt + ");
     }
-    if key.modifiers.contains(Modifiers::ISO_LEVEL3_SHIFT)
+    if modifiers.contains(Modifiers::ISO_LEVEL3_SHIFT)
         && !(has_comp_mod && mod_key == ModKey::IsoLevel3Shift)
     {
         name.push_str("Mod5 + ");
     }
-    if key.modifiers.contains(Modifiers::ISO_LEVEL5_SHIFT)
+    if modifiers.contains(Modifiers::ISO_LEVEL5_SHIFT)
         && !(has_comp_mod && mod_key == ModKey::IsoLevel5Shift)
     {
         name.push_str("Mod3 + ");
@@ -613,6 +600,8 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
         Trigger::Keycode(code) => keycode::keysym_name_from_evdev(code)
             .map(|name| prettify_keysym_name(screen_reader, name))
             .unwrap_or_else(|| format!("KEYCODE_{code}")),
+        Trigger::CompositorMod => mod_key_pretty.into(),
+        Trigger::Modifier(modifier) => modifier_name(modifier).into(),
         Trigger::MouseLeft => String::from("Mouse Left"),
         Trigger::MouseRight => String::from("Mouse Right"),
         Trigger::MouseMiddle => String::from("Mouse Middle"),
@@ -633,6 +622,17 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
     name.push_str(&pretty);
 
     name
+}
+
+fn modifier_name(modifier: ModKey) -> &'static str {
+    match modifier {
+        ModKey::Super => "Super",
+        ModKey::Alt => "Alt",
+        ModKey::Shift => "Shift",
+        ModKey::Ctrl => "Ctrl",
+        ModKey::IsoLevel3Shift => "Mod5",
+        ModKey::IsoLevel5Shift => "Mod3",
+    }
 }
 
 fn prettify_keysym_name(screen_reader: bool, name: &str) -> String {
@@ -697,6 +697,87 @@ mod tests {
     fn test_format_bind() {
         // Not bound.
         assert_snapshot!(check("", Action::Screenshot { show_pointer: true, path: None }), @" (not bound) : Take a Screenshot");
+
+        // Bare modifier binds.
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Alt", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Alt : Close Focused Window"
+        );
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Ctrl", "close-window")
+                    neori.bind("Shift", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Ctrl : Close Focused Window"
+        );
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Mod5", "close-window")
+                    neori.bind("Mod3", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Mod5 : Close Focused Window"
+        );
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Super", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Super : Close Focused Window"
+        );
+
+        // Modifier + modifier binds: a held modifier key with another modifier key as the trigger.
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Ctrl+Alt_L", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Ctrl + Alt_L : Close Focused Window"
+        );
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Alt+Ctrl", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Alt + Ctrl : Close Focused Window"
+        );
+
+        // A Ctrl keysym names only one side of the keyboard, so it keeps its exact name instead of
+        // being shortened to `Ctrl`.
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Control_L", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Control_L : Close Focused Window"
+        );
+        assert_snapshot!(
+            check(
+                r#"
+                    neori.bind("Mod+Control_R", "close-window")
+                "#,
+                Action::CloseWindow { id: None },
+            ),
+            @" Super + Control_R : Close Focused Window"
+        );
 
         // Bound with a default title.
         assert_snapshot!(
