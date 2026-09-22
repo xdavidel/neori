@@ -48,6 +48,18 @@ Before, it could only use the connector name.
 This means that named workspaces "stick" to their original output in more cases, reflecting their more permanent nature.
 Explicitly moving a named workspace to a different monitor will still update its original output.
 
+<sup>Since: next release</sup> You can also give `open_on_output` a list of outputs.
+If the first output is not connected, the workspace will open on the second output, and so on.
+
+```lua
+neori.workspace("browser", {
+    open_on_output = { "DP-9", "DP-4" },
+})
+```
+
+The output order is reevaluated whenever outputs connect or disconnect.
+Connecting a higher-priority output will move the workspace there.
+
 ### Layout config overrides
 
 <sup>Since: 25.11</sup>

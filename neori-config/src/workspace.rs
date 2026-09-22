@@ -3,7 +3,8 @@ use crate::LayoutPart;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Workspace {
     pub name: WorkspaceName,
-    pub open_on_output: Option<String>,
+    /// Output names to open this workspace on, in preference order.
+    pub open_on_output: Vec<String>,
     pub layout: Option<WorkspaceLayoutPart>,
 }
 

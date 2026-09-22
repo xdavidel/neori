@@ -2454,6 +2454,28 @@ mod tests {
     }
 
     #[test]
+    fn workspace_open_on_output_fallbacks() {
+        let config = Config::parse_mem(
+            r#"
+            neori.workspace("chat", { open_on_output = { "DP-1", "HDMI-A-1", "eDP-1" } })
+            neori.workspace("web", { ["open-on-output"] = "eDP-1" })
+            neori.workspace("misc", {})
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.workspaces[0].open_on_output,
+            ["DP-1", "HDMI-A-1", "eDP-1"]
+        );
+        assert_eq!(config.workspaces[1].open_on_output, ["eDP-1"]);
+        assert!(config.workspaces[2].open_on_output.is_empty());
+
+        let err = Config::parse_mem(r#"neori.workspace("x", { open_on_output = 5 })"#).unwrap_err();
+        assert!(err.main.contains("open_on_output must be"), "{err}");
+    }
+
+    #[test]
     fn neori_api_named_output_and_workspace() {
         let config = Config::parse_mem(
             r#"
@@ -2469,10 +2491,7 @@ mod tests {
         assert!(config.outputs.0[0].focus_at_startup);
         assert_eq!(config.workspaces.len(), 1);
         assert_eq!(config.workspaces[0].name.0, "web");
-        assert_eq!(
-            config.workspaces[0].open_on_output.as_deref(),
-            Some("eDP-1")
-        );
+        assert_eq!(config.workspaces[0].open_on_output, ["eDP-1"]);
 
         let err = Config::parse_mem(r#"neori.window_rule("x", {})"#).unwrap_err();
         assert!(

@@ -3447,12 +3447,33 @@ fn parse_layer_match_entry(table: &LuaTable) -> Result<crate::layer_rule::Match,
     })
 }
 
+/// Parses a named workspace's `open_on_output`: a single output name, or a list of output
+/// names in preference order.
+fn parse_open_on_output(value: &Value) -> Result<Vec<String>, String> {
+    match value {
+        Value::Nil => Ok(Vec::new()),
+        Value::String(_) => Ok(vec![value_to_string(value)?]),
+        Value::Table(t) => t
+            .clone()
+            .sequence_values::<Value>()
+            .map(|v| value_to_string(&v.map_err(|e| format!("open_on_output: {e}"))?))
+            .collect(),
+        other => Err(format!(
+            "open_on_output must be a string or a list of strings, got {}",
+            other.type_name()
+        )),
+    }
+}
+
 fn parse_workspaces(table: LuaTable, config: &mut Config) -> Result<(), String> {
     for item in table.sequence_values::<LuaTable>() {
         let t = item.map_err(|e| format!("workspace error: {e}"))?;
         let name: String = t.get("name").unwrap_or_default();
-        let open_on_output: Option<String> =
-            t.get("open_on_output").map_err(|e| format!("{e}")).ok();
+        let open_on_output = parse_open_on_output(&table_get_alias(
+            &t,
+            "open_on_output",
+            "open-on-output",
+        )?)?;
         let layout_table: Option<LuaTable> = t
             .get("layout")
             .map_err(|e| format!("workspace layout error: {e}"))?;

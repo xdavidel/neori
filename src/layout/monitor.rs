@@ -604,7 +604,7 @@ impl<W: LayoutElement> Monitor<W> {
 
         // After adding a new window, workspace becomes this output's own.
         if workspace.name().is_none() {
-            workspace.original_output = OutputId::new(&self.output);
+            workspace.original_outputs = vec![OutputId::new(&self.output)];
         }
 
         if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
@@ -646,7 +646,7 @@ impl<W: LayoutElement> Monitor<W> {
 
         // After adding a new window, workspace becomes this output's own.
         if workspace.name().is_none() {
-            workspace.original_output = OutputId::new(&self.output);
+            workspace.original_outputs = vec![OutputId::new(&self.output)];
         }
 
         if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
@@ -675,7 +675,7 @@ impl<W: LayoutElement> Monitor<W> {
 
         // After adding a new window, workspace becomes this output's own.
         if workspace.name().is_none() {
-            workspace.original_output = OutputId::new(&self.output);
+            workspace.original_outputs = vec![OutputId::new(&self.output)];
         }
 
         // Since we're adding window to an existing column, the workspace isn't empty, and
