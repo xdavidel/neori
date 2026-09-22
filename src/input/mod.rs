@@ -821,6 +821,12 @@ impl State {
                 .drain()
                 .map(|(_, bind)| bind),
         );
+        binds.extend(
+            self.neori
+                .pending_tablet_release_binds
+                .drain()
+                .map(|(_, bind)| bind),
+        );
 
         // Forget the rest of the input state: the releases will never arrive.
         self.neori.clear_input_state();
@@ -4307,6 +4313,15 @@ impl State {
                 _ => None,
             };
 
+            // Handle release binds.
+            if button_state == ButtonState::Released {
+                if let Some(bind) = self.neori.pending_tablet_release_binds.remove(&button) {
+                    self.neori.suppressed_buttons.remove(&button);
+                    self.handle_bind(bind, false);
+                    return;
+                }
+            }
+
             if self.neori.suppressed_buttons.remove(&button) {
                 return;
             }
@@ -4324,6 +4339,15 @@ impl State {
                     if self.neori.mods_with_tablet_stylus_binds.contains(&modifiers) {
                         if let Some(bind) = self.find_pointer_bind(mod_key, trigger, mods) {
                             self.neori.suppressed_buttons.insert(button);
+                            if should_record_release_bind(
+                                &bind,
+                                self.neori.is_locked(),
+                                &self.neori.bind_cooldown_timers,
+                            ) {
+                                self.neori
+                                    .pending_tablet_release_binds
+                                    .insert(button, bind.clone());
+                            }
                             if bind.has_press() {
                                 self.handle_bind(bind.clone(), true);
                             }
@@ -4945,6 +4969,7 @@ impl Neori {
     fn cancel_interrupted_release_binds(&mut self) {
         retain_press_binds(&mut self.pending_release_binds);
         retain_press_binds(&mut self.pending_mouse_release_binds);
+        retain_press_binds(&mut self.pending_tablet_release_binds);
     }
 }
 

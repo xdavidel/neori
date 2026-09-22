@@ -369,6 +369,8 @@ pub struct Neori {
     pub pending_release_binds: HashMap<Keycode, Bind>,
     /// Same as `pending_release_binds`, but for mouse buttons, keyed by the button code.
     pub pending_mouse_release_binds: HashMap<u32, Bind>,
+    /// Same as `pending_release_binds`, but for tablet tool buttons, keyed by the button code.
+    pub pending_tablet_release_binds: HashMap<u32, Bind>,
     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
     pub bind_repeat_timer: Option<RegistrationToken>,
     pub keyboard_focus: KeyboardFocus,
@@ -3113,6 +3115,7 @@ impl Neori {
             suppressed_buttons: HashSet::new(),
             pending_release_binds: HashMap::new(),
             pending_mouse_release_binds: HashMap::new(),
+            pending_tablet_release_binds: HashMap::new(),
             bind_cooldown_timers: HashMap::new(),
             bind_repeat_timer: Option::default(),
             presentation_state,
@@ -6966,6 +6969,7 @@ impl Neori {
         self.suppressed_buttons.clear();
         self.pending_release_binds.clear();
         self.pending_mouse_release_binds.clear();
+        self.pending_tablet_release_binds.clear();
 
         // Stop ongoing key repeat if any.
         if let Some(token) = self.bind_repeat_timer.take() {
