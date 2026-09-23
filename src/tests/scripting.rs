@@ -45,11 +45,11 @@ fn bind_function_fires_when_key_pressed() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .expect("function bind missing")
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     assert!(
@@ -59,6 +59,37 @@ fn bind_function_fires_when_key_pressed() {
             .any(|o| o.name() == "from-lua-bind"),
         "neori.action inside a Lua bind should enqueue + dispatch"
     );
+}
+
+#[test]
+fn release_bind_function_fires_on_release_only() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", {
+            release = function()
+                neori.action("create-virtual-output", { name = "from-lua-release" })
+            end,
+        })
+        "#,
+    );
+    let created = |f: &mut Fixture| {
+        f.neori()
+            .global_space
+            .outputs()
+            .any(|o| o.name() == "from-lua-release")
+    };
+
+    let bind = f.state.server.state.neori.config.borrow().binds.0[0].clone();
+
+    // The press does nothing for a release-only bind.
+    f.state.server.state.handle_bind(bind.clone(), true);
+    f.state.server.dispatch();
+    assert!(!created(&mut f));
+
+    // The release runs the function.
+    f.state.server.state.handle_bind(bind, false);
+    f.state.server.dispatch();
+    assert!(created(&mut f), "the release function should have run");
 }
 
 #[test]
@@ -75,12 +106,12 @@ fn bind_function_error_does_not_crash() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
     // Must not panic; the error is caught and warn!()'d.
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 }
 
@@ -122,8 +153,8 @@ fn string_action_binds_still_work() {
         let config = f.state.server.state.neori.config.borrow();
         config.binds.0[0].clone()
     };
-    assert!(!matches!(bind.action, Action::ScriptFunction { .. }));
-    f.state.server.state.handle_bind(bind);
+    assert!(!matches!(bind.press_action(), Some(Action::ScriptFunction { .. })));
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     // The no-arg "create-virtual-output" uses the HEADLESS-N counter.
@@ -220,11 +251,11 @@ fn neori_windows_returns_mapped_windows_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let count = f
         .state
@@ -471,11 +502,11 @@ fn window_close_method_closes_the_window() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     // The compositor sent a close request to the client. The client receives it,
@@ -541,11 +572,11 @@ fn window_send_to_workspace_moves_the_window() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     // The window should now be on a workspace with idx >= 2.
@@ -615,11 +646,11 @@ fn window_focus_method_refocuses_a_window() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     assert_eq!(
@@ -672,7 +703,7 @@ fn window_fullscreen_method_sets_fullscreen_state() {
             .binds
             .0
             .iter()
-            .filter(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .filter(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .cloned()
             .collect()
     };
@@ -682,7 +713,7 @@ fn window_fullscreen_method_sets_fullscreen_state() {
     // configure, the client acks and commits with a new buffer, then the compositor's
     // post-commit path flips sizing_mode to fullscreen.
     let cycle = |f: &mut Fixture, id: ClientId, surface: &ClientWlSurface, bind: Bind| {
-        f.state.server.state.handle_bind(bind);
+        f.state.server.state.handle_bind(bind, true);
         f.state.server.dispatch();
         f.double_roundtrip(id);
         let window = f.client(id).window(surface);
@@ -741,13 +772,13 @@ fn window_float_method_moves_between_tiling_and_floating() {
             .binds
             .0
             .iter()
-            .filter(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .filter(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .cloned()
             .collect()
     };
     let (float_bind, tile_bind) = (binds[0].clone(), binds[1].clone());
 
-    f.state.server.state.handle_bind(float_bind);
+    f.state.server.state.handle_bind(float_bind, true);
     f.state.server.dispatch();
     f.double_roundtrip(id);
     assert!(
@@ -755,7 +786,7 @@ fn window_float_method_moves_between_tiling_and_floating() {
         "w:float(true) should have moved window to floating"
     );
 
-    f.state.server.state.handle_bind(tile_bind);
+    f.state.server.state.handle_bind(tile_bind, true);
     f.state.server.dispatch();
     f.double_roundtrip(id);
     assert!(
@@ -814,11 +845,11 @@ fn window_send_to_output_moves_the_window_between_outputs() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
     f.double_roundtrip(id);
 
@@ -851,11 +882,11 @@ fn neori_outputs_returns_cached_outputs_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let count = f
         .state
@@ -916,11 +947,11 @@ fn output_set_scale_takes_effect_on_compositor_output() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let after = f
         .neori()
@@ -966,12 +997,12 @@ fn workspace_set_name_and_unset_name_affect_layout() {
     // Fire the first script bind (set_name).
     let (bind_set, bind_unset) = {
         let config = f.state.server.state.neori.config.borrow();
-        let mut it = config.binds.0.iter().filter(|b| matches!(b.action, Action::ScriptFunction { .. }));
+        let mut it = config.binds.0.iter().filter(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })));
         let set = it.next().unwrap().clone();
         let unset = it.next().unwrap().clone();
         (set, unset)
     };
-    f.state.server.state.handle_bind(bind_set);
+    f.state.server.state.handle_bind(bind_set, true);
     f.state.server.dispatch();
 
     assert_eq!(
@@ -984,7 +1015,7 @@ fn workspace_set_name_and_unset_name_affect_layout() {
     );
 
     // Fire the second script bind (unset_name).
-    f.state.server.state.handle_bind(bind_unset);
+    f.state.server.state.handle_bind(bind_unset, true);
     f.state.server.dispatch();
 
     assert_eq!(
@@ -1062,11 +1093,11 @@ fn workspace_focus_method_activates_target_workspace() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     // Active workspace should now be back to 1.
@@ -1143,11 +1174,11 @@ fn workspace_send_to_output_moves_workspace_between_outputs() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
     f.double_roundtrip(id);
 
@@ -1182,11 +1213,11 @@ fn neori_workspaces_returns_cached_snapshots_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let count = f
         .state
@@ -1589,11 +1620,11 @@ fn pointer_cache_is_refreshed_before_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let x = f
         .state
@@ -1652,11 +1683,11 @@ fn warp_moves_the_cursor() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     let pointer = f
@@ -1692,11 +1723,11 @@ fn keyboard_layout_is_readable_from_lua() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let layout = f
         .state
@@ -1734,11 +1765,11 @@ fn devices_returns_empty_array_in_test_fixture() {
             .binds
             .0
             .iter()
-            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
 
     let count = f
         .state
@@ -1758,13 +1789,13 @@ fn handle_bind_ignores_unknown_script_function() {
     // Edge case: a bind to a Lua function id that the script host doesn't know (e.g. one
     // constructed by mistake) should be harmless, not a panic.
     let mut f = Fixture::new();
-    use neori_config::binds::{Bind, Key, Modifiers, Trigger};
+    use neori_config::binds::{Bind, BoundAction, Key, Modifiers, Trigger};
     let bind = Bind {
         key: Key {
             trigger: Trigger::Keysym(Keysym::XF86_Reload),
             modifiers: Modifiers::empty(),
         },
-        action: Action::ScriptFunction { id: u64::MAX },
+        action: BoundAction::Press(Action::ScriptFunction { id: u64::MAX }),
         repeat: true,
         cooldown: None,
         allow_when_locked: false,
@@ -1772,7 +1803,7 @@ fn handle_bind_ignores_unknown_script_function() {
         hotkey_overlay_title: None,
     };
     // Must not panic.
-    f.state.server.state.handle_bind(bind);
+    f.state.server.state.handle_bind(bind, true);
     f.state.server.dispatch();
 
     // Suppress unused-import warnings in restricted feature builds.

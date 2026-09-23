@@ -17,7 +17,7 @@ use neori_config::debug::PreviewRender;
 use neori_config::output::MaxBpc;
 use neori_config::window_rule::VrrRule;
 use neori_config::{
-    Config, FloatOrInt, Key, Modifiers, OutputName, PrintSink, ScriptHost, TrackLayout,
+    Bind, Config, FloatOrInt, Key, Modifiers, OutputName, PrintSink, ScriptHost, TrackLayout,
     WarpMouseToFocusMode, WorkspaceReference, Xkb,
 };
 use smithay::backend::allocator::Fourcc;
@@ -365,6 +365,8 @@ pub struct Neori {
     pub suppressed_keys: HashSet<Keycode>,
     /// Button codes of the mouse buttons to suppress.
     pub suppressed_buttons: HashSet<u32>,
+    /// Binds whose release action is pending, keyed by the key code.
+    pub pending_release_binds: HashMap<Keycode, Bind>,
     pub bind_cooldown_timers: HashMap<Key, RegistrationToken>,
     pub bind_repeat_timer: Option<RegistrationToken>,
     pub keyboard_focus: KeyboardFocus,
@@ -3107,6 +3109,7 @@ impl Neori {
             popup_grab: None,
             suppressed_keys: HashSet::new(),
             suppressed_buttons: HashSet::new(),
+            pending_release_binds: HashMap::new(),
             bind_cooldown_timers: HashMap::new(),
             bind_repeat_timer: Option::default(),
             presentation_state,
@@ -6953,6 +6956,17 @@ impl Neori {
         });
 
         Ok(())
+    }
+
+    pub fn clear_input_state(&mut self) {
+        self.suppressed_keys.clear();
+        self.suppressed_buttons.clear();
+        self.pending_release_binds.clear();
+
+        // Stop ongoing key repeat if any.
+        if let Some(token) = self.bind_repeat_timer.take() {
+            self.event_loop.remove(token);
+        }
     }
 
     pub fn is_locked(&self) -> bool {

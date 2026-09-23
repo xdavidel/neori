@@ -215,7 +215,9 @@ fn ipc_dispatches_actions_parsed_from_lua_config() {
     // The Lua parser produces the same Action type that IPC uses, so the actions from a
     // config can be sent over IPC directly.
     for bind in &config.binds.0 {
-        let action = bind.action.clone();
+        let Some(action) = bind.press_action().cloned() else {
+            continue;
+        };
         if matches!(action, Action::ScriptFunction { .. }) {
             // Lua-function binds can't be sent over IPC.
             continue;

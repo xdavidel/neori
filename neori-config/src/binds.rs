@@ -18,16 +18,55 @@ pub struct Binds(pub Vec<Bind>);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bind {
     pub key: Key,
-    /// Action to dispatch when the bind fires.
+    /// Actions to dispatch when the bind is pressed and/or released.
     ///
     /// Binds to a Lua function (`neori.bind(key, function)`) use [`Action::ScriptFunction`],
     /// with the function looked up in [`crate::ScriptHost`].
-    pub action: Action,
+    pub action: BoundAction,
     pub repeat: bool,
     pub cooldown: Option<Duration>,
     pub allow_when_locked: bool,
     pub allow_inhibiting: bool,
     pub hotkey_overlay_title: Option<Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BoundAction {
+    Press(Action),
+    Release(Action),
+    Both { press: Action, release: Action },
+}
+
+impl Bind {
+    pub fn has_press(&self) -> bool {
+        matches!(
+            self.action,
+            BoundAction::Press(_) | BoundAction::Both { .. }
+        )
+    }
+
+    pub fn has_release(&self) -> bool {
+        matches!(
+            self.action,
+            BoundAction::Release(_) | BoundAction::Both { .. }
+        )
+    }
+
+    pub fn press_action(&self) -> Option<&Action> {
+        match &self.action {
+            BoundAction::Press(action) => Some(action),
+            BoundAction::Both { press, .. } => Some(press),
+            BoundAction::Release(_) => None,
+        }
+    }
+
+    pub fn release_action(&self) -> Option<&Action> {
+        match &self.action {
+            BoundAction::Release(action) => Some(action),
+            BoundAction::Both { release, .. } => Some(release),
+            BoundAction::Press(_) => None,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]

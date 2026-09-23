@@ -152,13 +152,23 @@ impl HotkeyOverlay {
     }
 }
 
+/// Returns the actions that a bind triggers.
+fn bind_actions(bind: &Bind) -> impl Iterator<Item = &Action> {
+    bind.press_action().into_iter().chain(bind.release_action())
+}
+
+/// Whether the bind triggers the action, on press or on release.
+fn bind_triggers(bind: &Bind, action: &Action) -> bool {
+    bind.press_action() == Some(action) || bind.release_action() == Some(action)
+}
+
 fn format_bind(binds: &[Bind], action: &Action) -> Option<(Option<Key>, String)> {
     let mut bind_with_non_null = None;
     let mut bind_with_custom_title = None;
     let mut found_null_title = false;
 
     for bind in binds {
-        if bind.action != *action {
+        if !bind_triggers(bind, action) {
             continue;
         }
 
@@ -202,21 +212,21 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
 
     // Prefer Quit(false) if found, otherwise try Quit(true), and if there's neither, fall back to
     // Quit(false).
-    if binds.iter().any(|bind| {
-        bind.action
-            == Action::Quit {
-                skip_confirmation: false,
-            }
-    }) {
+    if binds
+        .iter()
+        .any(|bind| bind_triggers(bind, &Action::Quit {
+            skip_confirmation: false,
+        }))
+    {
         actions.push(&Action::Quit {
             skip_confirmation: false,
         });
-    } else if binds.iter().any(|bind| {
-        bind.action
-            == Action::Quit {
-                skip_confirmation: true,
-            }
-    }) {
+    } else if binds
+        .iter()
+        .any(|bind| bind_triggers(bind, &Action::Quit {
+            skip_confirmation: true,
+        }))
+    {
         actions.push(&Action::Quit {
             skip_confirmation: true,
         });
@@ -237,38 +247,34 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     ]);
 
     // Prefer move-column-to-workspace-down, but fall back to move-window-to-workspace-down.
-    if let Some(bind) = binds.iter().find(|bind| {
-        matches!(
-            bind.action,
-            Action::MoveColumnToWorkspaceDown { focus: _ }
-        )
-    }) {
-        actions.push(&bind.action);
-    } else if binds.iter().any(|bind| {
-        matches!(
-            bind.action,
-            Action::MoveWindowToWorkspaceDown { focus: _ }
-        )
-    }) {
+    if let Some(action) = binds
+        .iter()
+        .flat_map(bind_actions)
+        .find(|action| matches!(action, Action::MoveColumnToWorkspaceDown { focus: _ }))
+    {
+        actions.push(action);
+    } else if binds
+        .iter()
+        .flat_map(bind_actions)
+        .any(|action| matches!(action, Action::MoveWindowToWorkspaceDown { focus: _ }))
+    {
         actions.push(&Action::MoveWindowToWorkspaceDown { focus: true });
     } else {
         actions.push(&Action::MoveColumnToWorkspaceDown { focus: true });
     }
 
     // Same for -up.
-    if let Some(bind) = binds.iter().find(|bind| {
-        matches!(
-            bind.action,
-            Action::MoveColumnToWorkspaceUp { focus: _ }
-        )
-    }) {
-        actions.push(&bind.action);
-    } else if binds.iter().any(|bind| {
-        matches!(
-            bind.action,
-            Action::MoveWindowToWorkspaceUp { focus: _ }
-        )
-    }) {
+    if let Some(action) = binds
+        .iter()
+        .flat_map(bind_actions)
+        .find(|action| matches!(action, Action::MoveColumnToWorkspaceUp { focus: _ }))
+    {
+        actions.push(action);
+    } else if binds
+        .iter()
+        .flat_map(bind_actions)
+        .any(|action| matches!(action, Action::MoveWindowToWorkspaceUp { focus: _ }))
+    {
         actions.push(&Action::MoveWindowToWorkspaceUp { focus: true });
     } else {
         actions.push(&Action::MoveColumnToWorkspaceUp { focus: true });
@@ -285,43 +291,45 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     ]);
 
     // Screenshot is not as important, can omit if not bound.
-    if let Some(bind) = binds.iter().find(|bind| {
-        matches!(
-            bind.action,
-            Action::Screenshot {
-                show_pointer: _,
-                path: _,
-            }
-        )
-    }) {
-        actions.push(&bind.action);
+    if let Some(action) = binds
+        .iter()
+        .flat_map(bind_actions)
+        .find(|action| matches!(action, Action::Screenshot {
+                    show_pointer: _,
+                    path: _,
+                }))
+    {
+        actions.push(action);
     }
 
     // Add actions with a custom hotkey-overlay-title.
     for bind in binds {
         if matches!(bind.hotkey_overlay_title, Some(Some(_))) {
-            let action = &bind.action;
             // Avoid duplicate actions.
-            if !actions.contains(&action) {
-                actions.push(action);
+            if let Some(action) = bind_actions(bind).next() {
+                if !actions.contains(&action) {
+                    actions.push(action);
+                }
             }
         }
     }
 
     // Add the spawn actions.
-    for bind in binds.iter().filter(|bind| {
-        matches!(
-            bind.action,
-            Action::Spawn { command: _ } | Action::SpawnSh { command: _ }
-        )
-            // Only show binds with Mod or Super to filter out stuff like volume up/down.
-            && (bind.key.modifiers.contains(Modifiers::COMPOSITOR)
-                || bind.key.modifiers.contains(Modifiers::SUPER))
-            // Also filter out wheel and touchpad scroll binds.
-            && matches!(bind.key.trigger, Trigger::Keysym(_) | Trigger::Keycode(_))
-    }) {
-        let action = &bind.action;
+    for action in binds.iter().filter_map(|bind| {
+        // Includes the trigger's implied modifier.
+        let modifiers = bind.key.modifiers;
 
+        // Only show binds with Mod or Super to filter out stuff like volume up/down.
+        // Also filter out wheel and touchpad scroll binds.
+        if bind.key.trigger.is_keyboard()
+            && modifiers.intersects(Modifiers::COMPOSITOR | Modifiers::SUPER)
+        {
+            bind_actions(bind)
+                .find(|action| matches!(action, Action::Spawn { command: _ } | Action::SpawnSh { command: _ }))
+        } else {
+            None
+        }
+    }) {
         // We only show one bind for each action, so we need to deduplicate the Spawn actions.
         if !actions.contains(&action) {
             actions.push(action);
@@ -330,7 +338,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
 
     if config.hotkey_overlay.hide_not_bound {
         // Only keep actions that have been bound
-        actions.retain(|&action| binds.iter().any(|bind| bind.action == *action))
+        actions.retain(|&action| binds.iter().any(|bind| bind_triggers(bind, action)))
     }
 
     actions
@@ -557,7 +565,13 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
     let mut name = String::new();
 
     // Do not show modifiers implied by the trigger.
-    let modifiers = key.modifiers & !key.trigger.implied_modifier();
+    let mut implied = key.trigger.implied_modifier();
+    // Spellings of the mod key also imply the compositor modifier (e.g. Mod+Super_L).
+    let mod_modifiers = Modifiers::COMPOSITOR | mod_key.to_modifiers();
+    if implied.intersects(mod_modifiers) {
+        implied |= mod_modifiers;
+    }
+    let modifiers = key.modifiers & !implied;
 
     let has_comp_mod = modifiers.contains(Modifiers::COMPOSITOR);
 
@@ -776,6 +790,24 @@ mod tests {
             @" Super + Control_R : Close Focused Window"
         );
 
+        // A release bind is shown too.
+        assert_snapshot!(
+            check(
+                r#"neori.bind("Mod", { release = "toggle-overview" })"#,
+                Action::ToggleOverview {},
+            ),
+            @" Super : Open the Overview"
+        );
+
+        // Same for the release action of a bind with both actions.
+        assert_snapshot!(
+            check(
+                r#"neori.bind("Mod+Shift+Q", { press = "close-window", release = "toggle-overview" })"#,
+                Action::ToggleOverview {},
+            ),
+            @" Super + Shift + Q : Open the Overview"
+        );
+
         // Bound with a default title.
         assert_snapshot!(
             check(
@@ -853,5 +885,94 @@ mod tests {
             ),
             @" Super + P : Hello"
         );
+
+        // Mod overlapping with trigger.
+        assert_snapshot!(
+            check(
+                r#"neori.bind("Mod+Super_L", "screenshot")"#,
+                Action::Screenshot { show_pointer: true, path: None },
+            ),
+            @" Super_L : Take a Screenshot"
+        );
+        assert_snapshot!(
+            check(
+                r#"neori.bind("Mod+Super", "screenshot")"#,
+                Action::Screenshot { show_pointer: true, path: None },
+            ),
+            @" Super : Take a Screenshot"
+        );
+        assert_snapshot!(
+            check(
+                r#"neori.bind("Super+Mod", "screenshot")"#,
+                Action::Screenshot { show_pointer: true, path: None },
+            ),
+            @" Super : Take a Screenshot"
+        );
+    }
+
+    #[test]
+    fn test_collect_actions() {
+        // Release binds count as bound, both for the actions that are always listed and for the
+        // ones that are only listed when bound.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Alt", { release = "screenshot" })
+            neori.bind("Mod", { release = neori.spawn("foot") })
+            "#,
+        )
+        .unwrap();
+
+        let actions = collect_actions(&config);
+        assert!(actions.contains(&&Action::Screenshot { show_pointer: true, path: None }));
+        assert!(actions.contains(&&Action::Spawn { command: vec![String::from("foot")] }));
+
+        // Release binds keep actions in the list with hide-not-bound.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod", { release = "toggle-overview" })
+            neori.hotkey_overlay { hide_not_bound = true }
+            "#,
+        )
+        .unwrap();
+
+        assert!(collect_actions(&config).contains(&&Action::ToggleOverview {}));
+
+        // A release bind with a custom title adds its action to the list.
+        let config = Config::parse_mem(
+            r#"neori.bind("Mod+Q", { release = "center-column", hotkey_overlay_title = "Custom" })"#,
+        )
+        .unwrap();
+
+        assert!(collect_actions(&config).contains(&&Action::CenterColumn {}));
+
+        // Various filtering behavior.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("XF86AudioMute", neori.spawn("Mute"))
+            neori.bind("Super_L", neori.spawn("Super_L"))
+            neori.bind("Mod", neori.spawn("Mod"))
+            neori.bind("Shift_L", neori.spawn("Shift_L"))
+            neori.bind("Alt", neori.spawn("Alt"))
+            neori.bind("Mod+Shift_L", neori.spawn("Mod+Shift_L"))
+            neori.bind("Super+Ctrl", neori.spawn("Super+Ctrl"))
+            neori.bind("Mod+Alt", neori.spawn("Mod+Alt"))
+            "#,
+        )
+        .unwrap();
+
+        let mut snapshot = String::new();
+        for action in collect_actions(&config) {
+            if let Action::Spawn { command: args } = action {
+                snapshot.push_str(&args[0]);
+                snapshot.push('\n');
+            }
+        }
+        assert_snapshot!(snapshot, @"
+        Super_L
+        Mod
+        Mod+Shift_L
+        Super+Ctrl
+        Mod+Alt
+        ");
     }
 }

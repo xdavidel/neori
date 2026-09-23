@@ -1693,15 +1693,27 @@ fn setup_neori_api(
                 }
                 let entry = lua.create_table()?;
                 entry.set("key", key)?;
+                // Encode a Lua function reference as a table action so the normal
+                // bind-entry parser picks it up via `script_fn_id`.
+                let register_fn = |f: mlua::Function| -> LuaResult<LuaTable> {
+                    let id = next_bind_fn_id.fetch_add(1, Ordering::SeqCst);
+                    bind_functions.lock().unwrap().insert(id, f);
+                    let fn_table = lua.create_table()?;
+                    fn_table.set("script_fn_id", id)?;
+                    Ok(fn_table)
+                };
                 match action {
                     Value::Function(f) => {
-                        let id = next_bind_fn_id.fetch_add(1, Ordering::SeqCst);
-                        bind_functions.lock().unwrap().insert(id, f);
-                        // Encode the Lua function reference as a table action so the
-                        // normal bind-entry parser picks it up via `script_fn_id`.
-                        let fn_table = lua.create_table()?;
-                        fn_table.set("script_fn_id", id)?;
-                        entry.set("action", fn_table)?;
+                        entry.set("action", register_fn(f)?)?;
+                    }
+                    Value::Table(t) => {
+                        // Functions can also be given as press and release actions.
+                        for slot in ["press", "release"] {
+                            if let Value::Function(f) = t.get::<Value>(slot)? {
+                                t.set(slot, register_fn(f)?)?;
+                            }
+                        }
+                        entry.set("action", t)?;
                     }
                     other => {
                         entry.set("action", other)?;
@@ -4617,8 +4629,12 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         .parse::<Key>()
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
 
+    // An action given directly, or in `press` / `release` slots.
     let mut action: Option<Action> = None;
-    let mut repeat = true;
+    let mut press_action: Option<Action> = None;
+    let mut release_action: Option<Action> = None;
+    // `None` means the default: repeat unless the bind has a release action.
+    let mut repeat: Option<bool> = None;
     let mut cooldown = None;
     let mut allow_when_locked = false;
     let mut allow_inhibiting = true;
@@ -4641,13 +4657,25 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                     action = Some(Action::ScriptFunction { id });
                     continue;
                 }
+                if aks == "press" || aks == "release" {
+                    let slot = if aks == "press" {
+                        &mut press_action
+                    } else {
+                        &mut release_action
+                    };
+                    *slot = Some(
+                        parse_bind_slot_action(&av)
+                            .map_err(|e| format!("bind {key_name}: {aks}: {e}"))?,
+                    );
+                    continue;
+                }
                 if let Some(a) = action_from_table_key(t, &aks, &av)? {
                     action = Some(a);
                     continue;
                 }
                 match aks.as_str() {
                     "repeat" => {
-                        repeat = value_is_truthy(&av);
+                        repeat = Some(value_is_truthy(&av));
                     }
                     "cooldown_ms" => {
                         if let Ok(ms) = value_to_u64(&av) {
@@ -4682,14 +4710,53 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         _ => {}
     }
 
-    if matches!(action, Some(Action::ToggleKeyboardShortcutsInhibit {})) {
+    if action.is_some() && (press_action.is_some() || release_action.is_some()) {
+        return Err(format!(
+            "bind {key_name}: cannot mix a direct action with press/release actions"
+        ));
+    }
+    let press_action = press_action.or(action);
+
+    if release_action.is_some()
+        && matches!(
+            key.trigger,
+            Trigger::WheelScrollDown
+                | Trigger::WheelScrollUp
+                | Trigger::WheelScrollLeft
+                | Trigger::WheelScrollRight
+                | Trigger::TouchpadScrollDown
+                | Trigger::TouchpadScrollUp
+                | Trigger::TouchpadScrollLeft
+                | Trigger::TouchpadScrollRight
+        )
+    {
+        return Err(format!(
+            "bind {key_name}: release actions are not supported for scroll binds"
+        ));
+    }
+
+    if repeat == Some(true) && press_action.is_none() && release_action.is_some() {
+        return Err(format!("bind {key_name}: release-only binds cannot repeat"));
+    }
+    let repeat = repeat.unwrap_or(release_action.is_none());
+
+    // The toggle-inhibit action must always be uninhibitable.
+    // Otherwise, it would be impossible to trigger it.
+    if matches!(press_action, Some(Action::ToggleKeyboardShortcutsInhibit {}))
+        || matches!(release_action, Some(Action::ToggleKeyboardShortcutsInhibit {}))
+    {
         allow_inhibiting = false;
     }
 
-    let Some(action) = action else {
-        return Err(format!(
-            "bind {key_name}: no action or Lua function provided"
-        ));
+    let action = match (press_action, release_action) {
+        (Some(press), Some(release)) => BoundAction::Both { press, release },
+        (Some(press), None) => BoundAction::Press(press),
+        (None, Some(release)) => BoundAction::Release(release),
+        (None, None) => {
+            return Err(format!(
+                "bind {key_name}: no action or Lua function provided"
+            ));
+        }
     };
 
     match by_keycode {
@@ -4722,6 +4789,50 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
             None
         },
     })
+}
+
+/// Parses the action in a bind's `press` or `release` slot: anything a bind itself takes (an
+/// action string, an action table like `neori.spawn(...)` returns, or a Lua function).
+fn parse_bind_slot_action(value: &Value) -> Result<Action, String> {
+    match value {
+        Value::String(s) => parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?),
+        Value::Table(t) => {
+            let mut action = None;
+            for pair in t.clone().pairs::<Value, Value>() {
+                let (ak, av) = pair.map_err(|e| format!("bind action error: {e}"))?;
+                let aks = key_str(&ak)?;
+                let parsed = if aks == "script_fn_id" {
+                    let id = value_to_u64(&av).map_err(|e| format!("script_fn_id: {e}"))?;
+                    Some(Action::ScriptFunction { id })
+                } else {
+                    action_from_table_key(t, &aks, &av)?
+                };
+                match parsed {
+                    Some(parsed) => {
+                        if action.replace(parsed).is_some() {
+                            return Err("only one action is allowed".to_string());
+                        }
+                    }
+                    None => match aks.as_str() {
+                        // Arguments of the action itself.
+                        "skip_confirmation" | "skip-confirmation" | "write_to_disk"
+                        | "write-to-disk" | "show_pointer" | "show-pointer" | "delay_ms"
+                        | "delay-ms" | "path" => {}
+                        _ => {
+                            return Err(format!(
+                                "unexpected key `{aks}` (bind options go on the bind itself)"
+                            ))
+                        }
+                    },
+                }
+            }
+            action.ok_or_else(|| "expected an action".to_string())
+        }
+        other => Err(format!(
+            "expected an action string, table or function, got {}",
+            other.type_name()
+        )),
+    }
 }
 
 fn parse_spawn_args(value: &Value) -> Result<Vec<String>, String> {

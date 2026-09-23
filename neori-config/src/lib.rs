@@ -1678,7 +1678,7 @@ mod tests {
         assert_eq!(config.binds.0.len(), 2);
 
         // The function bind carries a ScriptFunction action registered with the host.
-        let Action::ScriptFunction { id } = config.binds.0[0].action else {
+        let Some(&Action::ScriptFunction { id }) = config.binds.0[0].press_action() else {
             panic!("expected a function bind, got {:?}", config.binds.0[0].action);
         };
         assert!(
@@ -1687,7 +1687,10 @@ mod tests {
         );
 
         // The other bind carries the static Action.
-        assert_eq!(config.binds.0[1].action, Action::CloseWindow { id: None });
+        assert_eq!(
+            config.binds.0[1].action,
+            BoundAction::Press(Action::CloseWindow { id: None })
+        );
     }
 
     #[test]
@@ -2066,7 +2069,12 @@ mod tests {
     }
 
     fn actions(config: &Config) -> Vec<Action> {
-        config.binds.0.iter().map(|b| b.action.clone()).collect()
+        config
+            .binds
+            .0
+            .iter()
+            .filter_map(|b| b.press_action().cloned())
+            .collect()
     }
 
     #[test]
@@ -2140,6 +2148,71 @@ mod tests {
             "#,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn press_and_release_binds() {
+        let (config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod", { release = "toggle-overview" })
+            neori.bind("Mod+Q", { press = "close-window", release = neori.spawn("foot") })
+            neori.bind("Mod+F", { press = function() end, release = function() end })
+            neori.bind("Mod+T", { press = { toggle_overview = true } })
+            neori.bind("Mod+E", { release = "toggle-keyboard-shortcuts-inhibit" })
+            "#,
+        )
+        .config
+        .unwrap();
+        let binds = &config.binds.0;
+
+        assert_eq!(binds[0].action, BoundAction::Release(Action::ToggleOverview {}));
+        // Binds with a release action don't repeat by default.
+        assert!(!binds[0].repeat);
+
+        assert_eq!(
+            binds[1].action,
+            BoundAction::Both {
+                press: Action::CloseWindow { id: None },
+                release: Action::Spawn {
+                    command: vec!["foot".to_string()]
+                },
+            }
+        );
+
+        // Lua functions work in both slots, each registered separately.
+        let BoundAction::Both {
+            press: Action::ScriptFunction { id: press },
+            release: Action::ScriptFunction { id: release },
+        } = binds[2].action
+        else {
+            panic!("expected two function actions, got {:?}", binds[2].action);
+        };
+        assert_ne!(press, release);
+        assert!(host.has_bind_function(press));
+        assert!(host.has_bind_function(release));
+
+        // A press-only slot is the same as a direct action, and still repeats.
+        assert_eq!(binds[3].action, BoundAction::Press(Action::ToggleOverview {}));
+        assert!(binds[3].repeat);
+
+        // The inhibit toggle is never inhibitable, even as a release action.
+        assert!(!binds[4].allow_inhibiting);
+    }
+
+    #[test]
+    fn press_and_release_bind_errors() {
+        let err = |text: &str| Config::parse_mem(text).unwrap_err().main;
+
+        assert!(err(r#"neori.bind("Mod+Q", { close_window = true, release = "toggle-overview" })"#)
+            .contains("cannot mix a direct action with press/release actions"));
+        assert!(err(r#"neori.bind("Mod+WheelScrollDown", { release = "focus-workspace-down" })"#)
+            .contains("release actions are not supported for scroll binds"));
+        assert!(err(r#"neori.bind("Mod", { release = "toggle-overview", ["repeat"] = true })"#)
+            .contains("release-only binds cannot repeat"));
+        assert!(err(r#"neori.bind("Mod", { release = "no-such-action" })"#).contains("release"));
+        assert!(err(r#"neori.bind("Mod", { release = { allow_when_locked = true } })"#)
+            .contains("bind options go on the bind itself"));
     }
 
     #[test]
@@ -2300,14 +2373,14 @@ mod tests {
             .0
             .iter()
             .find(|b| {
-                b.action
-                    == Action::Spawn {
+                b.press_action()
+                    == Some(&Action::Spawn {
                         command: vec![
                             "brightnessctl".to_string(),
                             "set".to_string(),
                             "+10%".to_string(),
                         ],
-                    }
+                    })
             })
             .unwrap();
         assert!(brightness.allow_when_locked);
@@ -2317,10 +2390,10 @@ mod tests {
             .0
             .iter()
             .find(|b| {
-                b.action
-                    == Action::Spawn {
+                b.press_action()
+                    == Some(&Action::Spawn {
                         command: vec!["terminal-meta".to_string()],
-                    }
+                    })
             })
             .unwrap();
         assert_eq!(
