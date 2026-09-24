@@ -2689,6 +2689,12 @@ impl State {
                     self.neori.queue_redraw_mru_output();
                 }
             }
+            Action::TestAction => {
+                #[cfg(test)]
+                {
+                    self.neori.test_action_count += 1;
+                }
+            }
         }
         // Any workspace / focus side effects of this action are picked up by the
         // next ipc_refresh_workspaces tick — no dedicated fire needed here.

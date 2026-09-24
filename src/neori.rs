@@ -457,6 +457,9 @@ pub struct Neori {
 
     #[cfg(feature = "xdp-gnome-screencast")]
     pub casting: Screencasting,
+
+    #[cfg(test)]
+    pub test_action_count: usize,
 }
 
 smithay::delegate_dispatch2!(State);
@@ -3050,6 +3053,9 @@ impl Neori {
 
             #[cfg(feature = "xdp-gnome-screencast")]
             casting: screencasting,
+
+            #[cfg(test)]
+            test_action_count: 0,
         };
 
         neori.reset_pointer_inactivity_timer();

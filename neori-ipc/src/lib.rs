@@ -1184,6 +1184,14 @@ pub enum Action {
     #[cfg_attr(feature = "clap", command(skip))]
     #[cfg_attr(feature = "json-schema", schemars(skip))]
     MruCycleScope,
+    /// Increment a counter in the compositor's tests; does nothing otherwise.
+    ///
+    /// This action is internal, and usable neither from the config file nor over IPC.
+    #[doc(hidden)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    TestAction,
 }
 
 /// Change in window or column size.
@@ -2552,6 +2560,7 @@ mod tests {
             r#"{"ChangeVt":1}"#,
             r#"{"ConfirmScreenshot":{"write_to_disk":true}}"#,
             r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
+            r#""TestAction""#,
         ] {
             assert!(
                 serde_json::from_str::<Action>(json).is_err(),
