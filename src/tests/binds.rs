@@ -128,7 +128,10 @@ fn run(config: &str, input: &str) -> String {
 
 #[test]
 fn combos() {
-    let c = r#"neori.bind("Mod+Ctrl+Q", "close-window")"#;
+    let c = r#"
+    neori.bind("Mod+Ctrl+Q", { close_window = true })
+    neori.bind("Mod+Ctrl+W", { close_window = true })
+"#;
 
     // Action press/release.
     assert_snapshot!(
@@ -143,6 +146,31 @@ fn combos() {
     +AD01  24 XK_q
         neori test-action
     -AD01  24 XK_q
+    -LCTL  37 XK_Control_L
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+        surface key released: 29
+    -LWIN 133 XK_Super_L
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 125
+    "
+    );
+
+    // Two actions interleaved.
+    assert_snapshot!(
+        run(c, "+LWIN +LCTL +LatQ +LatW -LatQ -LatW -LCTL -LWIN"),
+        @"
+    +LWIN 133 XK_Super_L
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+        surface key pressed: 125
+    +LCTL  37 XK_Control_L
+        surface modifiers: depressed=68, latched=0, locked=0, group=0
+        surface key pressed: 29
+    +AD01  24 XK_q
+        neori test-action
+    +AD02  25 XK_w
+        neori test-action
+    -AD01  24 XK_q
+    -AD02  25 XK_w
     -LCTL  37 XK_Control_L
         surface modifiers: depressed=64, latched=0, locked=0, group=0
         surface key released: 29
@@ -277,12 +305,36 @@ fn combos() {
     -AD01  24 XK_q
     "
     );
+
+    // Modifiers after trigger key don't trigger the action.
+    assert_snapshot!(
+        run(c, "+LWIN +LatQ +LCTL -LCTL -LatQ -LWIN"),
+        @"
+    +LWIN 133 XK_Super_L
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+        surface key pressed: 125
+    +AD01  24 XK_q
+        surface key pressed: 16
+    +LCTL  37 XK_Control_L
+        surface modifiers: depressed=68, latched=0, locked=0, group=0
+        surface key pressed: 29
+    -LCTL  37 XK_Control_L
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+        surface key released: 29
+    -AD01  24 XK_q
+        surface key released: 16
+    -LWIN 133 XK_Super_L
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 125
+    "
+    );
 }
 
 #[test]
 fn inhibiting() {
     let config = r#"
     neori.bind("Q", { close_window = true })
+    neori.bind("U", { close_window = true, allow_inhibiting = false })
 "#;
 
     let (mut f, id, surface) = set_up(config);
@@ -298,6 +350,16 @@ fn inhibiting() {
         surface key pressed: 16
     -AD01  24 XK_q
         surface key released: 16
+    "
+    );
+
+    // allow-inhibiting=false still triggers.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "+LatU -LatU"),
+        @"
+    +AD07  30 XK_u
+        neori test-action
+    -AD07  30 XK_u
     "
     );
 
