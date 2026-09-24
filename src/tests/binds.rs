@@ -278,3 +278,65 @@ fn combos() {
     "
     );
 }
+
+#[test]
+fn inhibiting() {
+    let config = r#"
+    neori.bind("Q", { close_window = true })
+"#;
+
+    let (mut f, id, surface) = set_up(config);
+
+    let inhibitor = f.client(id).state.inhibit_shortcuts(&surface);
+    f.roundtrip(id);
+
+    // While inhibiting, we don't intercept the shortcut.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "+LatQ -LatQ"),
+        @"
+    +AD01  24 XK_q
+        surface key pressed: 16
+    -AD01  24 XK_q
+        surface key released: 16
+    "
+    );
+
+    // Toggle it off after pressing the shortcut.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "+LatQ"),
+        @"
+    +AD01  24 XK_q
+        surface key pressed: 16
+    "
+    );
+
+    inhibitor.destroy();
+    f.roundtrip(id);
+
+    // The surface must get key release since it got the key press.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "-LatQ"),
+        @"
+    -AD01  24 XK_q
+        surface key released: 16
+    "
+    );
+
+    // Toggle it on after pressing the shortcut.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "+LatQ"),
+        @"
+    +AD01  24 XK_q
+        neori test-action
+    "
+    );
+
+    let _inhibitor = f.client(id).state.inhibit_shortcuts(&surface);
+    f.roundtrip(id);
+
+    // The surface must not get key release since there was no key press.
+    assert_snapshot!(
+        run_f(&mut f, id, &surface, "-LatQ"),
+        @"-AD01  24 XK_q"
+    );
+}
