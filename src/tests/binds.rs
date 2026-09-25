@@ -402,3 +402,90 @@ fn inhibiting() {
         @"-AD01  24 XK_q"
     );
 }
+
+#[test]
+fn layouts() {
+    // These test keysym-based matching, so opt out of neori's default keycode binds.
+    let c = r#"
+    neori.input { keyboard = { xkb = { layout = "us,ru", options = "grp:lalt_toggle" } } }
+    neori.bind("Q", { close_window = true, keycode = false })
+    neori.bind("Shift+Slash", { close_window = true, keycode = false })
+"#;
+
+    // On a cyrillic layout (ru), an ascii bind is searched in the ascii layout (us).
+    assert_snapshot!(
+        run(c, "+LALT -LALT +LatQ -LatQ"),
+        @"
+    +LALT  64 XK_ISO_Next_Group
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+        surface key pressed: 56
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +AD01  24 XK_Cyrillic_shorti
+        neori test-action
+    -AD01  24 XK_Cyrillic_shorti
+    "
+    );
+
+    // The slash key has . , in ru, and pressing those shouldn't search another layout.
+    assert_snapshot!(
+        run(
+            c,
+            "
+            +LFSH +AB10 -AB10 -LFSH \
+            +LALT -LALT \
+            +LFSH +AB10 -AB10 -LFSH
+            "
+        ),
+        @"
+    +LFSH  50 XK_Shift_L
+        surface modifiers: depressed=1, latched=0, locked=0, group=0
+        surface key pressed: 42
+    +AB10  61 XK_question
+        neori test-action
+    -AB10  61 XK_question
+    -LFSH  50 XK_Shift_L
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 42
+    +LALT  64 XK_ISO_Next_Group
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+        surface key pressed: 56
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +LFSH  50 XK_Shift_L
+        surface modifiers: depressed=1, latched=0, locked=0, group=1
+        surface key pressed: 42
+    +AB10  61 XK_comma
+        surface key pressed: 53
+    -AB10  61 XK_comma
+        surface key released: 53
+    -LFSH  50 XK_Shift_L
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+        surface key released: 42
+    "
+    );
+
+    // In ru, / is on the \ / key (so, Shift + \). So, arguably, it would make sense for Shift + /
+    // to trigger it, but it currently doesn't (neori requires an unshifted trigger key, despite
+    // working fine with capital case alphabetic keys).
+    assert_snapshot!(
+        run(c, "+LALT -LALT +LFSH +BKSL -BKSL -LFSH"),
+        @"
+    +LALT  64 XK_ISO_Next_Group
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+        surface key pressed: 56
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +LFSH  50 XK_Shift_L
+        surface modifiers: depressed=1, latched=0, locked=0, group=1
+        surface key pressed: 42
+    +BKSL  51 XK_slash
+        surface key pressed: 43
+    -BKSL  51 XK_slash
+        surface key released: 43
+    -LFSH  50 XK_Shift_L
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+        surface key released: 42
+    "
+    );
+}
