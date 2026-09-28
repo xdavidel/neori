@@ -514,6 +514,9 @@ fn layouts() {
     neori.input { keyboard = { xkb = { layout = "us,ru", options = "grp:lalt_toggle" } } }
     neori.bind("Q", { close_window = true, keycode = false })
     neori.bind("Shift+Slash", { close_window = true, keycode = false })
+    neori.bind("Cyrillic_ya", { close_window = true, keycode = false })
+    neori.bind("Shift+Cyrillic_che", { close_window = true, keycode = false })
+    neori.bind("Shift+Cyrillic_ES", { close_window = true, keycode = false })
 "#;
 
     // On a cyrillic layout (ru), an ascii bind is searched in the ascii layout (us).
@@ -587,6 +590,66 @@ fn layouts() {
         surface key pressed: 43
     -BKSL  51 XK_slash
         surface key released: 43
+    -LFSH  50 XK_Shift_L
+        surface key released: 42
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+    "
+    );
+
+    // Я should trigger the Cyrillic_ya bind, but it currently doesn't. (Nobody binds keys like this
+    // in Russia, but people do in other countries with their non-ASCII characters.)
+    assert_snapshot!(
+        run(c, "+LALT -LALT +LatZ -LatZ"),
+        @"
+    +LALT  64 XK_ISO_Next_Group
+        surface key pressed: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +AB01  52 XK_Cyrillic_ya
+        surface key pressed: 44
+    -AB01  52 XK_Cyrillic_ya
+        surface key released: 44
+    "
+    );
+
+    // Non-ASCII binds should also be case-insensitive where reasonable, just like ASCII ones. Or,
+    // more accurately, the trigger key for a Modifier+key bind should be Modifier-insensitive.
+    assert_snapshot!(
+        run(c, "+LALT -LALT +LFSH +LatX -LatX -LFSH"),
+        @"
+    +LALT  64 XK_ISO_Next_Group
+        surface key pressed: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +LFSH  50 XK_Shift_L
+        surface key pressed: 42
+        surface modifiers: depressed=1, latched=0, locked=0, group=1
+    +AB02  53 XK_Cyrillic_CHE
+        surface key pressed: 45
+    -AB02  53 XK_Cyrillic_CHE
+        surface key released: 45
+    -LFSH  50 XK_Shift_L
+        surface key released: 42
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+    "
+    );
+    assert_snapshot!(
+        run(c, "+LALT -LALT +LFSH +LatC -LatC -LFSH"),
+        @"
+    +LALT  64 XK_ISO_Next_Group
+        surface key pressed: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=1
+    -LALT  64 XK_ISO_Next_Group
+        surface key released: 56
+    +LFSH  50 XK_Shift_L
+        surface key pressed: 42
+        surface modifiers: depressed=1, latched=0, locked=0, group=1
+    +AB03  54 XK_Cyrillic_ES
+        surface key pressed: 46
+    -AB03  54 XK_Cyrillic_ES
+        surface key released: 46
     -LFSH  50 XK_Shift_L
         surface key released: 42
         surface modifiers: depressed=0, latched=0, locked=0, group=1
