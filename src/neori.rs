@@ -6916,22 +6916,10 @@ impl Neori {
                     .set_cursor_image(CursorImageStatus::default_named());
                 self.cancel_mru();
 
-                // Cancel in-flight pointer / touch grabs (e.g. drag-and-drop) when
-                // the screen locks — otherwise grabs can bleed across the lock
-                // boundary. Asynchronous via insert_idle because `self` here is
-                // Neori, and `unset_grab` needs the full State. Upstream also
-                // cancels tablet-tool grabs via a tablet_seat().with_tools() call,
-                // but that API isn't in our smithay pin.
+                // I don't like this being asynchronous, but it would be a bit involved to move
+                // this whole function to State. This should do for now.
                 self.event_loop.insert_idle(|state| {
-                    let pointer = state.neori.seat.get_pointer().unwrap();
-                    pointer.unset_grab(
-                        state,
-                        SERIAL_COUNTER.next_serial(),
-                        InputTime::now(),
-                    );
-                    if let Some(touch) = state.neori.seat.get_touch() {
-                        touch.unset_grab(state);
-                    }
+                    state.cancel_pointing_grabs();
                 });
 
                 if self.output_state.is_empty() {
