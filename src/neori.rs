@@ -587,6 +587,8 @@ pub struct PointContents {
     pub layer: Option<LayerSurface>,
     // Point is over a hot corner.
     pub hot_corner: bool,
+    // Point is over the overview.
+    pub overview: bool,
 }
 
 #[derive(Debug, Default)]
@@ -3883,6 +3885,7 @@ impl Neori {
                 .or_else(|| layer_toplevel_under(Layer::Background));
         } else {
             if self.is_inside_hot_corner(output, pos_within_output) {
+                rv.overview = is_overview_open;
                 rv.hot_corner = true;
                 return rv;
             }
@@ -3890,6 +3893,10 @@ impl Neori {
             under = under
                 .or_else(|| layer_popup_under(Layer::Top))
                 .or_else(|| layer_toplevel_under(Layer::Top));
+
+            if is_overview_open && under.is_none() {
+                rv.overview = true;
+            }
 
             under = under.or_else(interactive_moved_window_under);
 
