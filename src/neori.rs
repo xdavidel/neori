@@ -2380,7 +2380,23 @@ impl State {
             return;
         };
 
-        // Now that we captured the screenshots, clear grabs like drag-and-drop, etc.
+        // Now that we captured the screenshots, clear grabs.
+        self.cancel_pointing_grabs();
+
+        self.backend.with_primary_renderer(|renderer| {
+            self.neori
+                .screenshot_ui
+                .open(renderer, screenshots, default_output, show_pointer, path)
+        });
+
+        self.neori
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
+        self.neori.queue_redraw_all();
+    }
+
+    /// Cancel pointing device grabs like drag-and-drop, etc.
+    pub fn cancel_pointing_grabs(&mut self) {
         let time = InputTime::now();
         self.neori
             .seat
@@ -2394,17 +2410,6 @@ impl State {
         for tool in self.neori.seat.tablet_seat().get_tools().into_values() {
             tool.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
         }
-
-        self.backend.with_primary_renderer(|renderer| {
-            self.neori
-                .screenshot_ui
-                .open(renderer, screenshots, default_output, show_pointer, path)
-        });
-
-        self.neori
-            .cursor_manager
-            .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
-        self.neori.queue_redraw_all();
     }
 
     pub fn handle_pick_color(&mut self, tx: async_channel::Sender<Option<neori_ipc::PickedColor>>) {
