@@ -505,6 +505,9 @@ neori.bind("Mod+Ctrl+Shift+p", neori.spawn_sh("playerctl pause", { allow_when_lo
 neori.bind("XF86MonBrightnessUp", neori.spawn({ "brightnessctl", "--class=backlight", "set", "+10%" }, { allow_when_locked = true }))
 neori.bind("XF86MonBrightnessDown", neori.spawn({ "brightnessctl", "--class=backlight", "set", "10%-" }, { allow_when_locked = true }))
 
+-- Some laptops have a key for toggling the touchpad.
+neori.bind("XF86TouchpadToggle", { toggle_touchpad = true, ["repeat"] = false })
+
 -- Open/close the Overview: a zoomed-out view of workspaces and windows.
 neori.bind("Mod+O", { toggle_overview = true, ["repeat"] = false })
 
