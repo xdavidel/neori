@@ -5169,6 +5169,7 @@ fn allowed_when_locked(action: &Action) -> bool {
             | Action::PowerOnMonitors {}
             | Action::SwitchLayout { layout: _ }
             | Action::ToggleKeyboardShortcutsInhibit {}
+            | Action::ToggleTouchpad {}
     )
 }
 
@@ -5208,6 +5209,7 @@ fn allowed_during_screenshot(action: &Action) -> bool {
             | Action::Suspend
             | Action::PowerOffMonitors {}
             | Action::PowerOnMonitors {}
+            | Action::ToggleTouchpad {}
             // Intended for binds such as volume up/down, lock the screen, etc.
             | Action::Spawn { command: _ }
             | Action::SpawnSh { command: _ }
