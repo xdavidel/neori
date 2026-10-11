@@ -512,6 +512,7 @@ neori.bind("Mod+O", { toggle_overview = true, ["repeat"] = false })
 neori.bind("Mod+Tab", { focus_workspace_previous = true, ["repeat"] = false })
 
 neori.bind("Mod+Q", { close_window = true, ["repeat"] = false })
+neori.bind("Alt+F4", { close_window = true, ["repeat"] = false })
 
 neori.bind("Mod+Left", "focus_column_left")
 neori.bind("Mod+Down", "focus_window_down")
