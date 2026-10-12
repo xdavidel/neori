@@ -787,13 +787,25 @@ impl State {
             }
             Action::ChangeVt(vt) => {
                 self.backend.change_vt(vt);
+
                 // Changing VT may not deliver the key releases, so clear the state.
                 self.neori.suppressed_keys.clear();
+
+                // Stop ongoing key repeat if any.
+                if let Some(token) = self.neori.bind_repeat_timer.take() {
+                    self.neori.event_loop.remove(token);
+                }
             }
             Action::Suspend => {
                 self.backend.suspend();
+
                 // Suspend may not deliver the key releases, so clear the state.
                 self.neori.suppressed_keys.clear();
+
+                // Stop ongoing key repeat if any.
+                if let Some(token) = self.neori.bind_repeat_timer.take() {
+                    self.neori.event_loop.remove(token);
+                }
             }
             Action::PowerOffMonitors {} => {
                 self.neori.deactivate_monitors(&mut self.backend);
