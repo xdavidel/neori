@@ -2,9 +2,10 @@ use ::input as libinput;
 use smithay::backend::input;
 use smithay::backend::winit::WinitVirtualDevice;
 use smithay::output::Output;
+use smithay::wayland::virtual_keyboard::VirtualKeyboardDevice;
+use smithay::wayland::virtual_pointer::VirtualPointerDevice;
 
 use crate::neori::State;
-use crate::protocols::virtual_pointer::VirtualPointer;
 
 pub trait NeoriInputBackend: input::InputBackend<Device = Self::NeoriDevice> {
     type NeoriDevice: NeoriInputDevice;
@@ -44,8 +45,14 @@ impl NeoriInputDevice for WinitVirtualDevice {
     }
 }
 
-impl NeoriInputDevice for VirtualPointer {
+impl NeoriInputDevice for VirtualPointerDevice {
     fn output(&self, _: &State) -> Option<Output> {
-        self.output().cloned()
+        self.output()
+    }
+}
+
+impl NeoriInputDevice for VirtualKeyboardDevice {
+    fn output(&self, _: &State) -> Option<Output> {
+        None
     }
 }
