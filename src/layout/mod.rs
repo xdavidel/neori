@@ -1,6 +1,6 @@
 //! Window layout logic.
 //!
-//! Niri implements scrollable tiling with dynamic workspaces. The scrollable tiling is mostly
+//! Neori implements scrollable tiling with dynamic workspaces. The scrollable tiling is mostly
 //! orthogonal to any particular workspace system, though outputs living in separate coordinate
 //! spaces suggest per-output workspaces.
 //!
@@ -12,7 +12,7 @@
 //! workspaces from disconnected outputs will move. Currently, the primary output has no other
 //! distinction from other outputs.
 //!
-//! Where possible, niri tries to follow these principles with regards to outputs:
+//! Where possible, neori tries to follow these principles with regards to outputs:
 //!
 //! 1. Disconnecting and reconnecting the same output must not change the layout.
 //!    * This includes both secondary outputs and the primary output.
@@ -37,11 +37,11 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use monitor::{InsertHint, InsertPosition, InsertWorkspace, MonitorAddWindowTarget};
-use niri_config::utils::MergeWith as _;
-use niri_config::{
+use neori_config::utils::MergeWith as _;
+use neori_config::{
     Config, CornerRadius, LayoutPart, PresetSize, Workspace as WorkspaceConfig, WorkspaceReference,
 };
-use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
+use neori_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use scrolling::{Column, ColumnWidth};
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::utils::RescaleRenderElement;
@@ -53,12 +53,12 @@ use tile::{Tile, TileRenderElement};
 use workspace::{WorkspaceAddWindowTarget, WorkspaceId};
 
 pub use self::monitor::MonitorRenderElement;
-use self::monitor::{Monitor, WorkspaceSwitch};
+use self::monitor::{FocusWorkspaceDirection, Monitor, WorkspaceGestureEnd, WorkspaceSwitch};
 use self::workspace::{OutputId, Workspace};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::scrolling::ScrollDirection;
-use crate::niri_render_elements;
+use crate::neori_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::offscreen::OffscreenData;
 use crate::render_helpers::renderer::NiriRenderer;
@@ -110,7 +110,7 @@ const OVERVIEW_GESTURE_RUBBER_BAND: RubberBand = RubberBand {
 /// Size-relative units.
 pub struct SizeFrac;
 
-niri_render_elements! {
+neori_render_elements! {
     LayoutElementRenderElement<R> => {
         Wayland = WaylandSurfaceRenderElement<R>,
         SolidColor = SolidColorRenderElement,
@@ -136,7 +136,7 @@ pub trait LayoutElement {
     fn id(&self) -> &Self::Id;
 
     /// Updates the config for the element.
-    fn update_config(&mut self, blur_config: niri_config::Blur) {
+    fn update_config(&mut self, blur_config: neori_config::Blur) {
         let _ = blur_config;
     }
 
@@ -349,6 +349,11 @@ pub struct Layout<W: LayoutElement> {
     /// The workspace id does not necessarily point to a valid workspace. If it doesn't, then it is
     /// simply ignored.
     last_active_workspace_id: HashMap<String, WorkspaceId>,
+    /// Workspace that was active right before the current one (across all monitors).
+    ///
+    /// Used for `switch_workspace_previous()` and auto-back-and-forth behavior in the global
+    /// workspace model.
+    previous_active_workspace_id: Option<WorkspaceId>,
     /// Ongoing interactive move.
     interactive_move: Option<InteractiveMoveState<W>>,
     /// Ongoing drag-and-drop operation.
@@ -388,11 +393,11 @@ enum MonitorSet<W: LayoutElement> {
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Options {
-    pub layout: niri_config::Layout,
-    pub animations: niri_config::Animations,
-    pub gestures: niri_config::Gestures,
-    pub overview: niri_config::Overview,
-    pub blur: niri_config::Blur,
+    pub layout: neori_config::Layout,
+    pub animations: neori_config::Animations,
+    pub gestures: neori_config::Gestures,
+    pub overview: neori_config::Overview,
+    pub blur: neori_config::Blur,
     // Debug flags.
     pub disable_resize_throttling: bool,
     pub disable_transactions: bool,
@@ -438,13 +443,13 @@ struct InteractiveMoveData<W: LayoutElement> {
     /// Config overrides for the output where the window is currently located.
     ///
     /// Cached here to be accessible while an output is removed.
-    pub(self) output_config: Option<niri_config::LayoutPart>,
+    pub(self) output_config: Option<neori_config::LayoutPart>,
     /// Config overrides for the workspace where the window is currently located.
     ///
     /// To avoid sudden window changes when starting an interactive move, it will remember the
     /// config overrides for the workspace where the move originated from. As soon as the window
     /// moves over some different workspace though, this override will reset.
-    pub(self) workspace_config: Option<(WorkspaceId, niri_config::LayoutPart)>,
+    pub(self) workspace_config: Option<(WorkspaceId, neori_config::LayoutPart)>,
 }
 
 #[derive(Debug)]
@@ -648,7 +653,7 @@ impl HitType {
 
 impl Options {
     fn from_config(config: &Config) -> Self {
-        Self {
+        let mut options = Self {
             layout: config.layout.clone(),
             animations: config.animations.clone(),
             gestures: config.gestures,
@@ -657,19 +662,30 @@ impl Options {
             disable_resize_throttling: config.debug.disable_resize_throttling,
             disable_transactions: config.debug.disable_transactions,
             deactivate_unfocused_windows: config.debug.deactivate_unfocused_windows,
-        }
+        };
+        options.disable_empty_workspace_above_first();
+        options
     }
 
-    fn with_merged_layout(mut self, part: Option<&niri_config::LayoutPart>) -> Self {
+    fn with_merged_layout(mut self, part: Option<&neori_config::LayoutPart>) -> Self {
         if let Some(part) = part {
             self.layout.merge_with(part);
         }
+        self.disable_empty_workspace_above_first();
         self
     }
 
     fn adjusted_for_scale(mut self, scale: f64) -> Self {
         self.layout.gaps = round_logical_in_physical_max1(scale, self.layout.gaps);
+        // Merging a per-monitor layout could have re-enabled this option.
+        self.disable_empty_workspace_above_first();
         self
+    }
+
+    /// In the global workspace model there is always a single workspace 1, so
+    /// scrollable empty workspaces "above the first workspace" make no sense.
+    fn disable_empty_workspace_above_first(&mut self) {
+        self.layout.empty_workspace_above_first = false;
     }
 }
 
@@ -697,6 +713,7 @@ impl<W: LayoutElement> Layout<W> {
             monitor_set: MonitorSet::NoOutputs { workspaces: vec![] },
             is_active: true,
             last_active_workspace_id: HashMap::new(),
+            previous_active_workspace_id: None,
             interactive_move: None,
             dnd: None,
             clock,
@@ -722,6 +739,7 @@ impl<W: LayoutElement> Layout<W> {
             monitor_set: MonitorSet::NoOutputs { workspaces },
             is_active: true,
             last_active_workspace_id: HashMap::new(),
+            previous_active_workspace_id: None,
             interactive_move: None,
             dnd: None,
             clock,
@@ -793,6 +811,12 @@ impl<W: LayoutElement> Layout<W> {
                         && primary.workspaces.len() == 2)
                 {
                     primary.clean_up_workspaces();
+                }
+
+                // A monitor must always have at least one workspace.
+                if primary.workspaces.is_empty() {
+                    primary.add_workspace_bottom();
+                    primary.active_workspace_idx = 0;
                 }
 
                 workspaces.reverse();
@@ -1309,10 +1333,18 @@ impl<W: LayoutElement> Layout<W> {
         reference: WorkspaceReference,
     ) -> Option<&mut Workspace<W>> {
         if let WorkspaceReference::Index(index) = reference {
-            self.active_monitor().and_then(|m| {
-                let index = index.saturating_sub(1) as usize;
-                m.workspaces.get_mut(index)
-            })
+            // Ensure the globally-numbered workspace exists (create on the active
+            // monitor if it doesn't), then return it.
+            let index = u32::from(index);
+            self.ensure_workspace_index(index);
+            match &mut self.monitor_set {
+                MonitorSet::Normal { monitors, .. } => monitors.iter_mut().find_map(|mon| {
+                    mon.workspaces.iter_mut().find(|ws| ws.index() == index)
+                }),
+                MonitorSet::NoOutputs { workspaces } => {
+                    workspaces.iter_mut().find(|ws| ws.index() == index)
+                }
+            }
         } else {
             self.workspaces_mut().find(|ws| match &reference {
                 WorkspaceReference::Name(ref_name) => ws
@@ -2065,14 +2097,32 @@ impl<W: LayoutElement> Layout<W> {
         let Some(monitor) = self.active_monitor() else {
             return;
         };
-        monitor.focus_window_or_workspace_down();
+        if let Some(direction) = monitor.focus_window_or_workspace_down() {
+            match direction {
+                FocusWorkspaceDirection::Next => {
+                    self.switch_workspace_down();
+                }
+                FocusWorkspaceDirection::Previous => {
+                    self.switch_workspace_up();
+                }
+            }
+        }
     }
 
     pub fn focus_window_or_workspace_up(&mut self) {
         let Some(monitor) = self.active_monitor() else {
             return;
         };
-        monitor.focus_window_or_workspace_up();
+        if let Some(direction) = monitor.focus_window_or_workspace_up() {
+            match direction {
+                FocusWorkspaceDirection::Next => {
+                    self.switch_workspace_down();
+                }
+                FocusWorkspaceDirection::Previous => {
+                    self.switch_workspace_up();
+                }
+            }
+        }
     }
 
     pub fn focus_window_top(&mut self) {
@@ -2117,10 +2167,15 @@ impl<W: LayoutElement> Layout<W> {
         monitor.move_to_workspace_down(focus);
     }
 
+    /// Moves a window (or the active window) to the workspace with the given
+    /// global number.
+    ///
+    /// If the workspace doesn't exist, it is created on the source monitor. If
+    /// it lives on a different monitor, the window is moved across monitors.
     pub fn move_to_workspace(
         &mut self,
         window: Option<&W::Id>,
-        idx: usize,
+        index: u32,
         activate: ActivateWindow,
     ) {
         if let Some(InteractiveMoveState::Moving(move_)) = &mut self.interactive_move {
@@ -2129,23 +2184,53 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
-        let monitor = if let Some(window) = window {
-            match &mut self.monitor_set {
-                MonitorSet::Normal { monitors, .. } => monitors
-                    .iter_mut()
-                    .find(|mon| mon.has_window(window))
-                    .unwrap(),
-                MonitorSet::NoOutputs { .. } => {
-                    return;
+        // Find the source monitor.
+        let src_mon_idx = if let Some(window) = window {
+            match &self.monitor_set {
+                MonitorSet::Normal { monitors, .. } => {
+                    let Some(mon_idx) = monitors
+                        .iter()
+                        .enumerate()
+                        .find_map(|(mon_idx, mon)| mon.has_window(window).then_some(mon_idx))
+                    else {
+                        return;
+                    };
+                    mon_idx
                 }
+                MonitorSet::NoOutputs { .. } => return,
             }
         } else {
-            let Some(monitor) = self.active_monitor() else {
+            match &self.monitor_set {
+                MonitorSet::Normal {
+                    active_monitor_idx, ..
+                } => *active_monitor_idx,
+                MonitorSet::NoOutputs { .. } => return,
+            }
+        };
+
+        // Make sure the target workspace exists.
+        self.ensure_workspace_index_on(src_mon_idx, index);
+
+        // Find the target position (monitor, workspace) by number.
+        let (dst_mon_idx, dst_ws_idx) = match self.workspace_position_by_number(index) {
+            Some(position) => position,
+            None => return,
+        };
+
+        if dst_mon_idx == src_mon_idx {
+            let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
                 return;
             };
-            monitor
-        };
-        monitor.move_to_workspace(window, idx, activate);
+            monitors[src_mon_idx].move_to_workspace(window, dst_ws_idx, activate);
+            return;
+        }
+
+        // Cross-monitor move.
+        let dst_output = { match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => monitors[dst_mon_idx].output.clone(),
+            MonitorSet::NoOutputs { .. } => return,
+        }};
+        self.move_to_output(window, &dst_output, Some(dst_ws_idx), activate);
     }
 
     pub fn move_column_to_workspace_up(&mut self, activate: bool) {
@@ -2162,46 +2247,240 @@ impl<W: LayoutElement> Layout<W> {
         monitor.move_column_to_workspace_down(activate);
     }
 
-    pub fn move_column_to_workspace(&mut self, idx: usize, activate: bool) {
-        let Some(monitor) = self.active_monitor() else {
-            return;
+    /// Moves the active column (or the active floating window) to the workspace
+    /// with the given global number, across monitors if necessary.
+    pub fn move_column_to_workspace(&mut self, index: u32, activate: bool) {
+        // The active floating window is moved like a regular window.
+        let mon_idx = match &self.monitor_set {
+            MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } => {
+                if monitors[*active_monitor_idx]
+                    .active_workspace_ref()
+                    .floating_is_active()
+                {
+                    let activate = if activate {
+                        ActivateWindow::Smart
+                    } else {
+                        ActivateWindow::No
+                    };
+                    self.move_to_workspace(None, index, activate);
+                    return;
+                }
+                *active_monitor_idx
+            }
+            MonitorSet::NoOutputs { .. } => return,
         };
-        monitor.move_column_to_workspace(idx, activate);
+
+        self.ensure_workspace_index_on(mon_idx, index);
+
+        let (dst_mon_idx, dst_ws_idx) = match self.workspace_position_by_number(index) {
+            Some(position) => position,
+            None => return,
+        };
+
+        if dst_mon_idx == mon_idx {
+            let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+                return;
+            };
+            monitors[mon_idx].move_column_to_workspace(dst_ws_idx, activate);
+            return;
+        }
+
+        let dst_output = match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => monitors[dst_mon_idx].output.clone(),
+            MonitorSet::NoOutputs { .. } => return,
+        };
+        self.move_column_to_output(&dst_output, Some(dst_ws_idx), activate);
     }
 
     pub fn switch_workspace_up(&mut self) {
-        let Some(monitor) = self.active_monitor() else {
+        let Some(number) = self.active_workspace_number() else {
             return;
         };
-        monitor.switch_workspace_up();
+        // Numbers can be sparse, so jump to the previous existing workspace
+        // rather than blindly decrementing the number (which would create gaps).
+        let previous = self
+            .workspaces()
+            .map(|(_, _, ws)| ws.index())
+            .filter(|&n| n < number)
+            .max();
+        if let Some(previous) = previous {
+            self.switch_workspace(previous);
+        }
     }
 
     pub fn switch_workspace_down(&mut self) {
-        let Some(monitor) = self.active_monitor() else {
+        let Some(number) = self.active_workspace_number() else {
             return;
         };
-        monitor.switch_workspace_down();
+        // Jump to the next existing workspace; only create a new one when
+        // there is nothing higher to move to.
+        let next = self
+            .workspaces()
+            .map(|(_, _, ws)| ws.index())
+            .filter(|&n| n > number)
+            .min();
+        match next {
+            Some(next) => self.switch_workspace(next),
+            None => self.switch_workspace(number + 1),
+        }
     }
 
-    pub fn switch_workspace(&mut self, idx: usize) {
-        let Some(monitor) = self.active_monitor() else {
-            return;
-        };
-        monitor.switch_workspace(idx);
+    /// Focuses the workspace with the given global number.
+    ///
+    /// The workspace may live on any monitor; focusing it also focuses that
+    /// monitor. If the workspace does not exist, it is created on the currently
+    /// focused monitor (filling in any missing lower numbers so the sequence
+    /// stays dense).
+    pub fn switch_workspace(&mut self, index: u32) {
+        self.ensure_workspace_index(index);
+        if let Some((mon_idx, ws_idx)) = self.workspace_position_by_number(index) {
+            self.activate_workspace_position(mon_idx, ws_idx);
+        }
     }
 
-    pub fn switch_workspace_auto_back_and_forth(&mut self, idx: usize) {
-        let Some(monitor) = self.active_monitor() else {
-            return;
-        };
-        monitor.switch_workspace_auto_back_and_forth(idx);
+    pub fn switch_workspace_auto_back_and_forth(&mut self, index: u32) {
+        if self.active_workspace_number() == Some(index) {
+            self.switch_workspace_previous();
+        } else {
+            self.switch_workspace(index);
+        }
     }
 
+    /// Switches to the workspace that was active before the current one,
+    /// wherever it is.
     pub fn switch_workspace_previous(&mut self) {
-        let Some(monitor) = self.active_monitor() else {
+        let Some(id) = self.previous_active_workspace_id else {
             return;
         };
-        monitor.switch_workspace_previous();
+        if let Some((mon_idx, ws_idx)) = self.workspace_position_by_id(id) {
+            self.activate_workspace_position(mon_idx, ws_idx);
+        }
+    }
+
+    /// Returns the global number of the currently active workspace.
+    fn active_workspace_number(&self) -> Option<u32> {
+        let MonitorSet::Normal {
+            monitors,
+            active_monitor_idx,
+            ..
+        } = &self.monitor_set
+        else {
+            return None;
+        };
+
+        Some(monitors[*active_monitor_idx].active_workspace_ref().index())
+    }
+
+    /// Finds the (monitor, workspace) position of a workspace by number.
+    fn workspace_position_by_number(&self, number: u32) -> Option<(usize, usize)> {
+        match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => monitors
+                .iter()
+                .enumerate()
+                .find_map(|(mon_idx, mon)| {
+                    mon.workspaces
+                        .iter()
+                        .position(|ws| ws.index() == number)
+                        .map(|ws_idx| (mon_idx, ws_idx))
+                }),
+            MonitorSet::NoOutputs { workspaces } => workspaces
+                .iter()
+                .position(|ws| ws.index() == number)
+                .map(|ws_idx| (0, ws_idx)),
+        }
+    }
+
+    /// Finds the (monitor, workspace) position of a workspace by id.
+    fn workspace_position_by_id(&self, id: WorkspaceId) -> Option<(usize, usize)> {
+        match &self.monitor_set {
+            MonitorSet::Normal { monitors, .. } => monitors
+                .iter()
+                .enumerate()
+                .find_map(|(mon_idx, mon)| {
+                    mon.workspaces
+                        .iter()
+                        .position(|ws| ws.id() == id)
+                        .map(|ws_idx| (mon_idx, ws_idx))
+                }),
+            MonitorSet::NoOutputs { workspaces } => workspaces
+                .iter()
+                .position(|ws| ws.id() == id)
+                .map(|ws_idx| (0, ws_idx)),
+        }
+    }
+
+    /// Creates the workspace with the given global number on the given monitor
+    /// if no workspace with that number exists yet.
+    ///
+    /// Intermediate numbers are deliberately *not* filled in: jumping to
+    /// workspace 6 creates only 6, not 2, 3, 4 and 5. Workspaces are created on
+    /// demand, one number at a time.
+    fn ensure_workspace_index_on(&mut self, mon_idx: usize, index: u32) {
+        let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+            return;
+        };
+        if mon_idx >= monitors.len() {
+            return;
+        }
+
+        let exists = monitors
+            .iter()
+            .flat_map(|mon| mon.workspaces.iter())
+            .any(|ws| ws.index() == index);
+
+        if !exists {
+            monitors[mon_idx].add_workspace_with_number(index);
+        }
+    }
+
+    /// Creates the given workspace number on the currently focused monitor.
+    fn ensure_workspace_index(&mut self, index: u32) {
+        let mon_idx = match &self.monitor_set {
+            MonitorSet::Normal {
+                active_monitor_idx, ..
+            } => *active_monitor_idx,
+            MonitorSet::NoOutputs { .. } => return,
+        };
+        self.ensure_workspace_index_on(mon_idx, index);
+    }
+
+    /// Activates the workspace at the given position, focusing its monitor.
+    fn activate_workspace_position(&mut self, mon_idx: usize, ws_idx: usize) {
+        let MonitorSet::Normal {
+            monitors,
+            active_monitor_idx,
+            ..
+        } = &mut self.monitor_set
+        else {
+            return;
+        };
+
+        if mon_idx >= monitors.len() {
+            return;
+        }
+        if ws_idx >= monitors[mon_idx].workspaces.len() {
+            return;
+        }
+
+        let cur_mon_idx = *active_monitor_idx;
+        let cur_ws_idx = monitors[cur_mon_idx].active_workspace_idx;
+        let cur_ws_id = monitors[cur_mon_idx].workspaces[cur_ws_idx].id();
+        let target_ws_id = monitors[mon_idx].workspaces[ws_idx].id();
+
+        if cur_mon_idx == mon_idx && cur_ws_idx == ws_idx {
+            return;
+        }
+
+        if cur_ws_id != target_ws_id {
+            self.previous_active_workspace_id = Some(cur_ws_id);
+        }
+
+        *active_monitor_idx = mon_idx;
+        monitors[mon_idx].switch_workspace(ws_idx);
     }
 
     pub fn consume_into_column(&mut self) {
@@ -2446,6 +2725,7 @@ impl<W: LayoutElement> Layout<W> {
 
         let mut seen_workspace_id = HashSet::new();
         let mut seen_workspace_name = Vec::<String>::new();
+        let mut seen_workspace_index = HashSet::new();
 
         let (monitors, &primary_idx, &active_monitor_idx) = match &self.monitor_set {
             MonitorSet::Normal {
@@ -2455,11 +2735,6 @@ impl<W: LayoutElement> Layout<W> {
             } => (monitors, primary_idx, active_monitor_idx),
             MonitorSet::NoOutputs { workspaces } => {
                 for workspace in workspaces {
-                    assert!(
-                        workspace.has_windows_or_name(),
-                        "with no outputs there cannot be empty unnamed workspaces"
-                    );
-
                     assert_eq!(self.clock, workspace.clock);
 
                     assert_eq!(
@@ -2470,6 +2745,11 @@ impl<W: LayoutElement> Layout<W> {
                     assert!(
                         seen_workspace_id.insert(workspace.id()),
                         "workspace id must be unique"
+                    );
+
+                    assert!(
+                        seen_workspace_index.insert(workspace.index()),
+                        "workspace number must be globally unique"
                     );
 
                     if let Some(name) = &workspace.name {
@@ -2541,6 +2821,11 @@ impl<W: LayoutElement> Layout<W> {
                 assert!(
                     seen_workspace_id.insert(workspace.id()),
                     "workspace id must be unique"
+                );
+
+                assert!(
+                    seen_workspace_index.insert(workspace.index()),
+                    "workspace number must be globally unique"
                 );
 
                 if let Some(name) = &workspace.name {
@@ -3419,76 +3704,83 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn move_workspace_to_output(&mut self, output: &Output) -> bool {
-        let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
-        } = &self.monitor_set
-        else {
+        let Some(number) = self.active_workspace_number() else {
             return false;
         };
-
-        let idx = monitors[*active_monitor_idx].active_workspace_idx;
-        self.move_workspace_to_output_by_id(idx, None, output)
+        self.move_workspace_to_output_by_id(number, None, output)
     }
 
-    // FIXME: accept workspace by id
+    /// Moves the workspace with the given global number to `new_output`.
     pub fn move_workspace_to_output_by_id(
         &mut self,
-        old_idx: usize,
+        old_number: u32,
         old_output: Option<Output>,
         new_output: &Output,
     ) -> bool {
-        let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
-        } = &mut self.monitor_set
-        else {
+        let _ = old_output;
+
+        let Some((current_idx, old_idx)) = self.workspace_position_by_number(old_number) else {
             return false;
         };
 
-        let current_idx = if let Some(old_output) = old_output {
-            monitors
-                .iter()
-                .position(|mon| mon.output == old_output)
-                .unwrap()
-        } else {
-            *active_monitor_idx
+        let target_idx = {
+            let MonitorSet::Normal { monitors, .. } = &self.monitor_set else {
+                return false;
+            };
+            match monitors.iter().position(|mon| mon.output == *new_output) {
+                Some(idx) => idx,
+                None => return false,
+            }
         };
-        let target_idx = monitors
-            .iter()
-            .position(|mon| mon.output == *new_output)
-            .unwrap();
 
-        let current = &mut monitors[current_idx];
-
-        if current.workspaces.len() <= old_idx {
-            return false;
-        }
-
-        // Do not do anything if the output is already correct
+        // Do not do anything if the output is already correct.
         if current_idx == target_idx {
-            // Just update the original output since this is an explicit movement action.
+            let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+                return false;
+            };
+            let current = &mut monitors[current_idx];
             current.workspaces[old_idx].original_output = OutputId::new(&current.output);
-
             return false;
         }
 
-        // Only switch active monitor if the workspace to be moved is the currently focused one on
-        // the current monitor.
-        let activate =
-            current_idx == *active_monitor_idx && old_idx == current.active_workspace_idx;
+        // Only switch active monitor if the workspace to be moved is the currently
+        // focused one on the current monitor.
+        let activate = {
+            let MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } = &self.monitor_set
+            else {
+                return false;
+            };
+            current_idx == *active_monitor_idx
+                && old_idx == monitors[current_idx].active_workspace_idx
+        };
 
-        let mut ws = current.remove_workspace_by_idx(old_idx);
-        ws.original_output = OutputId::new(new_output);
+        {
+            let MonitorSet::Normal {
+                monitors,
+                active_monitor_idx,
+                ..
+            } = &mut self.monitor_set
+            else {
+                return false;
+            };
 
-        let target = &mut monitors[target_idx];
-        target.insert_workspace(ws, target.active_workspace_idx + 1, activate);
+            let mut ws = monitors[current_idx].remove_workspace_by_idx(old_idx);
+            ws.original_output = OutputId::new(new_output);
 
-        if activate {
-            *active_monitor_idx = target_idx;
+            let target = &mut monitors[target_idx];
+            target.insert_workspace(ws, target.active_workspace_idx + 1, activate);
+
+            if activate {
+                *active_monitor_idx = target_idx;
+            }
         }
+
+        // Keep the target monitor's list sorted by workspace number.
+        self.resort_monitor(target_idx);
 
         activate
     }
@@ -3596,7 +3888,7 @@ impl<W: LayoutElement> Layout<W> {
         for monitor in monitors {
             // Cancel the gesture on other outputs.
             if &monitor.output != output {
-                monitor.workspace_switch_gesture_end(None);
+                let _ = monitor.workspace_switch_gesture_end(None);
                 continue;
             }
 
@@ -3636,9 +3928,40 @@ impl<W: LayoutElement> Layout<W> {
             MonitorSet::NoOutputs { .. } => return None,
         };
 
+        let mut global_dir = None;
+        let mut mutated_output = None;
+
         for monitor in monitors {
-            if monitor.workspace_switch_gesture_end(is_touchpad) {
-                return Some(monitor.output.clone());
+            match monitor.workspace_switch_gesture_end(is_touchpad) {
+                WorkspaceGestureEnd::NotAffected => continue,
+                WorkspaceGestureEnd::Resolved => {
+                    mutated_output = Some(monitor.output.clone());
+                    break;
+                }
+                WorkspaceGestureEnd::GoPreviousGlobal => {
+                    global_dir = Some(FocusWorkspaceDirection::Previous);
+                    mutated_output = Some(monitor.output.clone());
+                    break;
+                }
+                WorkspaceGestureEnd::GoNextGlobal => {
+                    global_dir = Some(FocusWorkspaceDirection::Next);
+                    mutated_output = Some(monitor.output.clone());
+                    break;
+                }
+            }
+        }
+
+        if let Some(output) = mutated_output {
+            match global_dir {
+                Some(FocusWorkspaceDirection::Previous) => {
+                    self.switch_workspace_up();
+                    return self.active_output().cloned();
+                }
+                Some(FocusWorkspaceDirection::Next) => {
+                    self.switch_workspace_down();
+                    return self.active_output().cloned();
+                }
+                None => return Some(output),
             }
         }
 
@@ -4473,49 +4796,99 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    /// Renumbers the active workspace to the next global number, swapping with
+    /// the workspace currently holding it (if any).
     pub fn move_workspace_down(&mut self) {
-        let Some(monitor) = self.active_monitor() else {
+        let Some(number) = self.active_workspace_number() else {
             return;
         };
-        monitor.move_workspace_down();
+        self.move_workspace_to_number(number, number + 1);
     }
 
+    /// Renumbers the active workspace to the previous global number, swapping
+    /// with the workspace currently holding it (if any).
     pub fn move_workspace_up(&mut self) {
-        let Some(monitor) = self.active_monitor() else {
+        let Some(number) = self.active_workspace_number() else {
             return;
         };
-        monitor.move_workspace_up();
+        if number > 1 {
+            self.move_workspace_to_number(number, number - 1);
+        }
     }
 
     pub fn move_workspace_to_idx(
         &mut self,
-        reference: Option<(Option<Output>, usize)>,
-        new_idx: usize,
+        reference: Option<(Option<Output>, u32)>,
+        new_idx: u32,
     ) {
-        let (monitor, old_idx) = if let Some((output, old_idx)) = reference {
-            let monitor = if let Some(output) = output {
-                let Some(monitor) = self.monitor_for_output_mut(&output) else {
+        // Resolve the source workspace number.
+        let source_number = if let Some((output, old_number)) = reference {
+            if let Some(output) = output {
+                let Some(monitor) = self.monitor_for_output(&output) else {
                     return;
                 };
-                monitor
+                let _ = old_number;
+                monitor.active_workspace_ref().index()
             } else {
-                // In case a numbered workspace reference is used, assume the active monitor
-                let Some(monitor) = self.active_monitor() else {
-                    return;
-                };
-                monitor
-            };
-
-            (monitor, old_idx)
+                // A numbered workspace reference: use the number directly.
+                old_number
+            }
         } else {
-            let Some(monitor) = self.active_monitor() else {
+            // Active workspace.
+            let Some(number) = self.active_workspace_number() else {
                 return;
             };
-            let index = monitor.active_workspace_idx;
-            (monitor, index)
+            number
         };
 
-        monitor.move_workspace_to_idx(old_idx, new_idx);
+        self.move_workspace_to_number(source_number, new_idx);
+    }
+
+    /// Renumbers the workspace `from_number` to `to_number`.
+    ///
+    /// If the target number is taken by another workspace, the two workspaces
+    /// swap numbers. After the swap, each affected monitor's workspace list is
+    /// re-sorted so numbers stay ordered within a monitor.
+    fn move_workspace_to_number(&mut self, from_number: u32, to_number: u32) {
+        let Some((src_mon, src_ws)) = self.workspace_position_by_number(from_number) else {
+            return;
+        };
+
+        if let Some((dst_mon, dst_ws)) = self.workspace_position_by_number(to_number) {
+            {
+                let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+                    return;
+                };
+                let a_num = monitors[src_mon].workspaces[src_ws].index;
+                let b_num = monitors[dst_mon].workspaces[dst_ws].index;
+                monitors[src_mon].workspaces[src_ws].index = b_num;
+                monitors[dst_mon].workspaces[dst_ws].index = a_num;
+            }
+            self.resort_monitor(src_mon);
+            self.resort_monitor(dst_mon);
+        } else {
+            let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+                return;
+            };
+            monitors[src_mon].workspaces[src_ws].index = to_number;
+            self.resort_monitor(src_mon);
+        }
+    }
+
+    /// Re-sorts a monitor's workspace list by workspace number, keeping the
+    /// active workspace active.
+    fn resort_monitor(&mut self, mon_idx: usize) {
+        let MonitorSet::Normal { monitors, .. } = &mut self.monitor_set else {
+            return;
+        };
+        let mon = &mut monitors[mon_idx];
+        let active_id = mon.workspaces[mon.active_workspace_idx].id();
+        mon.workspaces.sort_by_key(|ws| ws.index());
+        mon.active_workspace_idx = mon
+            .workspaces
+            .iter()
+            .position(|ws| ws.id() == active_id)
+            .unwrap();
     }
 
     pub fn set_workspace_name(&mut self, name: String, reference: Option<WorkspaceReference>) {
@@ -4534,38 +4907,6 @@ impl<W: LayoutElement> Layout<W> {
         };
 
         ws.name.replace(name);
-
-        let wsid = ws.id();
-
-        // if `empty_workspace_above_first` is set and `ws` is the first
-        // workspace on a monitor, another empty workspace needs to
-        // be added before.
-        // Conversely, if `ws` was the last workspace on a monitor, an
-        // empty workspace needs to be added after.
-
-        if let MonitorSet::Normal {
-            monitors,
-            active_monitor_idx,
-            ..
-        } = &mut self.monitor_set
-        {
-            let monitor = &mut monitors[*active_monitor_idx];
-            if monitor.options.layout.empty_workspace_above_first
-                && monitor
-                    .workspaces
-                    .first()
-                    .is_some_and(|first| first.id() == wsid)
-            {
-                monitor.add_workspace_top();
-            }
-            if monitor
-                .workspaces
-                .last()
-                .is_some_and(|last| last.id() == wsid)
-            {
-                monitor.add_workspace_bottom();
-            }
-        }
     }
 
     pub fn unset_workspace_name(&mut self, reference: Option<WorkspaceReference>) {

@@ -2,3 +2,6 @@
 /result
 
 .idea
+
+# insta pending snapshots
+*.pending-snap

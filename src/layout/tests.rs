@@ -1,8 +1,8 @@
 use std::cell::{Cell, OnceCell, RefCell};
 
-use niri_config::utils::{Flag, MergeWith as _};
-use niri_config::workspace::WorkspaceName;
-use niri_config::{
+use neori_config::utils::{Flag, MergeWith as _};
+use neori_config::workspace::WorkspaceName;
+use neori_config::{
     CenterFocusedColumn, FloatOrInt, OutputName, Struts, TabIndicatorLength, TabIndicatorPosition,
     WorkspaceReference,
 };
@@ -413,7 +413,7 @@ enum Op {
         #[proptest(strategy = "arbitrary_scale()")]
         scale: f64,
         #[proptest(strategy = "prop::option::of(arbitrary_layout_part().prop_map(Box::new))")]
-        layout_config: Option<Box<niri_config::LayoutPart>>,
+        layout_config: Option<Box<neori_config::LayoutPart>>,
     },
     RemoveOutput(#[proptest(strategy = "1..=5usize")] usize),
     FocusOutput(#[proptest(strategy = "1..=5usize")] usize),
@@ -421,7 +421,7 @@ enum Op {
         #[proptest(strategy = "1..=5usize")]
         id: usize,
         #[proptest(strategy = "prop::option::of(arbitrary_layout_part().prop_map(Box::new))")]
-        layout_config: Option<Box<niri_config::LayoutPart>>,
+        layout_config: Option<Box<neori_config::LayoutPart>>,
     },
     AddNamedWorkspace {
         #[proptest(strategy = "1..=5usize")]
@@ -429,7 +429,7 @@ enum Op {
         #[proptest(strategy = "prop::option::of(1..=5usize)")]
         output_name: Option<usize>,
         #[proptest(strategy = "prop::option::of(arbitrary_layout_part().prop_map(Box::new))")]
-        layout_config: Option<Box<niri_config::LayoutPart>>,
+        layout_config: Option<Box<neori_config::LayoutPart>>,
     },
     UnnameWorkspace {
         #[proptest(strategy = "1..=5usize")]
@@ -439,7 +439,7 @@ enum Op {
         #[proptest(strategy = "1..=5usize")]
         ws_name: usize,
         #[proptest(strategy = "prop::option::of(arbitrary_layout_part().prop_map(Box::new))")]
-        layout_config: Option<Box<niri_config::LayoutPart>>,
+        layout_config: Option<Box<neori_config::LayoutPart>>,
     },
     AddWindow {
         params: TestWindowParams,
@@ -751,7 +751,7 @@ enum Op {
     ToggleOverview,
     UpdateConfig {
         #[proptest(strategy = "arbitrary_layout_part().prop_map(Box::new)")]
-        layout_config: Box<niri_config::LayoutPart>,
+        layout_config: Box<neori_config::LayoutPart>,
     },
 }
 
@@ -860,7 +860,7 @@ impl Op {
                 layout.ensure_named_workspace(&WorkspaceConfig {
                     name: WorkspaceName(format!("ws{ws_name}")),
                     open_on_output: output_name.map(|name| format!("output{name}")),
-                    layout: layout_config.map(|x| niri_config::WorkspaceLayoutPart(*x)),
+                    layout: layout_config.map(|x| neori_config::WorkspaceLayoutPart(*x)),
                 });
             }
             Op::UnnameWorkspace { ws_name } => {
@@ -1181,9 +1181,9 @@ impl Op {
             Op::CenterVisibleColumns => layout.center_visible_columns(),
             Op::FocusWorkspaceDown => layout.switch_workspace_down(),
             Op::FocusWorkspaceUp => layout.switch_workspace_up(),
-            Op::FocusWorkspace(idx) => layout.switch_workspace(idx),
+            Op::FocusWorkspace(idx) => layout.switch_workspace((idx + 1) as u32),
             Op::FocusWorkspaceAutoBackAndForth(idx) => {
-                layout.switch_workspace_auto_back_and_forth(idx)
+                layout.switch_workspace_auto_back_and_forth((idx + 1) as u32)
             }
             Op::FocusWorkspacePrevious => layout.switch_workspace_previous(),
             Op::MoveWindowToWorkspaceDown(focus) => layout.move_to_workspace_down(focus),
@@ -1193,11 +1193,17 @@ impl Op {
                 workspace_idx,
             } => {
                 let window_id = window_id.filter(|id| layout.has_window(id));
-                layout.move_to_workspace(window_id.as_ref(), workspace_idx, ActivateWindow::Smart);
+                layout.move_to_workspace(
+                    window_id.as_ref(),
+                    (workspace_idx + 1) as u32,
+                    ActivateWindow::Smart,
+                );
             }
             Op::MoveColumnToWorkspaceDown(focus) => layout.move_column_to_workspace_down(focus),
             Op::MoveColumnToWorkspaceUp(focus) => layout.move_column_to_workspace_up(focus),
-            Op::MoveColumnToWorkspace(idx, focus) => layout.move_column_to_workspace(idx, focus),
+            Op::MoveColumnToWorkspace(idx, focus) => {
+                layout.move_column_to_workspace((idx + 1) as u32, focus)
+            }
             Op::MoveWindowToOutput {
                 window_id,
                 output_id: id,
@@ -1240,29 +1246,27 @@ impl Op {
                     return;
                 };
 
-                let Some((old_idx, old_output)) = monitors.iter().find_map(|monitor| {
-                    monitor
-                        .workspaces
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, ws)| {
-                            if ws.name == Some(format!("ws{ws_name}")) {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        })
-                        .map(|i| (i, monitor.output.clone()))
+                let Some((old_number, old_output)) = monitors.iter().find_map(|monitor| {
+                    monitor.workspaces.iter().find_map(|ws| {
+                        if ws.name == Some(format!("ws{ws_name}")) {
+                            Some((ws.index(), monitor.output.clone()))
+                        } else {
+                            None
+                        }
+                    })
                 }) else {
                     return;
                 };
 
-                layout.move_workspace_to_idx(Some((Some(old_output), old_idx)), target_idx)
+                layout.move_workspace_to_idx(
+                    Some((Some(old_output), old_number)),
+                    (target_idx + 1) as u32,
+                )
             }
             Op::MoveWorkspaceToIndex {
                 ws_name: None,
                 target_idx,
-            } => layout.move_workspace_to_idx(None, target_idx),
+            } => layout.move_workspace_to_idx(None, (target_idx + 1) as u32),
             Op::MoveWorkspaceToMonitor {
                 ws_name: None,
                 output_id: id,
@@ -1285,24 +1289,19 @@ impl Op {
                     return;
                 };
 
-                let Some((old_idx, old_output)) = monitors.iter().find_map(|monitor| {
-                    monitor
-                        .workspaces
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, ws)| {
-                            if ws.name == Some(format!("ws{ws_name}")) {
-                                Some(i)
-                            } else {
-                                None
-                            }
-                        })
-                        .map(|i| (i, monitor.output.clone()))
+                let Some((old_number, old_output)) = monitors.iter().find_map(|monitor| {
+                    monitor.workspaces.iter().find_map(|ws| {
+                        if ws.name == Some(format!("ws{ws_name}")) {
+                            Some((ws.index(), monitor.output.clone()))
+                        } else {
+                            None
+                        }
+                    })
                 }) else {
                     return;
                 };
 
-                layout.move_workspace_to_output_by_id(old_idx, Some(old_output), &output);
+                layout.move_workspace_to_output_by_id(old_number, Some(old_output), &output);
             }
             Op::SwitchPresetColumnWidth => layout.toggle_width(true),
             Op::SwitchPresetColumnWidthBack => layout.toggle_width(false),
@@ -1619,7 +1618,7 @@ impl Op {
             }
             Op::UpdateConfig { layout_config } => {
                 let options = Options {
-                    layout: niri_config::Layout::from_part(&layout_config),
+                    layout: neori_config::Layout::from_part(&layout_config),
                     ..Default::default()
                 };
 
@@ -1988,6 +1987,60 @@ fn window_closed_on_previous_workspace() {
 }
 
 #[test]
+fn focusing_a_workspace_number_does_not_create_intermediate_workspaces() {
+    let ops = [
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        // Jump straight to workspace 6.
+        Op::FocusWorkspace(5),
+    ];
+
+    let layout = check_ops(ops);
+
+    let MonitorSet::Normal { monitors, .. } = layout.monitor_set else {
+        unreachable!()
+    };
+
+    // Only workspace 1 (with the window) and workspace 6 should exist; jumping to
+    // 6 must not fill in 2, 3, 4 and 5.
+    let numbers: Vec<u32> = monitors[0].workspaces.iter().map(|ws| ws.index()).collect();
+    assert_eq!(numbers, vec![1, 6]);
+    assert_eq!(monitors[0].active_workspace_idx, 1);
+}
+
+#[test]
+fn switch_workspace_up_down_skips_missing_numbers() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        // Create workspace 6, leaving a gap at 2..=5.
+        Op::FocusWorkspace(5),
+    ]);
+
+    // Up from 6 jumps to the next existing number below it (1), not 5.
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    // Nothing exists below 1, so up is a no-op.
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    // Down from 1 jumps to the next existing number (6), not 2.
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace_number(), Some(6));
+
+    // Nothing exists above 6, so down creates 7.
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace_number(), Some(7));
+
+    layout.verify_invariants();
+}
+
+#[test]
 fn removing_output_must_keep_empty_focus_on_primary() {
     let ops = [
         Op::AddOutput(1),
@@ -2010,7 +2063,7 @@ fn removing_output_must_keep_empty_focus_on_primary() {
 }
 
 #[test]
-fn move_to_workspace_by_idx_does_not_leave_empty_workspaces() {
+fn move_to_workspace_by_idx_keeps_source_workspace() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -2034,7 +2087,10 @@ fn move_to_workspace_by_idx_does_not_leave_empty_workspaces() {
         unreachable!()
     };
 
-    assert!(monitors[0].workspaces[1].has_windows());
+    // Global workspace model: empty workspaces are kept, and the monitor's active
+    // workspace is still #2 (index 1) after moving the window without focusing.
+    assert_eq!(monitors[0].active_workspace_idx, 1);
+    assert!(monitors[0].workspaces[0].index() < monitors[0].workspaces[1].index());
 }
 
 #[test]
@@ -2333,7 +2389,7 @@ fn open_right_of_on_different_workspace_ewaf() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2345,13 +2401,15 @@ fn open_right_of_on_different_workspace_ewaf() {
         unreachable!()
     };
 
+    // empty_workspace_above_first is force-disabled, so this behaves like the
+    // non-ewaf test above.
     let mon = monitors.into_iter().next().unwrap();
     assert_eq!(
-        mon.active_workspace_idx, 2,
+        mon.active_workspace_idx, 1,
         "the second workspace must remain active"
     );
     assert_eq!(
-        mon.workspaces[1].scrolling().active_column_idx(),
+        mon.workspaces[0].scrolling().active_column_idx(),
         1,
         "the new window must become active"
     );
@@ -2380,7 +2438,8 @@ fn removing_all_outputs_preserves_empty_named_workspaces() {
         unreachable!()
     };
 
-    assert_eq!(workspaces.len(), 2);
+    // The default empty workspace is kept too, so all three survive as NoOutputs.
+    assert_eq!(workspaces.len(), 3);
 }
 
 #[test]
@@ -2517,8 +2576,8 @@ fn fixed_height_takes_max_non_auto_into_account() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
-            border: niri_config::Border {
+        layout: neori_config::Layout {
+            border: neori_config::Border {
                 off: false,
                 width: 4.,
                 ..Default::default()
@@ -2604,7 +2663,7 @@ fn interactive_move_onto_empty_output_ewaf() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2668,7 +2727,7 @@ fn interactive_move_onto_first_empty_workspace() {
         Op::InteractiveMoveEnd { window: 1 },
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2723,7 +2782,10 @@ fn output_active_workspace_is_preserved_with_other_outputs() {
         unreachable!()
     };
 
-    assert_eq!(monitors[1].active_workspace_idx, 1);
+    // output1 only keeps the single workspace it had (global model: FocusWorkspaceDown
+    // jumped to output2's workspace instead of creating one on output1), so its restored
+    // active workspace is at index 0.
+    assert_eq!(monitors[1].active_workspace_idx, 0);
 }
 
 #[test]
@@ -2754,7 +2816,7 @@ fn named_workspace_to_output_ewaf() {
         Op::AddOutput(2),
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2776,7 +2838,7 @@ fn move_window_to_empty_workspace_above_first() {
         Op::MoveWorkspaceDown,
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2796,7 +2858,7 @@ fn move_window_to_different_output() {
         Op::MoveWorkspaceToOutput(2),
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2815,7 +2877,7 @@ fn close_window_empty_ws_above_first() {
         Op::CloseWindow(1),
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2835,7 +2897,7 @@ fn add_and_remove_output() {
         Op::RemoveOutput(2),
     ];
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2855,7 +2917,7 @@ fn switch_ewaf_on() {
 
     let mut layout = check_ops(ops);
     layout.update_options(Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2874,7 +2936,7 @@ fn switch_ewaf_off() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -2982,8 +3044,8 @@ fn interactive_move_from_workspace_with_layout_config() {
         Op::AddNamedWorkspace {
             ws_name: 1,
             output_name: Some(2),
-            layout_config: Some(Box::new(niri_config::LayoutPart {
-                border: Some(niri_config::BorderRule {
+            layout_config: Some(Box::new(neori_config::LayoutPart {
+                border: Some(neori_config::BorderRule {
                     on: true,
                     ..Default::default()
                 }),
@@ -3255,7 +3317,7 @@ fn set_first_workspace_name_ewaf() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             empty_workspace_above_first: true,
             ..Default::default()
         },
@@ -3310,7 +3372,7 @@ fn move_workspace_to_same_monitor_doesnt_reorder() {
         .workspaces()
         .map(|(_, _, ws)| ws.windows().count())
         .collect();
-    assert_eq!(counts, &[1, 2, 0]);
+    assert_eq!(counts, &[1, 2]);
 }
 
 #[test]
@@ -3349,7 +3411,7 @@ fn preset_column_width_fixed_correct_with_border() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             preset_column_widths: vec![PresetSize::Fixed(500)],
             ..Default::default()
         },
@@ -3362,9 +3424,9 @@ fn preset_column_width_fixed_correct_with_border() {
 
     // Add border.
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             preset_column_widths: vec![PresetSize::Fixed(500)],
-            border: niri_config::Border {
+            border: neori_config::Border {
                 off: false,
                 width: 5.,
                 ..Default::default()
@@ -3401,7 +3463,7 @@ fn preset_column_width_reset_after_set_width() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             preset_column_widths: vec![PresetSize::Fixed(500), PresetSize::Fixed(1000)],
             ..Default::default()
         },
@@ -3637,7 +3699,7 @@ fn tabs_with_different_border() {
         Op::AddWindow {
             params: TestWindowParams {
                 rules: Some(ResolvedWindowRules {
-                    border: niri_config::BorderRule {
+                    border: neori_config::BorderRule {
                         on: true,
                         ..Default::default()
                     },
@@ -3655,7 +3717,7 @@ fn tabs_with_different_border() {
     ];
 
     let options = Options {
-        layout: niri_config::Layout {
+        layout: neori_config::Layout {
             struts: Struts {
                 left: FloatOrInt(0.),
                 right: FloatOrInt(0.),
@@ -3814,8 +3876,8 @@ prop_compose! {
     fn arbitrary_focus_ring()(
         off in any::<bool>(),
         width in prop::option::of(arbitrary_spacing().prop_map(FloatOrInt)),
-    ) -> niri_config::BorderRule {
-        niri_config::BorderRule {
+    ) -> neori_config::BorderRule {
+        neori_config::BorderRule {
             off,
             on: !off,
             width,
@@ -3828,8 +3890,8 @@ prop_compose! {
     fn arbitrary_border()(
         off in any::<bool>(),
         width in prop::option::of(arbitrary_spacing().prop_map(FloatOrInt)),
-    ) -> niri_config::BorderRule {
-        niri_config::BorderRule {
+    ) -> neori_config::BorderRule {
+        neori_config::BorderRule {
             off,
             on: !off,
             width,
@@ -3842,8 +3904,8 @@ prop_compose! {
     fn arbitrary_shadow()(
         off in any::<bool>(),
         softness in prop::option::of(arbitrary_spacing().prop_map(FloatOrInt)),
-    ) -> niri_config::ShadowRule {
-        niri_config::ShadowRule {
+    ) -> neori_config::ShadowRule {
+        neori_config::ShadowRule {
             off,
             on: !off,
             softness,
@@ -3862,8 +3924,8 @@ prop_compose! {
         length in prop::option::of((0f64..2f64)
             .prop_map(|x| TabIndicatorLength { total_proportion: Some(x) })),
         position in prop::option::of(arbitrary_tab_indicator_position()),
-    ) -> niri_config::TabIndicatorPart {
-        niri_config::TabIndicatorPart {
+    ) -> neori_config::TabIndicatorPart {
+        neori_config::TabIndicatorPart {
             off,
             on: !off,
             hide_when_single_tab,
@@ -3886,10 +3948,10 @@ prop_compose! {
         shadow in prop::option::of(arbitrary_shadow()),
         tab_indicator in prop::option::of(arbitrary_tab_indicator()),
         center_focused_column in prop::option::of(arbitrary_center_focused_column()),
-        always_center_single_column in prop::option::of(any::<bool>().prop_map(Flag)),
-        empty_workspace_above_first in prop::option::of(any::<bool>().prop_map(Flag)),
-    ) -> niri_config::LayoutPart {
-        niri_config::LayoutPart {
+        always_center_single_column in prop::option::of(any::<bool>()),
+        empty_workspace_above_first in prop::option::of(any::<bool>()),
+    ) -> neori_config::LayoutPart {
+        neori_config::LayoutPart {
             gaps,
             struts,
             center_focused_column,
@@ -3922,7 +3984,7 @@ proptest! {
     ) {
         // eprintln!("{ops:?}");
         let options = Options {
-            layout: niri_config::Layout::from_part(&layout_config),
+            layout: neori_config::Layout::from_part(&layout_config),
             ..Default::default()
         };
 

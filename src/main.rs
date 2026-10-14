@@ -15,23 +15,23 @@ use clap::{CommandFactory, Parser};
 use clap_complete::Shell;
 use clap_complete_nushell::Nushell;
 use directories::ProjectDirs;
-use niri::cli::{Cli, CompletionShell, Sub};
+use neori::cli::{Cli, CompletionShell, Sub};
 #[cfg(feature = "dbus")]
-use niri::dbus;
-use niri::ipc::client::handle_msg;
-use niri::niri::State;
-use niri::utils::spawning::{
-    spawn, spawn_sh, store_and_increase_nofile_rlimit, CHILD_DISPLAY, CHILD_ENV,
-    REMOVE_ENV_RUST_BACKTRACE, REMOVE_ENV_RUST_LIB_BACKTRACE,
+use neori::dbus;
+use neori::ipc::client::handle_msg;
+use neori::neori::State;
+use neori::utils::spawning::{
+    spawn, store_and_increase_nofile_rlimit, CHILD_DISPLAY, CHILD_ENV, REMOVE_ENV_RUST_BACKTRACE,
+    REMOVE_ENV_RUST_LIB_BACKTRACE,
 };
-use niri::utils::{cause_panic, version, watcher, xwayland, IS_SYSTEMD_SERVICE};
-use niri_config::{Config, ConfigPath};
-use niri_ipc::socket::SOCKET_PATH_ENV;
+use neori::utils::{cause_panic, version, watcher, xwayland, IS_SYSTEMD_SERVICE};
+use neori_config::{Config, ConfigPath, ScriptHost};
+use neori_ipc::socket::{NIRI_SOCKET_PATH_ENV, SOCKET_PATH_ENV};
 use sd_notify::NotifyState;
 use smithay::reexports::wayland_server::Display;
 use tracing_subscriber::EnvFilter;
 
-const DEFAULT_LOG_FILTER: &str = "niri=debug,smithay::backend::renderer::gles=error";
+const DEFAULT_LOG_FILTER: &str = "neori=debug,smithay::backend::renderer::gles=error";
 
 #[cfg(feature = "profile-with-tracy-allocations")]
 #[global_allocator]
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Set the current desktop for xdg-desktop-portal.
-        env::set_var("XDG_CURRENT_DESKTOP", "niri");
+        env::set_var("XDG_CURRENT_DESKTOP", "neori");
         // Ensure the session type is set to Wayland for xdg-autostart and Qt apps.
         env::set_var("XDG_SESSION_TYPE", "wayland");
     }
@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         clap_complete::generate(
                             Nushell,
                             &mut Cli::command(),
-                            "niri",
+                            "neori",
                             &mut io::stdout(),
                         );
                     }
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         clap_complete::generate(
                             generator,
                             &mut Cli::command(),
-                            "niri",
+                            "neori",
                             &mut io::stdout(),
                         );
                     }
@@ -137,9 +137,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Needs to be done before starting Tracy, so that it applies to Tracy's threads.
-    niri::utils::signals::block_early().unwrap();
+    neori::utils::signals::block_early().unwrap();
 
-    // Avoid starting Tracy for the `niri msg` code path since starting/stopping Tracy is a bit
+    // Avoid starting Tracy for the `neori msg` code path since starting/stopping Tracy is a bit
     // slow.
     tracy_client::Client::start();
 
@@ -147,17 +147,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load the config.
     let config_path = config_path(cli.config);
-    env::remove_var("NIRI_CONFIG");
-    let (config_created_at, config_load_result) = config_path.load_or_create();
+    env::remove_var("NEORI_CONFIG");
+    let (config_created_at, config_load_result) = config_path.load_or_create_with_host();
     let config_errored = config_load_result.config.is_err();
-    let mut config = config_load_result.config.unwrap_or_else(|err| {
+    let (mut config, script_host) = config_load_result.config.unwrap_or_else(|err| {
         warn!("{err:?}");
-        Config::load_default()
+        (Config::load_default(), ScriptHost::default())
     });
     let config_includes = config_load_result.includes;
 
-    let spawn_at_startup = mem::take(&mut config.spawn_at_startup);
-    let spawn_sh_at_startup = mem::take(&mut config.spawn_sh_at_startup);
     *CHILD_ENV.write().unwrap() = mem::take(&mut config.environment);
 
     store_and_increase_nofile_rlimit();
@@ -166,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_loop = EventLoop::<State>::try_new().unwrap();
 
     // Handle Ctrl+C and other signals.
-    niri::utils::signals::listen(&event_loop.handle());
+    neori::utils::signals::listen(&event_loop.handle());
 
     // Create the compositor.
     let display = Display::new().unwrap();
@@ -184,25 +182,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.session,
     )
     .unwrap();
+    state.scripting = script_host;
 
     // Set WAYLAND_DISPLAY for children.
-    let socket_name = state.niri.socket_name.as_deref().unwrap();
+    let socket_name = state.neori.socket_name.as_deref().unwrap();
     env::set_var("WAYLAND_DISPLAY", socket_name);
     info!(
         "listening on Wayland socket: {}",
         socket_name.to_string_lossy()
     );
 
-    // Set NIRI_SOCKET for children.
-    if let Some(ipc) = &state.niri.ipc_server {
+    // Set NEORI_SOCKET for children.
+    if let Some(ipc) = &state.neori.ipc_server {
         let socket_path = ipc.socket_path.as_deref().unwrap();
         env::set_var(SOCKET_PATH_ENV, socket_path);
+        env::set_var(NIRI_SOCKET_PATH_ENV, socket_path);
         info!("IPC listening on: {}", socket_path.to_string_lossy());
     }
 
     // Setup xwayland-satellite integration.
     xwayland::satellite::setup(&mut state);
-    if let Some(satellite) = &state.niri.satellite {
+    if let Some(satellite) = &state.neori.satellite {
         let name = satellite.display_name();
         *CHILD_DISPLAY.write().unwrap() = Some(name.to_owned());
         env::set_var("DISPLAY", name);
@@ -218,8 +218,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Inhibit power key handling so we can suspend on it.
         #[cfg(feature = "dbus")]
-        if !state.niri.config.borrow().input.disable_power_key_handling {
-            if let Err(err) = state.niri.inhibit_power_key() {
+        if !state.neori.config.borrow().input.disable_power_key_handling {
+            if let Err(err) = state.neori.inhibit_power_key() {
                 warn!("error inhibiting power key: {err:?}");
             }
         }
@@ -230,10 +230,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "dbus")]
     if cli.session {
-        state.niri.a11y.start();
+        state.neori.a11y.start();
     }
 
-    if env::var_os("NIRI_DISABLE_SYSTEM_MANAGER_NOTIFY").is_none_or(|x| x != "1") {
+    if env::var_os("NEORI_DISABLE_SYSTEM_MANAGER_NOTIFY").is_none_or(|x| x != "1") {
         // Notify systemd we're ready.
         if let Err(err) = sd_notify::notify(&[NotifyState::Ready]) {
             warn!("error notifying systemd: {err:?}");
@@ -247,22 +247,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     watcher::setup(&mut state, &config_path, config_includes);
 
-    // Spawn commands from cli and auto-start.
+    // Spawn commands from cli and fire the startup event.
     spawn(cli.command, None);
 
-    for elem in spawn_at_startup {
-        spawn(elem.command, None);
-    }
-    for elem in spawn_sh_at_startup {
-        spawn_sh(elem.command, None);
-    }
+    state.fire_startup();
 
     // Show the config error notification right away if needed.
     if config_errored {
-        state.niri.config_error_notification.show();
+        state.neori.config_error_notification.show();
         state.ipc_config_loaded(true);
     } else if let Some(path) = config_created_at {
-        state.niri.config_error_notification.show_created(path);
+        state.neori.config_error_notification.show_created(path);
     }
 
     // Run the compositor.
@@ -280,6 +275,7 @@ fn import_environment() {
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
         SOCKET_PATH_ENV,
+        NIRI_SOCKET_PATH_ENV,
     ]
     .join(" ");
 
@@ -325,24 +321,24 @@ fn import_environment() {
 }
 
 fn env_config_path() -> Option<PathBuf> {
-    env::var_os("NIRI_CONFIG")
+    env::var_os("NEORI_CONFIG")
         .filter(|x| !x.is_empty())
         .map(PathBuf::from)
 }
 
 fn default_config_path() -> Option<PathBuf> {
-    let Some(dirs) = ProjectDirs::from("", "", "niri") else {
+    let Some(dirs) = ProjectDirs::from("", "", "neori") else {
         warn!("error retrieving home directory");
         return None;
     };
 
     let mut path = dirs.config_dir().to_owned();
-    path.push("config.kdl");
+    path.push("config.lua");
     Some(path)
 }
 
 fn system_config_path() -> PathBuf {
-    PathBuf::from("/etc/niri/config.kdl")
+    PathBuf::from("/etc/neori/config.lua")
 }
 
 fn config_path(cli_path: Option<PathBuf>) -> ConfigPath {
