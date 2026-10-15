@@ -12,7 +12,7 @@ assignees: ''
 <!-- Attaching your full neori config can help diagnose the problem. -->
 <details><summary>Config</summary>
 
-```kdl
+```lua
 insert config here
 ```
 

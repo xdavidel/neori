@@ -381,11 +381,11 @@ mod tests {
 
     #[test]
     fn change_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori/config.kdl", "b")?;
+                sh.write_file("neori/config.lua", "b")?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -394,11 +394,11 @@ mod tests {
 
     #[test]
     fn overwrite_but_dont_change_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori/config.kdl", "a")?;
+                sh.write_file("neori/config.lua", "a")?;
                 test.assert_changed_to("a");
 
                 Ok(())
@@ -407,11 +407,11 @@ mod tests {
 
     #[test]
     fn touch_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                cmd!(sh, "touch neori/config.kdl").run()?;
+                cmd!(sh, "touch neori/config.lua").run()?;
                 test.assert_changed_to("a");
 
                 Ok(())
@@ -420,11 +420,11 @@ mod tests {
 
     #[test]
     fn create_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| sh.create_dir("neori"))
             .assert_initial_not_exists()
             .run(|sh, test| {
-                sh.write_file("neori/config.kdl", "a")?;
+                sh.write_file("neori/config.lua", "a")?;
                 test.assert_changed_to("a");
 
                 Ok(())
@@ -433,10 +433,10 @@ mod tests {
 
     #[test]
     fn create_dir_and_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .without_setup()
             .run(|sh, test| {
-                sh.write_file("neori/config.kdl", "a")?;
+                sh.write_file("neori/config.lua", "a")?;
                 test.assert_changed_to("a");
 
                 Ok(())
@@ -445,14 +445,14 @@ mod tests {
 
     #[test]
     fn change_linked_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config2.kdl", "a")?;
-                cmd!(sh, "ln -sf config2.kdl neori/config.kdl").run()
+                sh.write_file("neori/config2.lua", "a")?;
+                cmd!(sh, "ln -sf config2.lua neori/config.lua").run()
             })
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori/config2.kdl", "b")?;
+                sh.write_file("neori/config2.lua", "b")?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -461,14 +461,14 @@ mod tests {
 
     #[test]
     fn change_file_in_linked_dir() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori2/config.kdl", "a")?;
+                sh.write_file("neori2/config.lua", "a")?;
                 cmd!(sh, "ln -s neori2 neori").run()
             })
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori2/config.kdl", "b")?;
+                sh.write_file("neori2/config.lua", "b")?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -477,11 +477,11 @@ mod tests {
 
     #[test]
     fn remove_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                sh.remove_path("neori/config.kdl")?;
+                sh.remove_path("neori/config.lua")?;
                 test.assert_unchanged();
 
                 Ok(())
@@ -490,8 +490,8 @@ mod tests {
 
     #[test]
     fn remove_dir() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
                 sh.remove_path("neori")?;
@@ -503,12 +503,12 @@ mod tests {
 
     #[test]
     fn recreate_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                sh.remove_path("neori/config.kdl")?;
-                sh.write_file("neori/config.kdl", "b")?;
+                sh.remove_path("neori/config.lua")?;
+                sh.write_file("neori/config.lua", "b")?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -517,15 +517,15 @@ mod tests {
 
     #[test]
     fn recreate_dir() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config.kdl", "a")?;
+                sh.write_file("neori/config.lua", "a")?;
                 Ok(())
             })
             .assert_initial("a")
             .run(|sh, test| {
                 sh.remove_path("neori")?;
-                sh.write_file("neori/config.kdl", "b")?;
+                sh.write_file("neori/config.lua", "b")?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -534,11 +534,11 @@ mod tests {
 
     #[test]
     fn swap_dir() -> Result {
-        TestPath::Explicit("neori/config.kdl")
-            .setup(|sh| sh.write_file("neori/config.kdl", "a"))
+        TestPath::Explicit("neori/config.lua")
+            .setup(|sh| sh.write_file("neori/config.lua", "a"))
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori2/config.kdl", "b")?;
+                sh.write_file("neori2/config.lua", "b")?;
                 sh.remove_path("neori")?;
                 cmd!(sh, "mv neori2 neori").run()?;
                 test.assert_changed_to("b");
@@ -549,14 +549,14 @@ mod tests {
 
     #[test]
     fn swap_dir_link() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori2/config.kdl", "a")?;
+                sh.write_file("neori2/config.lua", "a")?;
                 cmd!(sh, "ln -s neori2 neori").run()
             })
             .assert_initial("a")
             .run(|sh, test| {
-                sh.write_file("neori3/config.kdl", "b")?;
+                sh.write_file("neori3/config.lua", "b")?;
                 sh.remove_path("neori")?;
                 cmd!(sh, "ln -s neori3 neori").run()?;
                 test.assert_changed_to("b");
@@ -567,9 +567,9 @@ mod tests {
 
     #[test]
     fn change_included_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config.kdl", "require \"colors\"")?;
+                sh.write_file("neori/config.lua", "require \"colors\"")?;
                 sh.write_file("neori/colors.lua", "// Colors")
             })
             .assert_initial("require \"colors\"")
@@ -583,9 +583,9 @@ mod tests {
 
     #[test]
     fn remove_included_file() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config.kdl", "require \"colors\"")?;
+                sh.write_file("neori/config.lua", "require \"colors\"")?;
                 sh.write_file("neori/colors.lua", "// Colors")
             })
             .assert_initial("require \"colors\"")
@@ -599,9 +599,9 @@ mod tests {
 
     #[test]
     fn nested_includes() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config.kdl", "require \"a\"")?;
+                sh.write_file("neori/config.lua", "require \"a\"")?;
                 sh.write_file("neori/a.lua", "require \"b\"")?;
                 sh.write_file("neori/b.lua", "// b content")
             })
@@ -616,9 +616,9 @@ mod tests {
 
     #[test]
     fn broken_include_still_gets_watched() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup(|sh| {
-                sh.write_file("neori/config.kdl", "require \"colors\"")?;
+                sh.write_file("neori/config.lua", "require \"colors\"")?;
                 sh.write_file("neori/colors.lua", "broken")
             })
             .assert_initial("require \"colors\"")
@@ -646,22 +646,22 @@ mod tests {
 
     #[test]
     fn swap_just_link() -> Result {
-        TestPath::Explicit("neori/config.kdl")
+        TestPath::Explicit("neori/config.lua")
             .setup_any(|sh| {
                 let dir = sh.current_dir().join("neori");
 
                 sh.create_dir(&dir)?;
 
-                create_epoch(dir.join("config2.kdl"), "a")?;
-                create_epoch(dir.join("config3.kdl"), "b")?;
+                create_epoch(dir.join("config2.lua"), "a")?;
+                create_epoch(dir.join("config3.lua"), "b")?;
 
-                cmd!(sh, "ln -s config2.kdl neori/config.kdl").run()?;
+                cmd!(sh, "ln -s config2.lua neori/config.lua").run()?;
 
                 Ok(())
             })
             .assert_initial("a")
             .run(|sh, test| {
-                cmd!(sh, "ln -sf config3.kdl neori/config.kdl").run()?;
+                cmd!(sh, "ln -sf config3.lua neori/config.lua").run()?;
                 test.assert_changed_to("b");
 
                 Ok(())
@@ -671,31 +671,31 @@ mod tests {
     #[test]
     fn swap_many_regular() -> Result {
         TestPath::Regular {
-            user_path: "user-neori/config.kdl",
-            system_path: "system-neori/config.kdl",
+            user_path: "user-neori/config.lua",
+            system_path: "system-neori/config.lua",
         }
-        .setup(|sh| sh.write_file("system-neori/config.kdl", "system config"))
+        .setup(|sh| sh.write_file("system-neori/config.lua", "system config"))
         .assert_initial("system config")
         .run(|sh, test| {
-            sh.write_file("user-neori/config.kdl", "user config")?;
+            sh.write_file("user-neori/config.lua", "user config")?;
             test.assert_changed_to("user config");
 
-            cmd!(sh, "touch system-neori/config.kdl").run()?;
+            cmd!(sh, "touch system-neori/config.lua").run()?;
             test.assert_unchanged();
 
             sh.remove_path("system-neori")?;
             test.assert_unchanged();
 
-            sh.write_file("system-neori/config.kdl", "new system config")?;
+            sh.write_file("system-neori/config.lua", "new system config")?;
             test.assert_unchanged();
 
             sh.remove_path("user-neori")?;
             test.assert_changed_to("new system config");
 
-            sh.write_file("system-neori/config.kdl", "updated system config")?;
+            sh.write_file("system-neori/config.lua", "updated system config")?;
             test.assert_changed_to("updated system config");
 
-            sh.write_file("user-neori/config.kdl", "new user config")?;
+            sh.write_file("user-neori/config.lua", "new user config")?;
             test.assert_changed_to("new user config");
 
             Ok(())
@@ -705,8 +705,8 @@ mod tests {
     #[test]
     fn swap_many_links_regular_like_nix() -> Result {
         TestPath::Regular {
-            user_path: "user-neori/config.kdl",
-            system_path: "system-neori/config.kdl",
+            user_path: "user-neori/config.lua",
+            system_path: "system-neori/config.lua",
         }
         .setup_any(|sh| {
             let store = sh.current_dir().join("store");
@@ -727,28 +727,28 @@ mod tests {
             let store = sh.current_dir().join("store");
             test.assert_unchanged();
 
-            cmd!(sh, "ln -s {store}/gen1 user-neori/config.kdl").run()?;
+            cmd!(sh, "ln -s {store}/gen1 user-neori/config.lua").run()?;
             test.assert_changed_to("gen 1");
 
-            cmd!(sh, "ln -s {store}/gen2 system-neori/config.kdl").run()?;
+            cmd!(sh, "ln -s {store}/gen2 system-neori/config.lua").run()?;
             test.assert_unchanged();
 
-            cmd!(sh, "unlink user-neori/config.kdl").run()?;
+            cmd!(sh, "unlink user-neori/config.lua").run()?;
             test.assert_changed_to("gen 2");
 
-            cmd!(sh, "ln -s {store}/gen3 user-neori/config.kdl").run()?;
+            cmd!(sh, "ln -s {store}/gen3 user-neori/config.lua").run()?;
             test.assert_changed_to("gen 3");
 
-            cmd!(sh, "ln -sf {store}/gen1 system-neori/config.kdl").run()?;
+            cmd!(sh, "ln -sf {store}/gen1 system-neori/config.lua").run()?;
             test.assert_unchanged();
 
-            cmd!(sh, "unlink system-neori/config.kdl").run()?;
+            cmd!(sh, "unlink system-neori/config.lua").run()?;
             test.assert_unchanged();
 
-            cmd!(sh, "ln -s {store}/gen1 system-neori/config.kdl").run()?;
+            cmd!(sh, "ln -s {store}/gen1 system-neori/config.lua").run()?;
             test.assert_unchanged();
 
-            cmd!(sh, "unlink user-neori/config.kdl").run()?;
+            cmd!(sh, "unlink user-neori/config.lua").run()?;
             test.assert_changed_to("gen 1");
 
             Ok(())
