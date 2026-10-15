@@ -1331,10 +1331,10 @@ impl State {
                         // the cursor there.
                         if !target_was_active {
                             if let Some(output) = target_output {
-                                if self.neori.layout.active_output() == Some(&output) {
-                                    if !self.maybe_warp_cursor_to_focus_centered() {
-                                        self.move_cursor_to_output(&output);
-                                    }
+                                if self.neori.layout.active_output() == Some(&output)
+                                    && !self.maybe_warp_cursor_to_focus_centered()
+                                {
+                                    self.move_cursor_to_output(&output);
                                 }
                             }
                         }
@@ -1375,10 +1375,10 @@ impl State {
                         // If the active output changed (window was moved and focused).
                         if !target_was_active && focus {
                             if let Some(output) = target_output {
-                                if self.neori.layout.active_output() == Some(&output) {
-                                    if !self.maybe_warp_cursor_to_focus_centered() {
-                                        self.move_cursor_to_output(&output);
-                                    }
+                                if self.neori.layout.active_output() == Some(&output)
+                                    && !self.maybe_warp_cursor_to_focus_centered()
+                                {
+                                    self.move_cursor_to_output(&output);
                                 }
                             }
                         }
@@ -1423,10 +1423,10 @@ impl State {
                     if focus {
                         if !target_was_active {
                             if let Some(output) = target_output {
-                                if self.neori.layout.active_output() == Some(&output) {
-                                    if !self.maybe_warp_cursor_to_focus_centered() {
-                                        self.move_cursor_to_output(&output);
-                                    }
+                                if self.neori.layout.active_output() == Some(&output)
+                                    && !self.maybe_warp_cursor_to_focus_centered()
+                                {
+                                    self.move_cursor_to_output(&output);
                                 }
                             }
                         }
@@ -1500,10 +1500,10 @@ impl State {
                     // actually landed there), move the cursor to it.
                     if !target_was_active {
                         if let Some(output) = target_output {
-                            if self.neori.layout.active_output() == Some(&output) {
-                                if !self.maybe_warp_cursor_to_focus_centered() {
-                                    self.move_cursor_to_output(&output);
-                                }
+                            if self.neori.layout.active_output() == Some(&output)
+                                && !self.maybe_warp_cursor_to_focus_centered()
+                            {
+                                self.move_cursor_to_output(&output);
                             }
                         }
                     }

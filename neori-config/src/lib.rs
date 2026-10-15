@@ -1075,7 +1075,6 @@ mod tests {
 
     #[test]
     fn on_startup_function_callback_in_include() {
-        use std::io::Write as _;
 
         let dir = std::env::temp_dir().join(format!("neori-on-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

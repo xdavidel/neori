@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use smithay::input::keyboard::Keysym;
 
 use crate::{Action, Bind, Color, FloatOrInt, Key, Modifiers, Trigger};

@@ -877,7 +877,7 @@ mod tests {
     use insta::{assert_debug_snapshot, assert_snapshot};
 
     use super::*;
-    use crate::{Config, WindowRule};
+    use crate::WindowRule;
 
     #[test]
     fn parse_gradient_interpolation() {

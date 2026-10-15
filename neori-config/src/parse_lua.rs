@@ -111,7 +111,7 @@ impl ScriptHost {
             .to_path_buf();
 
         register_require_searcher(&self.lua, search_dir.clone(), &includes)
-            .map_err(|e| parse_err(e))?;
+            .map_err(&parse_err)?;
 
         let api_data = setup_neori_api(
             &self.lua,
@@ -119,7 +119,7 @@ impl ScriptHost {
             search_dir,
             Arc::clone(&includes),
         )
-        .map_err(|e| parse_err(e))?;
+        .map_err(&parse_err)?;
 
         let chunk = self
             .lua
@@ -132,7 +132,7 @@ impl ScriptHost {
 
         let table = match result {
             Value::Table(t) => {
-                merge_api_data(&t, &api_data).map_err(|e| parse_err(e))?;
+                merge_api_data(&t, &api_data).map_err(&parse_err)?;
                 t
             }
             Value::Nil => api_data,
@@ -142,7 +142,7 @@ impl ScriptHost {
         };
 
         let mut config = Config::default();
-        parse_table_into_config(table, &mut config).map_err(|e| parse_err(e))?;
+        parse_table_into_config(table, &mut config).map_err(parse_err)?;
         let includes = includes.lock().unwrap().clone();
         Ok((config, includes))
     }
@@ -999,22 +999,12 @@ fn value_to_u64(val: &Value) -> Result<u64, String> {
 fn parse_css_color(s: &str) -> Result<Color, String> {
     csscolorparser::parse(s)
         .map(|c| Color {
-            r: c.r as f32,
-            g: c.g as f32,
-            b: c.b as f32,
-            a: c.a as f32,
+            r: c.r,
+            g: c.g,
+            b: c.b,
+            a: c.a,
         })
         .map_err(|e| format!("invalid color '{s}': {e}"))
-}
-
-fn opt_color(val: &Value) -> Result<Option<Color>, String> {
-    match val {
-        Value::Nil => Ok(None),
-        _ => {
-            let s = value_to_string(val)?;
-            parse_css_color(&s).map(Some)
-        }
-    }
 }
 
 fn parse_input_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
@@ -1436,7 +1426,7 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
         };
 
         let mode_str: Option<String> = t.get("mode").map_err(|e| format!("{e}")).ok();
-        let mode = mode_str.as_deref().and_then(|s| parse_mode_string(s));
+        let mode = mode_str.as_deref().and_then(parse_mode_string);
 
         let position: Option<Position> = match t
             .get::<Option<Value>>("position")
@@ -2498,7 +2488,7 @@ fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), St
                     gestures.dnd_edge_view_scroll.delay_ms =
                         t.get("delay_ms")
                             .map_err(|e| format!("{e}"))
-                            .unwrap_or(100u16) as u16;
+                            .unwrap_or(100u16);
                     gestures.dnd_edge_view_scroll.max_speed = t
                         .get("max_speed")
                         .map_err(|e| format!("{e}"))
@@ -2514,7 +2504,7 @@ fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), St
                     gestures.dnd_edge_workspace_switch.delay_ms =
                         t.get("delay_ms")
                             .map_err(|e| format!("{e}"))
-                            .unwrap_or(100u16) as u16;
+                            .unwrap_or(100u16);
                     gestures.dnd_edge_workspace_switch.max_speed = t
                         .get("max_speed")
                         .map_err(|e| format!("{e}"))
@@ -2820,13 +2810,13 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
 
     match &value {
         Value::String(s) => {
-            action = parse_action_string(&*s.to_str().map_err(|e| format!("{e}"))?)?;
+            action = parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?)?;
         }
         Value::Table(t) => {
             for pair in t.clone().pairs::<Value, Value>() {
                 let (ak, av) = pair.map_err(|e| format!("bind action error: {e}"))?;
                 let aks = key_str(&ak)?;
-                if let Some(a) = action_from_table_key(&t, &aks, &av)? {
+                if let Some(a) = action_from_table_key(t, &aks, &av)? {
                     action = a;
                     continue;
                 }
@@ -3366,7 +3356,7 @@ fn action_from_table_key(
 /// part of the config; only string and table handlers end up here.
 fn parse_startup_action(value: &Value) -> Result<Action, String> {
     match value {
-        Value::String(s) => parse_action_string(&*s.to_str().map_err(|e| format!("{e}"))?),
+        Value::String(s) => parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?),
         Value::Table(t) => {
             for pair in t.clone().pairs::<Value, Value>() {
                 let (ak, av) = pair.map_err(|e| format!("startup handler error: {e}"))?;
