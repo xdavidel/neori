@@ -13,10 +13,10 @@ use std::{env, mem, thread};
 use _server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDecorationsMode;
 use anyhow::{bail, ensure, Context};
 use calloop::futures::Scheduler;
-use niri_config::debug::PreviewRender;
-use niri_config::output::MaxBpc;
-use niri_config::{
-    Config, FloatOrInt, Key, Modifiers, OutputName, TrackLayout, WarpMouseToFocusMode,
+use neori_config::debug::PreviewRender;
+use neori_config::output::MaxBpc;
+use neori_config::{
+    Config, FloatOrInt, Key, Modifiers, OutputName, ScriptHost, TrackLayout, WarpMouseToFocusMode,
     WorkspaceReference, Xkb,
 };
 use smithay::backend::allocator::Fourcc;
@@ -120,13 +120,13 @@ use crate::backend::tty::SurfaceDmabufFeedback;
 use crate::backend::{Backend, Headless, RenderResult, Tty, Winit};
 use crate::cursor::{CursorManager, CursorTextureCache, RenderCursor, XCursor};
 #[cfg(feature = "dbus")]
-use crate::dbus::freedesktop_locale1::Locale1ToNiri;
+use crate::dbus::freedesktop_locale1::Locale1ToNeori;
 #[cfg(feature = "dbus")]
-use crate::dbus::freedesktop_login1::Login1ToNiri;
+use crate::dbus::freedesktop_login1::Login1ToNeori;
 #[cfg(feature = "dbus")]
-use crate::dbus::gnome_shell_introspect::{self, IntrospectToNiri, NiriToIntrospect};
+use crate::dbus::gnome_shell_introspect::{self, IntrospectToNeori, NeoriToIntrospect};
 #[cfg(feature = "dbus")]
-use crate::dbus::gnome_shell_screenshot::{NiriToScreenshot, ScreenshotToNiri};
+use crate::dbus::gnome_shell_screenshot::{NeoriToScreenshot, ScreenshotToNeori};
 use crate::frame_clock::FrameClock;
 use crate::handlers::{configure_lock_surface, XDG_ACTIVATION_TOKEN_TIMEOUT};
 use crate::input::pick_color_grab::PickColorGrab;
@@ -144,7 +144,7 @@ use crate::layout::workspace::{Workspace, WorkspaceId};
 use crate::layout::{
     HitType, Layout, LayoutElement as _, LayoutElementRenderElement, MonitorRenderElement,
 };
-use crate::niri_render_elements;
+use crate::neori_render_elements;
 use crate::protocols::ext_workspace::{self, ExtWorkspaceManagerState};
 use crate::protocols::foreign_toplevel::{self, ForeignToplevelManagerState};
 use crate::protocols::gamma_control::GammaControlManagerState;
@@ -192,7 +192,7 @@ const CLEAR_COLOR_LOCKED: [f32; 4] = [0.3, 0.1, 0.1, 1.];
 // should be ~1.995 seconds.
 const FRAME_CALLBACK_THROTTLE: Option<Duration> = Some(Duration::from_millis(995));
 
-pub struct Niri {
+pub struct Neori {
     pub config: Rc<RefCell<Config>>,
 
     /// Output config from the config file.
@@ -200,7 +200,7 @@ pub struct Niri {
     /// This does not include transient output config changes done via IPC. It is only used when
     /// reloading the config from disk to determine if the output configuration should be reloaded
     /// (and transient changes dropped).
-    pub config_file_output_config: niri_config::Outputs,
+    pub config_file_output_config: neori_config::Outputs,
 
     pub config_file_watcher: Option<Watcher>,
 
@@ -209,12 +209,12 @@ pub struct Niri {
     pub stop_signal: LoopSignal,
     pub display_handle: DisplayHandle,
 
-    /// Whether niri was run with `--session`
+    /// Whether neori was run with `--session`
     pub is_session_instance: bool,
 
     /// Name of the Wayland socket.
     ///
-    /// This is `None` when creating `Niri` without a Wayland socket.
+    /// This is `None` when creating `Neori` without a Wayland socket.
     pub socket_name: Option<OsString>,
 
     pub start_time: Instant,
@@ -318,7 +318,7 @@ pub struct Niri {
     // verified that a black single-pixel-buffer background lets the foreground surface to be
     // unredirected.
     //
-    // https://github.com/niri-wm/niri/issues/619
+    // https://github.com/neori-wm/neori/issues/619
     #[cfg(test)]
     pub single_pixel_buffer_state: SinglePixelBufferState,
 
@@ -395,7 +395,7 @@ pub struct Niri {
     pub pending_mru_commit: Option<PendingMruCommit>,
 
     pub pick_window: Option<async_channel::Sender<Option<MappedId>>>,
-    pub pick_color: Option<async_channel::Sender<Option<niri_ipc::PickedColor>>>,
+    pub pick_color: Option<async_channel::Sender<Option<neori_ipc::PickedColor>>>,
 
     pub debug_draw_opaque_regions: bool,
     pub debug_draw_damage: bool,
@@ -509,7 +509,7 @@ pub struct PopupGrabState {
     pub has_keyboard_grab: bool,
 }
 
-// The surfaces here are always toplevel surfaces focused as far as niri's logic is concerned, even
+// The surfaces here are always toplevel surfaces focused as far as neori's logic is concerned, even
 // when popup grabs are active (which means the real keyboard focus is on a popup descending from
 // that toplevel surface).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -530,7 +530,7 @@ pub struct PointContents {
     pub output: Option<Output>,
     // Surface under point and its location in the global coordinate space.
     //
-    // Can be `None` even when `window` is set, for example when the pointer is over the niri
+    // Can be `None` even when `window` is set, for example when the pointer is over the neori
     // border around the window.
     pub surface: Option<(WlSurface, Point<f64, Logical>)>,
     // If surface belongs to a window, this is that window.
@@ -602,24 +602,24 @@ impl CastTarget {
         matches!(self, CastTarget::Output { output, .. } if output == weak)
     }
 
-    pub fn matches(&self, ipc: &niri_ipc::CastTarget) -> bool {
+    pub fn matches(&self, ipc: &neori_ipc::CastTarget) -> bool {
         use CastTarget::*;
         match (self, ipc) {
-            (Nothing, niri_ipc::CastTarget::Nothing {}) => true,
-            (Output { name, .. }, niri_ipc::CastTarget::Output { name: ipc_name }) => {
+            (Nothing, neori_ipc::CastTarget::Nothing {}) => true,
+            (Output { name, .. }, neori_ipc::CastTarget::Output { name: ipc_name }) => {
                 name == ipc_name
             }
-            (Window { id }, niri_ipc::CastTarget::Window { id: ipc_id }) => id == ipc_id,
+            (Window { id }, neori_ipc::CastTarget::Window { id: ipc_id }) => id == ipc_id,
             _ => false,
         }
     }
 
-    pub fn make_ipc(&self) -> niri_ipc::CastTarget {
+    pub fn make_ipc(&self) -> neori_ipc::CastTarget {
         use CastTarget::*;
         match self {
-            Nothing => niri_ipc::CastTarget::Nothing {},
-            Output { name, .. } => niri_ipc::CastTarget::Output { name: name.clone() },
-            Window { id } => niri_ipc::CastTarget::Window { id: *id },
+            Nothing => neori_ipc::CastTarget::Nothing {},
+            Output { name, .. } => neori_ipc::CastTarget::Output { name: name.clone() },
+            Window { id } => neori_ipc::CastTarget::Window { id: *id },
         }
     }
 }
@@ -697,7 +697,9 @@ impl KeyboardFocus {
 
 pub struct State {
     pub backend: Backend,
-    pub niri: Niri,
+    pub neori: Neori,
+    /// Persistent Lua host for the config, kept alive so `neori.on` callbacks can run.
+    pub scripting: ScriptHost,
 }
 
 impl State {
@@ -730,7 +732,7 @@ impl State {
             Backend::Tty(tty)
         };
 
-        let mut niri = Niri::new(
+        let mut neori = Neori::new(
             config.clone(),
             event_loop,
             stop_signal,
@@ -739,9 +741,13 @@ impl State {
             create_wayland_socket,
             is_session_instance,
         );
-        backend.init(&mut niri);
+        backend.init(&mut neori);
 
-        let mut state = Self { backend, niri };
+        let mut state = Self {
+            backend,
+            neori,
+            scripting: ScriptHost::default(),
+        };
 
         // Load the xkb_file config option if set by the user.
         state.load_xkb_file();
@@ -762,34 +768,34 @@ impl State {
         // in order to clear completed animations and render elements. Even if we're not rendering,
         // it's good to advance every now and then so the workspace clean-up and animations don't
         // build up (the 1 second frame callback timer will call this line).
-        self.niri.advance_animations();
+        self.neori.advance_animations();
 
-        self.niri.redraw_queued_outputs(&mut self.backend);
+        self.neori.redraw_queued_outputs(&mut self.backend);
 
         {
             let _span = tracy_client::span!("flush_clients");
-            self.niri.display_handle.flush_clients().unwrap();
+            self.neori.display_handle.flush_clients().unwrap();
         }
 
         #[cfg(feature = "dbus")]
-        self.niri.update_locked_hint();
+        self.neori.update_locked_hint();
 
         // Clear the time so it's fetched afresh next iteration.
-        self.niri.clock.clear();
-        self.niri.pointer_inactivity_timer_got_reset = false;
-        self.niri.notified_activity_this_iteration = false;
+        self.neori.clock.clear();
+        self.neori.pointer_inactivity_timer_got_reset = false;
+        self.neori.notified_activity_this_iteration = false;
     }
 
     // We monitor both libinput and logind: libinput is always there (including without DBus), but
     // it misses some switch events (e.g. after unsuspend) on some systems.
     pub fn set_lid_closed(&mut self, is_closed: bool) {
-        if self.niri.is_lid_closed == is_closed {
+        if self.neori.is_lid_closed == is_closed {
             return;
         }
 
         debug!("laptop lid {}", if is_closed { "closed" } else { "opened" });
-        self.niri.is_lid_closed = is_closed;
-        self.backend.on_output_config_changed(&mut self.niri);
+        self.neori.is_lid_closed = is_closed;
+        self.backend.on_output_config_changed(&mut self.neori);
     }
 
     fn refresh(&mut self) {
@@ -800,46 +806,46 @@ impl State {
         self.notify_blocker_cleared();
 
         // These should be called periodically, before flushing the clients.
-        self.niri.popups.cleanup();
+        self.neori.popups.cleanup();
         self.refresh_popup_grab();
         self.update_keyboard_focus();
 
         // Should be called before refresh_layout() because that one will refresh other window
         // states and then send a pending configure.
-        self.niri.refresh_window_states();
+        self.neori.refresh_window_states();
 
         // Needs to be called after updating the keyboard focus.
-        self.niri.refresh_layout();
+        self.neori.refresh_layout();
 
-        self.niri.cursor_manager.check_cursor_image_surface_alive();
-        self.niri.refresh_pointer_outputs();
-        self.niri.global_space.refresh();
-        self.niri.refresh_idle_inhibit();
+        self.neori.cursor_manager.check_cursor_image_surface_alive();
+        self.neori.refresh_pointer_outputs();
+        self.neori.global_space.refresh();
+        self.neori.refresh_idle_inhibit();
         self.refresh_pointer_contents();
         foreign_toplevel::refresh(self);
         ext_workspace::refresh(self);
 
         #[cfg(feature = "xdp-gnome-screencast")]
-        self.niri.refresh_mapped_cast_outputs();
+        self.neori.refresh_mapped_cast_outputs();
         // Should happen before refresh_window_rules(), but after anything that can start or stop
         // screencasts.
         #[cfg(feature = "xdp-gnome-screencast")]
-        self.niri.refresh_mapped_cast_window_rules();
+        self.neori.refresh_mapped_cast_window_rules();
         self.ipc_refresh_casts();
 
-        self.niri.refresh_window_rules();
+        self.neori.refresh_window_rules();
         self.refresh_ipc_outputs();
         self.ipc_refresh_layout();
         self.ipc_refresh_keyboard_layout_index();
 
         // Needs to be called after updating the keyboard focus.
         #[cfg(feature = "dbus")]
-        self.niri.refresh_a11y();
+        self.neori.refresh_a11y();
     }
 
     fn notify_blocker_cleared(&mut self) {
-        let dh = self.niri.display_handle.clone();
-        while let Ok(client) = self.niri.blocker_cleared_rx.try_recv() {
+        let dh = self.neori.display_handle.clone();
+        while let Ok(client) = self.neori.blocker_cleared_rx.try_recv() {
             trace!("calling blocker_cleared");
             self.client_compositor_state(&client)
                 .blocker_cleared(self, &dh);
@@ -847,14 +853,14 @@ impl State {
     }
 
     pub fn move_cursor(&mut self, location: Point<f64, Logical>) {
-        let mut under = match self.niri.pointer_visibility {
+        let mut under = match self.neori.pointer_visibility {
             PointerVisibility::Disabled => PointContents::default(),
-            _ => self.niri.contents_under(location),
+            _ => self.neori.contents_under(location),
         };
 
         // Disable the hidden pointer if the contents underneath have changed.
-        if !self.niri.pointer_visibility.is_visible() && self.niri.pointer_contents != under {
-            self.niri.pointer_visibility = PointerVisibility::Disabled;
+        if !self.neori.pointer_visibility.is_visible() && self.neori.pointer_contents != under {
+            self.neori.pointer_visibility = PointerVisibility::Disabled;
 
             // When setting PointerVisibility::Hidden together with pointer contents changing,
             // we can change straight to nothing to avoid one frame of hover. Notably, this can
@@ -862,9 +868,9 @@ impl State {
             under = PointContents::default();
         }
 
-        self.niri.pointer_contents.clone_from(&under);
+        self.neori.pointer_contents.clone_from(&under);
 
-        let pointer = &self.niri.seat.get_pointer().unwrap();
+        let pointer = &self.neori.seat.get_pointer().unwrap();
         pointer.motion(
             self,
             under.surface,
@@ -876,17 +882,17 @@ impl State {
         );
         pointer.frame(self);
 
-        self.niri.maybe_activate_pointer_constraint();
+        self.neori.maybe_activate_pointer_constraint();
 
         // We do not show the pointer on programmatic or keyboard movement.
 
         // FIXME: granular
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     /// Moves cursor within the specified rectangle, only adjusting coordinates if needed.
     fn move_cursor_to_rect(&mut self, rect: Rectangle<f64, Logical>, mode: CenterCoords) -> bool {
-        let pointer = &self.niri.seat.get_pointer().unwrap();
+        let pointer = &self.neori.seat.get_pointer().unwrap();
         let cur_loc = pointer.current_location();
         let x_in_bound = cur_loc.x >= rect.loc.x && cur_loc.x <= rect.loc.x + rect.size.w;
         let y_in_bound = cur_loc.y >= rect.loc.y && cur_loc.y <= rect.loc.y + rect.size.h;
@@ -922,24 +928,24 @@ impl State {
     }
 
     pub fn move_cursor_to_focused_tile(&mut self, mode: CenterCoords) -> bool {
-        if !self.niri.keyboard_focus.is_layout() {
+        if !self.neori.keyboard_focus.is_layout() {
             return false;
         }
 
-        if self.niri.tablet_cursor_location.is_some() {
+        if self.neori.tablet_cursor_location.is_some() {
             return false;
         }
 
-        let Some(output) = self.niri.layout.active_output() else {
+        let Some(output) = self.neori.layout.active_output() else {
             return false;
         };
-        let monitor = self.niri.layout.monitor_for_output(output).unwrap();
+        let monitor = self.neori.layout.monitor_for_output(output).unwrap();
 
         let mut rv = false;
         let rect = monitor.active_window_visual_rectangle();
 
         if let Some(rect) = rect {
-            let output_geo = self.niri.global_space.output_geometry(output).unwrap();
+            let output_geo = self.neori.global_space.output_geometry(output).unwrap();
             let mut rect = rect;
             rect.loc += output_geo.loc.to_f64();
             rv = self.move_cursor_to_rect(rect, mode);
@@ -950,35 +956,35 @@ impl State {
 
     pub fn focus_default_monitor(&mut self) {
         // Our default target is the first output in sorted order.
-        let Some(mut target) = self.niri.sorted_outputs.first().cloned() else {
+        let Some(mut target) = self.neori.sorted_outputs.first().cloned() else {
             // No outputs are connected.
             return;
         };
 
-        let config = self.niri.config.borrow();
+        let config = self.neori.config.borrow();
         for config in &config.outputs.0 {
             if !config.focus_at_startup {
                 continue;
             }
-            if let Some(output) = self.niri.output_by_name_match(&config.name) {
+            if let Some(output) = self.neori.output_by_name_match(&config.name) {
                 target = output.clone();
                 break;
             }
         }
         drop(config);
 
-        self.niri.layout.focus_output(&target);
+        self.neori.layout.focus_output(&target);
         self.move_cursor_to_output(&target);
     }
 
     /// Focus a specific window, taking care of a potential active output change and cursor
     /// warp.
     pub fn focus_window(&mut self, window: &Window) {
-        let active_output = self.niri.layout.active_output().cloned();
+        let active_output = self.neori.layout.active_output().cloned();
 
-        self.niri.layout.activate_window(window);
+        self.neori.layout.activate_window(window);
 
-        let new_active = self.niri.layout.active_output().cloned();
+        let new_active = self.neori.layout.active_output().cloned();
         if new_active != active_output {
             if !self.maybe_warp_cursor_to_focus_centered() {
                 self.move_cursor_to_output(&new_active.unwrap());
@@ -988,11 +994,11 @@ impl State {
         }
 
         // FIXME: granular
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     pub fn confirm_mru(&mut self) {
-        if let Some(window) = self.niri.close_mru(MruCloseRequest::Confirm) {
+        if let Some(window) = self.neori.close_mru(MruCloseRequest::Confirm) {
             // focus_window() will warp the cursor to the window only when the keyboard focus is on
             // the layout. However, right now the keyboard focus is still on the MRU (that we had
             // just closed) since it's only updated at the end of the event loop cycle. Force-update
@@ -1004,7 +1010,7 @@ impl State {
     }
 
     pub fn maybe_warp_cursor_to_focus(&mut self) -> bool {
-        let focused = match self.niri.config.borrow().input.warp_mouse_to_focus {
+        let focused = match self.neori.config.borrow().input.warp_mouse_to_focus {
             None => return false,
             Some(inner) => match inner.mode {
                 None => CenterCoords::Separately,
@@ -1016,7 +1022,7 @@ impl State {
     }
 
     pub fn maybe_warp_cursor_to_focus_centered(&mut self) -> bool {
-        let focused = match self.niri.config.borrow().input.warp_mouse_to_focus {
+        let focused = match self.neori.config.borrow().input.warp_mouse_to_focus {
             None => return false,
             Some(inner) => match inner.mode {
                 None => CenterCoords::Both,
@@ -1028,18 +1034,18 @@ impl State {
     }
 
     pub fn refresh_pointer_contents(&mut self) {
-        let _span = tracy_client::span!("Niri::refresh_pointer_contents");
+        let _span = tracy_client::span!("Neori::refresh_pointer_contents");
 
-        let pointer = &self.niri.seat.get_pointer().unwrap();
+        let pointer = &self.neori.seat.get_pointer().unwrap();
         let location = pointer.current_location();
 
-        if !self.niri.exit_confirm_dialog.is_open()
-            && !self.niri.is_locked()
-            && !self.niri.screenshot_ui.is_open()
+        if !self.neori.exit_confirm_dialog.is_open()
+            && !self.neori.is_locked()
+            && !self.neori.screenshot_ui.is_open()
         {
             // Don't refresh cursor focus during transitions.
-            if let Some((output, _)) = self.niri.output_under(location) {
-                let monitor = self.niri.layout.monitor_for_output(output).unwrap();
+            if let Some((output, _)) = self.neori.output_under(location) {
+                let monitor = self.neori.layout.monitor_for_output(output).unwrap();
                 if monitor.are_transitions_ongoing() {
                     return;
                 }
@@ -1056,39 +1062,39 @@ impl State {
         // means we may need to redraw.
 
         // FIXME: granular
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     pub fn update_pointer_contents(&mut self) -> bool {
-        let _span = tracy_client::span!("Niri::update_pointer_contents");
+        let _span = tracy_client::span!("Neori::update_pointer_contents");
 
-        let pointer = &self.niri.seat.get_pointer().unwrap();
+        let pointer = &self.neori.seat.get_pointer().unwrap();
         let location = pointer.current_location();
-        let mut under = match self.niri.pointer_visibility {
+        let mut under = match self.neori.pointer_visibility {
             PointerVisibility::Disabled => PointContents::default(),
-            _ => self.niri.contents_under(location),
+            _ => self.neori.contents_under(location),
         };
 
         // We're not changing the global cursor location here, so if the contents did not change,
         // then nothing changed.
-        if self.niri.pointer_contents == under {
+        if self.neori.pointer_contents == under {
             return false;
         }
 
         // Disable the hidden pointer if the contents underneath have changed.
-        if !self.niri.pointer_visibility.is_visible() {
-            self.niri.pointer_visibility = PointerVisibility::Disabled;
+        if !self.neori.pointer_visibility.is_visible() {
+            self.neori.pointer_visibility = PointerVisibility::Disabled;
 
             // When setting PointerVisibility::Hidden together with pointer contents changing,
             // we can change straight to nothing to avoid one frame of hover. Notably, this can
             // be triggered through warp-mouse-to-focus combined with hide-when-typing.
             under = PointContents::default();
-            if self.niri.pointer_contents == under {
+            if self.neori.pointer_contents == under {
                 return false;
             }
         }
 
-        self.niri.pointer_contents.clone_from(&under);
+        self.neori.pointer_contents.clone_from(&under);
 
         pointer.motion(
             self,
@@ -1100,33 +1106,33 @@ impl State {
             },
         );
 
-        self.niri.maybe_activate_pointer_constraint();
+        self.neori.maybe_activate_pointer_constraint();
 
         true
     }
 
     pub fn move_cursor_to_output(&mut self, output: &Output) {
-        let geo = self.niri.global_space.output_geometry(output).unwrap();
+        let geo = self.neori.global_space.output_geometry(output).unwrap();
         self.move_cursor(center(geo).to_f64());
     }
 
     pub fn refresh_popup_grab(&mut self) {
-        if let Some(grab) = &mut self.niri.popup_grab {
+        if let Some(grab) = &mut self.neori.popup_grab {
             if grab.grab.has_ended() {
-                self.niri.popup_grab = None;
+                self.neori.popup_grab = None;
             }
         }
     }
 
     pub fn update_keyboard_focus(&mut self) {
         // Clean up on-demand layer surface focus if necessary.
-        if let Some(surface) = &self.niri.layer_shell_on_demand_focus {
+        if let Some(surface) = &self.neori.layer_shell_on_demand_focus {
             // Still alive and has on-demand interactivity.
             let mut good = surface.alive()
                 && surface.cached_state().keyboard_interactivity
                     == wlr_layer::KeyboardInteractivity::OnDemand;
 
-            if let Some(mapped) = self.niri.mapped_layer_surfaces.get(surface) {
+            if let Some(mapped) = self.neori.mapped_layer_surfaces.get(surface) {
                 // Check if it moved to the overview backdrop.
                 if mapped.place_within_backdrop() {
                     good = false;
@@ -1137,28 +1143,28 @@ impl State {
             }
 
             if !good {
-                self.niri.layer_shell_on_demand_focus = None;
+                self.neori.layer_shell_on_demand_focus = None;
             }
         }
 
         // Compute the current focus.
-        let focus = if self.niri.exit_confirm_dialog.is_open() {
+        let focus = if self.neori.exit_confirm_dialog.is_open() {
             KeyboardFocus::ExitConfirmDialog
-        } else if self.niri.is_locked() {
+        } else if self.neori.is_locked() {
             KeyboardFocus::LockScreen {
-                surface: self.niri.lock_surface_focus(),
+                surface: self.neori.lock_surface_focus(),
             }
-        } else if self.niri.screenshot_ui.is_open() {
+        } else if self.neori.screenshot_ui.is_open() {
             KeyboardFocus::ScreenshotUi
-        } else if self.niri.window_mru_ui.is_open() {
+        } else if self.neori.window_mru_ui.is_open() {
             KeyboardFocus::Mru
-        } else if let Some(output) = self.niri.layout.active_output() {
-            let mon = self.niri.layout.monitor_for_output(output).unwrap();
+        } else if let Some(output) = self.neori.layout.active_output() {
+            let mon = self.neori.layout.monitor_for_output(output).unwrap();
             let layers = layer_map_for_output(output);
 
             // Explicitly check for layer-shell popup grabs here, our keyboard focus will stay on
             // the root layer surface while it has grabs.
-            let layer_grab = self.niri.popup_grab.as_ref().and_then(|g| {
+            let layer_grab = self.neori.popup_grab.as_ref().and_then(|g| {
                 layers
                     .layer_for_surface(&g.root, WindowSurfaceType::TOPLEVEL)
                     .and_then(|l| l.can_receive_keyboard_focus().then(|| (&g.root, l.layer())))
@@ -1170,7 +1176,7 @@ impl State {
             };
 
             let layout_focus = || {
-                self.niri
+                self.neori
                     .layout
                     .focus()
                     .map(|win| win.toplevel().wl_surface().clone())
@@ -1187,7 +1193,7 @@ impl State {
                         return None;
                     }
 
-                    let mapped = self.niri.mapped_layer_surfaces.get(surface)?;
+                    let mapped = self.neori.mapped_layer_surfaces.get(surface)?;
                     if mapped.place_within_backdrop() {
                         return None;
                     }
@@ -1200,7 +1206,7 @@ impl State {
             let on_d_focus_on_layer = |layer| {
                 layers.layers_on(layer).find_map(|surface| {
                     let is_on_demand_surface =
-                        Some(surface) == self.niri.layer_shell_on_demand_focus.as_ref();
+                        Some(surface) == self.neori.layer_shell_on_demand_focus.as_ref();
                     is_on_demand_surface
                         .then(|| surface.wl_surface().clone())
                         .map(|surface| KeyboardFocus::LayerShell { surface })
@@ -1211,7 +1217,7 @@ impl State {
             let focus_on_layer =
                 |layer| excl_focus_on_layer(layer).or_else(|| on_d_focus_on_layer(layer));
 
-            let is_overview_open = self.niri.layout.is_overview_open();
+            let is_overview_open = self.neori.layout.is_overview_open();
 
             let mut surface = grab_on_layer(Layer::Overlay);
             // FIXME: we shouldn't prioritize the top layer grabs over regular overlay input or a
@@ -1253,20 +1259,20 @@ impl State {
             KeyboardFocus::Layout { surface: None }
         };
 
-        let keyboard = self.niri.seat.get_keyboard().unwrap();
-        if self.niri.keyboard_focus != focus {
+        let keyboard = self.neori.seat.get_keyboard().unwrap();
+        if self.neori.keyboard_focus != focus {
             trace!(
                 "keyboard focus changed from {:?} to {:?}",
-                self.niri.keyboard_focus,
+                self.neori.keyboard_focus,
                 focus
             );
 
             // Tell the windows their new focus state for window rule purposes.
             if let KeyboardFocus::Layout {
                 surface: Some(surface),
-            } = &self.niri.keyboard_focus
+            } = &self.neori.keyboard_focus
             {
-                if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(surface) {
+                if let Some((mapped, _)) = self.neori.layout.find_window_and_output_mut(surface) {
                     mapped.set_is_focused(false);
                 }
             }
@@ -1274,7 +1280,7 @@ impl State {
                 surface: Some(surface),
             } = &focus
             {
-                if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(surface) {
+                if let Some((mapped, _)) = self.neori.layout.find_window_and_output_mut(surface) {
                     mapped.set_is_focused(true);
 
                     // If `mapped` does not have a focus timestamp, then the window is newly
@@ -1284,7 +1290,7 @@ impl State {
                     // period has gone by without the focus having elsewhere.
                     let stamp = get_monotonic_time();
 
-                    let debounce = self.niri.config.borrow().recent_windows.debounce_ms;
+                    let debounce = self.neori.config.borrow().recent_windows.debounce_ms;
                     let debounce = Duration::from_millis(u64::from(debounce));
 
                     if mapped.get_focus_timestamp().is_none() || debounce.is_zero() {
@@ -1293,27 +1299,27 @@ impl State {
                         let timer = Timer::from_duration(debounce);
 
                         let focus_token = self
-                            .niri
+                            .neori
                             .event_loop
                             .insert_source(timer, move |_, _, state| {
-                                state.niri.mru_apply_keyboard_commit();
+                                state.neori.mru_apply_keyboard_commit();
                                 TimeoutAction::Drop
                             })
                             .unwrap();
                         if let Some(PendingMruCommit { token, .. }) =
-                            self.niri.pending_mru_commit.replace(PendingMruCommit {
+                            self.neori.pending_mru_commit.replace(PendingMruCommit {
                                 id: mapped.id(),
                                 token: focus_token,
                                 stamp,
                             })
                         {
-                            self.niri.event_loop.remove(token);
+                            self.neori.event_loop.remove(token);
                         }
                     }
                 }
             }
 
-            if let Some(grab) = self.niri.popup_grab.as_mut() {
+            if let Some(grab) = self.neori.popup_grab.as_mut() {
                 if grab.has_keyboard_grab && Some(&grab.root) != focus.surface() {
                     trace!(
                         "grab root {:?} is not the new focus {:?}, ungrabbing",
@@ -1323,16 +1329,16 @@ impl State {
 
                     grab.grab.ungrab(PopupUngrabStrategy::All);
                     keyboard.unset_grab(self);
-                    self.niri.seat.get_pointer().unwrap().unset_grab(
+                    self.neori.seat.get_pointer().unwrap().unset_grab(
                         self,
                         SERIAL_COUNTER.next_serial(),
                         get_monotonic_time().as_millis() as u32,
                     );
-                    self.niri.popup_grab = None;
+                    self.neori.popup_grab = None;
                 }
             }
 
-            if self.niri.config.borrow().input.keyboard.track_layout == TrackLayout::Window {
+            if self.neori.config.borrow().input.keyboard.track_layout == TrackLayout::Window {
                 let current_layout = keyboard.with_xkb_state(self, |context| {
                     let xkb = context.xkb().lock().unwrap();
                     xkb.active_layout()
@@ -1340,7 +1346,7 @@ impl State {
 
                 let mut new_layout = current_layout;
                 // Store the currently active layout for the surface.
-                if let Some(current_focus) = self.niri.keyboard_focus.surface() {
+                if let Some(current_focus) = self.neori.keyboard_focus.surface() {
                     with_states(current_focus, |data| {
                         let cell = data
                             .data_map
@@ -1367,11 +1373,11 @@ impl State {
                 }
             }
 
-            self.niri.keyboard_focus.clone_from(&focus);
+            self.neori.keyboard_focus.clone_from(&focus);
             keyboard.set_focus(self, focus.into_surface(), SERIAL_COUNTER.next_serial());
 
             // FIXME: can be more granular.
-            self.niri.queue_redraw_all();
+            self.neori.queue_redraw_all();
         }
     }
 
@@ -1384,7 +1390,7 @@ impl State {
 
         let keymap = std::fs::read_to_string(xkb_file).context("failed to read xkb_file")?;
 
-        let keyboard = self.niri.seat.get_keyboard().unwrap();
+        let keyboard = self.neori.seat.get_keyboard().unwrap();
         let num_lock = keyboard.modifier_state().num_lock;
 
         keyboard
@@ -1402,7 +1408,7 @@ impl State {
     }
 
     fn load_xkb_file(&mut self) {
-        let xkb_file = self.niri.config.borrow().input.keyboard.xkb.file.clone();
+        let xkb_file = self.neori.config.borrow().input.keyboard.xkb.file.clone();
         if let Some(xkb_file) = xkb_file {
             if let Err(err) = self.set_xkb_file(xkb_file) {
                 warn!("error loading xkb_file: {err:?}");
@@ -1411,7 +1417,7 @@ impl State {
     }
 
     pub fn set_xkb_config(&mut self, xkb: XkbConfig) {
-        let keyboard = self.niri.seat.get_keyboard().unwrap();
+        let keyboard = self.neori.seat.get_keyboard().unwrap();
         let num_lock = keyboard.modifier_state().num_lock;
         if let Err(err) = keyboard.set_xkb_config(self, xkb) {
             warn!("error updating xkb config: {err:?}");
@@ -1426,48 +1432,82 @@ impl State {
         }
     }
 
-    pub fn reload_config(&mut self, config: Result<Config, ()>) {
+    /// Fires the `startup` event: executes the queued startup actions from the config, then
+    /// runs the Lua callbacks registered via `neori.on("startup", function() ... end)`.
+    pub fn fire_startup(&mut self) {
+        let _span = tracy_client::span!("State::fire_startup");
+
+        let startup = mem::take(&mut self.neori.config.borrow_mut().startup);
+        for action in startup {
+            self.do_action(action, false);
+        }
+
+        if let Err(err) = self.scripting.call_event("startup") {
+            warn!("{err}");
+        }
+    }
+
+    /// Fires a monitor event: executes queued actions from the config, then runs the Lua
+    /// callbacks registered via `neori.on(event, function(name) ... end)`.
+    fn fire_monitor_event(&mut self, event: &str, connector: &str) {
+        let actions = match event {
+            "monitor-added" => self.neori.config.borrow().monitor_added.clone(),
+            "monitor-removed" => self.neori.config.borrow().monitor_removed.clone(),
+            _ => Vec::new(),
+        };
+        for action in actions {
+            self.do_action(action, false);
+        }
+
+        if let Err(err) = self.scripting.call_event_with(event, connector.to_string()) {
+            warn!("{err}");
+        }
+    }
+
+    pub fn reload_config(&mut self, config: Result<(Config, ScriptHost), ()>) {
         let _span = tracy_client::span!("State::reload_config");
 
-        let mut config = match config {
-            Ok(config) => config,
+        let (mut config, script_host) = match config {
+            Ok((config, script_host)) => (config, script_host),
             Err(()) => {
-                self.niri.config_error_notification.show();
-                self.niri.queue_redraw_all();
+                self.neori.config_error_notification.show();
+                self.neori.queue_redraw_all();
 
                 #[cfg(feature = "dbus")]
-                self.niri.a11y_announce_config_error();
+                self.neori.a11y_announce_config_error();
 
                 return;
             }
         };
 
-        self.niri.config_error_notification.hide();
+        self.scripting = script_host;
+
+        self.neori.config_error_notification.hide();
 
         // Find & orphan removed named workspaces.
         let mut removed_workspaces: Vec<String> = vec![];
-        for ws in &self.niri.config.borrow().workspaces {
+        for ws in &self.neori.config.borrow().workspaces {
             if !config.workspaces.iter().any(|w| w.name == ws.name) {
                 removed_workspaces.push(ws.name.0.clone());
             }
         }
         for name in removed_workspaces {
-            self.niri.layout.unname_workspace(&name);
+            self.neori.layout.unname_workspace(&name);
         }
 
-        self.niri.layout.update_config(&config);
-        for mapped in self.niri.mapped_layer_surfaces.values_mut() {
+        self.neori.layout.update_config(&config);
+        for mapped in self.neori.mapped_layer_surfaces.values_mut() {
             mapped.update_config(&config);
         }
 
         // Create new named workspaces.
         for ws_config in &config.workspaces {
-            self.niri.layout.ensure_named_workspace(ws_config);
+            self.neori.layout.ensure_named_workspace(ws_config);
         }
 
         let rate = 1.0 / config.animations.slowdown.max(0.001);
-        self.niri.clock.set_rate(rate);
-        self.niri
+        self.neori.clock.set_rate(rate);
+        self.neori
             .clock
             .set_complete_instantly(config.animations.off);
 
@@ -1483,14 +1523,14 @@ impl State {
         let mut cursor_inactivity_timeout_changed = false;
         let mut recent_windows_changed = false;
         let mut xwls_changed = false;
-        let mut old_config = self.niri.config.borrow_mut();
+        let mut old_config = self.neori.config.borrow_mut();
 
         // Reload the cursor.
         if config.cursor != old_config.cursor {
-            self.niri
+            self.neori
                 .cursor_manager
                 .reload(&config.cursor.xcursor_theme, config.cursor.xcursor_size);
-            self.niri.cursor_texture_cache.clear();
+            self.neori.cursor_texture_cache.clear();
         }
 
         // We need &mut self to reload the xkb config, so just store it here.
@@ -1502,7 +1542,7 @@ impl State {
         if config.input.keyboard.repeat_rate != old_config.input.keyboard.repeat_rate
             || config.input.keyboard.repeat_delay != old_config.input.keyboard.repeat_delay
         {
-            let keyboard = self.niri.seat.get_keyboard().unwrap();
+            let keyboard = self.neori.seat.get_keyboard().unwrap();
             keyboard.change_repeat_info(
                 config.input.keyboard.repeat_rate.into(),
                 config.input.keyboard.repeat_delay.into(),
@@ -1522,9 +1562,9 @@ impl State {
         let ignored_nodes_changed =
             config.debug.ignored_drm_devices != old_config.debug.ignored_drm_devices;
 
-        if config.outputs != self.niri.config_file_output_config {
+        if config.outputs != self.neori.config_file_output_config {
             output_config_changed = true;
-            self.niri
+            self.neori
                 .config_file_output_config
                 .clone_from(&config.outputs);
         } else {
@@ -1536,14 +1576,14 @@ impl State {
         let binds_changed = config.binds != old_config.binds;
         let new_mod_key = self.backend.mod_key(&config);
         if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
-            self.niri
+            self.neori
                 .hotkey_overlay
                 .on_hotkey_config_updated(new_mod_key);
-            self.niri.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &config.binds);
-            self.niri.mods_with_wheel_binds = mods_with_wheel_binds(new_mod_key, &config.binds);
-            self.niri.mods_with_tablet_stylus_binds =
+            self.neori.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &config.binds);
+            self.neori.mods_with_wheel_binds = mods_with_wheel_binds(new_mod_key, &config.binds);
+            self.neori.mods_with_tablet_stylus_binds =
                 mods_with_tablet_stylus_binds(new_mod_key, &config.binds);
-            self.niri.mods_with_finger_scroll_binds =
+            self.neori.mods_with_finger_scroll_binds =
                 mods_with_finger_scroll_binds(new_mod_key, &config.binds);
         }
 
@@ -1640,10 +1680,10 @@ impl State {
             }
 
             if set_xkb_config {
-                // If xkb is unset in the niri config, use settings from locale1.
+                // If xkb is unset in the neori config, use settings from locale1.
                 if xkb == Xkb::default() {
                     trace!("using xkb from locale1");
-                    xkb = self.niri.xkb_from_locale1.clone().unwrap_or_default();
+                    xkb = self.neori.xkb_from_locale1.clone().unwrap_or_default();
                 }
 
                 self.set_xkb_config(xkb.to_xkb_config());
@@ -1653,14 +1693,14 @@ impl State {
         }
 
         if libinput_config_changed {
-            let config = self.niri.config.borrow();
-            for mut device in self.niri.devices.iter().cloned() {
+            let config = self.neori.config.borrow();
+            for mut device in self.neori.devices.iter().cloned() {
                 apply_libinput_settings(&config.input, &mut device);
             }
         }
 
         if ignored_nodes_changed {
-            self.backend.update_ignored_nodes_config(&mut self.niri);
+            self.backend.update_ignored_nodes_config(&mut self.neori);
         }
 
         if output_config_changed {
@@ -1668,42 +1708,42 @@ impl State {
         }
 
         if window_rules_changed {
-            self.niri.recompute_window_rules();
+            self.neori.recompute_window_rules();
         }
 
         if layer_rules_changed {
-            self.niri.recompute_layer_rules();
+            self.neori.recompute_layer_rules();
         }
 
         if shaders_changed {
-            self.niri.update_shaders();
+            self.neori.update_shaders();
         }
 
         if cursor_inactivity_timeout_changed {
             // Force reset due to timeout change.
-            self.niri.pointer_inactivity_timer_got_reset = false;
-            self.niri.reset_pointer_inactivity_timer();
+            self.neori.pointer_inactivity_timer_got_reset = false;
+            self.neori.reset_pointer_inactivity_timer();
         }
 
         if binds_changed {
-            self.niri.window_mru_ui.update_binds();
+            self.neori.window_mru_ui.update_binds();
         }
 
         if recent_windows_changed {
-            self.niri.window_mru_ui.update_config();
+            self.neori.window_mru_ui.update_config();
         }
 
         if xwls_changed {
             // If xwl-s was previously working and is now off, we don't try to kill it or stop
             // watching the sockets, for simplicity's sake.
-            let was_working = self.niri.satellite.is_some();
+            let was_working = self.neori.satellite.is_some();
 
             // Try to start, or restart in case the user corrected the path or something.
             xwayland::satellite::setup(self);
 
-            let config = self.niri.config.borrow();
+            let config = self.neori.config.borrow();
             let display_name = (!config.xwayland_satellite.off)
-                .then_some(self.niri.satellite.as_ref())
+                .then_some(self.neori.satellite.as_ref())
                 .flatten()
                 .map(|satellite| satellite.display_name().to_owned());
 
@@ -1722,16 +1762,16 @@ impl State {
         // global suddenly appearing? Either way, right now it's live-reloaded in a sense that new
         // clients will use the new xdg-decoration setting.
 
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     pub fn reload_output_config(&mut self) {
         let mut resized_outputs = vec![];
         let mut recolored_outputs = vec![];
 
-        for output in self.niri.global_space.outputs() {
+        for output in self.neori.global_space.outputs() {
             let name = output.user_data().get::<OutputName>().unwrap();
-            let full_config = self.niri.config.borrow_mut();
+            let full_config = self.neori.config.borrow_mut();
             let config = full_config.outputs.find(name);
 
             let scale = config
@@ -1762,7 +1802,7 @@ impl State {
                     Some(output::Scale::Fractional(scale)),
                     None,
                 );
-                self.niri.ipc_outputs_changed = true;
+                self.neori.ipc_outputs_changed = true;
                 resized_outputs.push(output.clone());
             }
 
@@ -1773,14 +1813,14 @@ impl State {
             backdrop_color[3] = 1.;
             let backdrop_color = Color32F::from(backdrop_color);
 
-            if let Some(state) = self.niri.output_state.get_mut(output) {
+            if let Some(state) = self.neori.output_state.get_mut(output) {
                 if state.backdrop_buffer.color() != backdrop_color {
                     state.backdrop_buffer.set_color(backdrop_color);
                     recolored_outputs.push(output.clone());
                 }
             }
 
-            for mon in self.niri.layout.monitors_mut() {
+            for mon in self.neori.layout.monitors_mut() {
                 if mon.output() != output {
                     continue;
                 }
@@ -1802,34 +1842,34 @@ impl State {
         }
 
         for output in resized_outputs {
-            self.niri.output_resized(&output);
+            self.neori.output_resized(&output);
         }
 
         for output in recolored_outputs {
-            self.niri.queue_redraw(&output);
+            self.neori.queue_redraw(&output);
         }
 
-        self.backend.on_output_config_changed(&mut self.niri);
+        self.backend.on_output_config_changed(&mut self.neori);
 
-        self.niri.reposition_outputs(None);
+        self.neori.reposition_outputs(None);
 
-        if let Some(touch) = self.niri.seat.get_touch() {
+        if let Some(touch) = self.neori.seat.get_touch() {
             touch.cancel(self);
         }
 
-        let config = self.niri.config.borrow().outputs.clone();
-        self.niri.output_management_state.on_config_changed(config);
+        let config = self.neori.config.borrow().outputs.clone();
+        self.neori.output_management_state.on_config_changed(config);
     }
 
     pub fn modify_output_config<F>(&mut self, name: &str, fun: F)
     where
-        F: FnOnce(&mut niri_config::Output),
+        F: FnOnce(&mut neori_config::Output),
     {
         // Try hard to find the output config section corresponding to the output set by the
         // user. Since if we add a new section and some existing section also matches the
         // output, then our new section won't do anything.
         let temp;
-        let match_name = if let Some(output) = self.niri.output_by_name_match(name) {
+        let match_name = if let Some(output) = self.neori.output_by_name_match(name) {
             output.user_data().get::<OutputName>().unwrap()
         } else if let Some(output_name) = self
             .backend
@@ -1849,11 +1889,11 @@ impl State {
             &temp
         };
 
-        let mut config = self.niri.config.borrow_mut();
+        let mut config = self.neori.config.borrow_mut();
         let config = if let Some(config) = config.outputs.find_mut(match_name) {
             config
         } else {
-            config.outputs.0.push(niri_config::Output {
+            config.outputs.0.push(neori_config::Output {
                 // Save name as set by the user.
                 name: String::from(name),
                 ..Default::default()
@@ -1864,25 +1904,25 @@ impl State {
         fun(config);
     }
 
-    pub fn apply_transient_output_config(&mut self, name: &str, action: niri_ipc::OutputAction) {
+    pub fn apply_transient_output_config(&mut self, name: &str, action: neori_ipc::OutputAction) {
         self.modify_output_config(name, move |config| match action {
-            niri_ipc::OutputAction::Off => config.off = true,
-            niri_ipc::OutputAction::On => config.off = false,
-            niri_ipc::OutputAction::Mode { mode } => {
+            neori_ipc::OutputAction::Off => config.off = true,
+            neori_ipc::OutputAction::On => config.off = false,
+            neori_ipc::OutputAction::Mode { mode } => {
                 config.mode = match mode {
-                    niri_ipc::ModeToSet::Automatic => None,
-                    niri_ipc::ModeToSet::Specific(mode) => Some(niri_config::output::Mode {
+                    neori_ipc::ModeToSet::Automatic => None,
+                    neori_ipc::ModeToSet::Specific(mode) => Some(neori_config::output::Mode {
                         custom: false,
                         mode,
                     }),
                 };
                 config.modeline = None;
             }
-            niri_ipc::OutputAction::CustomMode { mode } => {
-                config.mode = Some(niri_config::output::Mode { custom: true, mode });
+            neori_ipc::OutputAction::CustomMode { mode } => {
+                config.mode = Some(neori_config::output::Mode { custom: true, mode });
                 config.modeline = None;
             }
-            niri_ipc::OutputAction::Modeline {
+            neori_ipc::OutputAction::Modeline {
                 clock,
                 hdisplay,
                 hsync_start,
@@ -1896,7 +1936,7 @@ impl State {
                 vsync_polarity,
             } => {
                 // Do not reset config.mode to None since it's used as a fallback.
-                config.modeline = Some(niri_config::output::Modeline {
+                config.modeline = Some(neori_config::output::Modeline {
                     clock,
                     hdisplay,
                     hsync_start,
@@ -1910,48 +1950,48 @@ impl State {
                     vsync_polarity,
                 })
             }
-            niri_ipc::OutputAction::Scale { scale } => {
+            neori_ipc::OutputAction::Scale { scale } => {
                 config.scale = match scale {
-                    niri_ipc::ScaleToSet::Automatic => None,
-                    niri_ipc::ScaleToSet::Specific(scale) => Some(FloatOrInt(scale)),
+                    neori_ipc::ScaleToSet::Automatic => None,
+                    neori_ipc::ScaleToSet::Specific(scale) => Some(FloatOrInt(scale)),
                 }
             }
-            niri_ipc::OutputAction::Transform { transform } => config.transform = transform,
-            niri_ipc::OutputAction::Position { position } => {
+            neori_ipc::OutputAction::Transform { transform } => config.transform = transform,
+            neori_ipc::OutputAction::Position { position } => {
                 config.position = match position {
-                    niri_ipc::PositionToSet::Automatic => None,
-                    niri_ipc::PositionToSet::Specific(position) => Some(niri_config::Position {
+                    neori_ipc::PositionToSet::Automatic => None,
+                    neori_ipc::PositionToSet::Specific(position) => Some(neori_config::Position {
                         x: position.x,
                         y: position.y,
                     }),
                 }
             }
-            niri_ipc::OutputAction::Vrr { vrr } => {
+            neori_ipc::OutputAction::Vrr { vrr } => {
                 config.variable_refresh_rate = if vrr.vrr {
-                    Some(niri_config::Vrr {
+                    Some(neori_config::Vrr {
                         on_demand: vrr.on_demand,
                     })
                 } else {
                     None
                 }
             }
-            niri_ipc::OutputAction::MaxBpc { max_bpc } => config.max_bpc = Some(MaxBpc(max_bpc)),
+            neori_ipc::OutputAction::MaxBpc { max_bpc } => config.max_bpc = Some(MaxBpc(max_bpc)),
         });
 
         self.reload_output_config();
     }
 
     pub fn refresh_ipc_outputs(&mut self) {
-        if !self.niri.ipc_outputs_changed {
+        if !self.neori.ipc_outputs_changed {
             return;
         }
-        self.niri.ipc_outputs_changed = false;
+        self.neori.ipc_outputs_changed = false;
 
         let _span = tracy_client::span!("State::refresh_ipc_outputs");
 
         for ipc_output in self.backend.ipc_outputs().lock().unwrap().values_mut() {
             let logical = self
-                .niri
+                .neori
                 .global_space
                 .outputs()
                 .find(|output| output.name() == ipc_output.name)
@@ -1960,58 +2000,60 @@ impl State {
         }
 
         #[cfg(feature = "dbus")]
-        self.niri.on_ipc_outputs_changed();
+        self.neori.on_ipc_outputs_changed();
 
         let new_config = self.backend.ipc_outputs().lock().unwrap().clone();
-        self.niri.output_management_state.notify_changes(new_config);
+        self.neori
+            .output_management_state
+            .notify_changes(new_config);
     }
 
     pub fn open_screenshot_ui(&mut self, show_pointer: bool, path: Option<String>) {
-        if self.niri.is_locked() || self.niri.screenshot_ui.is_open() {
+        if self.neori.is_locked() || self.neori.screenshot_ui.is_open() {
             return;
         }
 
         let default_output = self
-            .niri
+            .neori
             .output_under_cursor()
-            .or_else(|| self.niri.layout.active_output().cloned());
+            .or_else(|| self.neori.layout.active_output().cloned());
         let Some(default_output) = default_output else {
             return;
         };
 
-        self.niri.update_render_elements(None);
+        self.neori.update_render_elements(None);
 
         let Some(screenshots) = self
             .backend
-            .with_primary_renderer(|renderer| self.niri.capture_screenshots(renderer).collect())
+            .with_primary_renderer(|renderer| self.neori.capture_screenshots(renderer).collect())
         else {
             return;
         };
 
         // Now that we captured the screenshots, clear grabs like drag-and-drop, etc.
-        self.niri.seat.get_pointer().unwrap().unset_grab(
+        self.neori.seat.get_pointer().unwrap().unset_grab(
             self,
             SERIAL_COUNTER.next_serial(),
             get_monotonic_time().as_millis() as u32,
         );
-        if let Some(touch) = self.niri.seat.get_touch() {
+        if let Some(touch) = self.neori.seat.get_touch() {
             touch.unset_grab(self);
         }
 
         self.backend.with_primary_renderer(|renderer| {
-            self.niri
+            self.neori
                 .screenshot_ui
                 .open(renderer, screenshots, default_output, show_pointer, path)
         });
 
-        self.niri
+        self.neori
             .cursor_manager
             .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
-    pub fn handle_pick_color(&mut self, tx: async_channel::Sender<Option<niri_ipc::PickedColor>>) {
-        let pointer = self.niri.seat.get_pointer().unwrap();
+    pub fn handle_pick_color(&mut self, tx: async_channel::Sender<Option<neori_ipc::PickedColor>>) {
+        let pointer = self.neori.seat.get_pointer().unwrap();
         let start_data = PointerGrabStartData {
             focus: None,
             button: 0,
@@ -2019,23 +2061,26 @@ impl State {
         };
         let grab = PickColorGrab::new(start_data);
         pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
-        self.niri.pick_color = Some(tx);
-        self.niri
+        self.neori.pick_color = Some(tx);
+        self.neori
             .cursor_manager
             .set_cursor_image(CursorImageStatus::Named(CursorIcon::Crosshair));
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     pub fn confirm_screenshot(&mut self, write_to_disk: bool) {
-        let ScreenshotUi::Open { path, .. } = &mut self.niri.screenshot_ui else {
+        let ScreenshotUi::Open { path, .. } = &mut self.neori.screenshot_ui else {
             return;
         };
         let path = path.take();
 
         self.backend.with_primary_renderer(|renderer| {
-            match self.niri.screenshot_ui.capture(renderer) {
+            match self.neori.screenshot_ui.capture(renderer) {
                 Ok((size, pixels)) => {
-                    if let Err(err) = self.niri.save_screenshot(size, pixels, write_to_disk, path) {
+                    if let Err(err) = self
+                        .neori
+                        .save_screenshot(size, pixels, write_to_disk, path)
+                    {
                         warn!("error saving screenshot: {err:?}");
                     }
                 }
@@ -2045,17 +2090,17 @@ impl State {
             }
         });
 
-        self.niri.screenshot_ui.close();
-        self.niri
+        self.neori.screenshot_ui.close();
+        self.neori
             .cursor_manager
             .set_cursor_image(CursorImageStatus::default_named());
-        self.niri.queue_redraw_all();
+        self.neori.queue_redraw_all();
     }
 
     pub fn store_unmap_snapshot(&mut self, window: &Window, output: Option<&Output>) {
         // The unmapping tile may have an xray background, in which case we will render xray
         // elements, so they need to be updated.
-        self.niri.update_xray_render_elements(output);
+        self.neori.update_xray_render_elements(output);
 
         self.backend.with_primary_renderer(|renderer| {
             if let Some(output) = output {
@@ -2065,32 +2110,32 @@ impl State {
                     xray: None,
                 };
 
-                self.niri.fill_xray_elements(ctx.r(), output);
+                self.neori.fill_xray_elements(ctx.r(), output);
 
                 // If any background layer has block_out_from, also fill the Screencast xray
                 // buffer so the unmap snapshot can render a buffer with blocked-out background.
                 //
                 // This will be used in Tile::render_snapshot().
-                let has_blocked_out = self.niri.has_blocked_out_background_layers(output);
+                let has_blocked_out = self.neori.has_blocked_out_background_layers(output);
                 if has_blocked_out {
                     let screencast_ctx = RenderCtx {
                         target: RenderTarget::Screencast,
                         ..ctx.r()
                     };
-                    self.niri.fill_xray_elements(screencast_ctx, output);
+                    self.neori.fill_xray_elements(screencast_ctx, output);
                 }
 
-                let state = self.niri.output_state.get_mut(output).unwrap();
-                self.niri.layout.store_unmap_snapshot(
+                let state = self.neori.output_state.get_mut(output).unwrap();
+                self.neori.layout.store_unmap_snapshot(
                     renderer,
                     Some(&mut state.xray),
                     has_blocked_out,
                     window,
                 );
 
-                self.niri.clear_xray_elements(output);
+                self.neori.clear_xray_elements(output);
             } else {
-                self.niri
+                self.neori
                     .layout
                     .store_unmap_snapshot(renderer, None, false, window);
             }
@@ -2103,14 +2148,14 @@ impl State {
     #[cfg(feature = "dbus")]
     pub fn on_screen_shot_msg(
         &mut self,
-        to_screenshot: &async_channel::Sender<NiriToScreenshot>,
-        msg: ScreenshotToNiri,
+        to_screenshot: &async_channel::Sender<NeoriToScreenshot>,
+        msg: ScreenshotToNeori,
     ) {
         match msg {
-            ScreenshotToNiri::TakeScreenshot { include_cursor } => {
+            ScreenshotToNeori::TakeScreenshot { include_cursor } => {
                 self.handle_take_screenshot(to_screenshot, include_cursor);
             }
-            ScreenshotToNiri::PickColor(tx) => {
+            ScreenshotToNeori::PickColor(tx) => {
                 self.handle_pick_color(tx);
             }
         }
@@ -2119,7 +2164,7 @@ impl State {
     #[cfg(feature = "dbus")]
     fn handle_take_screenshot(
         &mut self,
-        to_screenshot: &async_channel::Sender<NiriToScreenshot>,
+        to_screenshot: &async_channel::Sender<NeoriToScreenshot>,
         include_cursor: bool,
     ) {
         let _span = tracy_client::span!("TakeScreenshot");
@@ -2128,7 +2173,7 @@ impl State {
             let on_done = {
                 let to_screenshot = to_screenshot.clone();
                 move |path| {
-                    let msg = NiriToScreenshot::ScreenshotResult(Some(path));
+                    let msg = NeoriToScreenshot::ScreenshotResult(Some(path));
                     if let Err(err) = to_screenshot.send_blocking(msg) {
                         warn!("error sending path to screenshot: {err:?}");
                     }
@@ -2136,13 +2181,13 @@ impl State {
             };
 
             let res = self
-                .niri
+                .neori
                 .screenshot_all_outputs(renderer, include_cursor, on_done);
 
             if let Err(err) = res {
                 warn!("error taking a screenshot: {err:?}");
 
-                let msg = NiriToScreenshot::ScreenshotResult(None);
+                let msg = NeoriToScreenshot::ScreenshotResult(None);
                 if let Err(err) = to_screenshot.send_blocking(msg) {
                     warn!("error sending None to screenshot: {err:?}");
                 }
@@ -2150,7 +2195,7 @@ impl State {
         });
 
         if rv.is_none() {
-            let msg = NiriToScreenshot::ScreenshotResult(None);
+            let msg = NeoriToScreenshot::ScreenshotResult(None);
             if let Err(err) = to_screenshot.send_blocking(msg) {
                 warn!("error sending None to screenshot: {err:?}");
             }
@@ -2160,26 +2205,26 @@ impl State {
     #[cfg(feature = "dbus")]
     pub fn on_introspect_msg(
         &mut self,
-        to_introspect: &async_channel::Sender<NiriToIntrospect>,
-        msg: IntrospectToNiri,
+        to_introspect: &async_channel::Sender<NeoriToIntrospect>,
+        msg: IntrospectToNeori,
     ) {
         use crate::utils::with_toplevel_role;
 
-        let IntrospectToNiri::GetWindows = msg;
+        let IntrospectToNeori::GetWindows = msg;
         let _span = tracy_client::span!("GetWindows");
 
         let mut windows = HashMap::new();
 
         #[cfg(feature = "xdp-gnome-screencast")]
         windows.insert(
-            self.niri.casting.dynamic_cast_id_for_portal.get(),
+            self.neori.casting.dynamic_cast_id_for_portal.get(),
             gnome_shell_introspect::WindowProperties {
-                title: String::from("niri Dynamic Cast Target"),
-                app_id: String::from("rs.bxt.niri.desktop"),
+                title: String::from("neori Dynamic Cast Target"),
+                app_id: String::from("rs.bxt.neori.desktop"),
             },
         );
 
-        self.niri.layout.with_windows(|mapped, _, _, _| {
+        self.neori.layout.with_windows(|mapped, _, _, _| {
             let id = mapped.id().get();
             let props = with_toplevel_role(mapped.toplevel(), |role| {
                 gnome_shell_introspect::WindowProperties {
@@ -2198,31 +2243,31 @@ impl State {
             windows.insert(id, props);
         });
 
-        let msg = NiriToIntrospect::Windows(windows);
+        let msg = NeoriToIntrospect::Windows(windows);
         if let Err(err) = to_introspect.send_blocking(msg) {
             warn!("error sending windows to introspect: {err:?}");
         }
     }
 
     #[cfg(feature = "dbus")]
-    pub fn on_login1_msg(&mut self, msg: Login1ToNiri) {
-        let Login1ToNiri::LidClosedChanged(is_closed) = msg;
+    pub fn on_login1_msg(&mut self, msg: Login1ToNeori) {
+        let Login1ToNeori::LidClosedChanged(is_closed) = msg;
 
         trace!("login1 lid {}", if is_closed { "closed" } else { "opened" });
         self.set_lid_closed(is_closed);
     }
 
     #[cfg(feature = "dbus")]
-    pub fn on_locale1_msg(&mut self, msg: Locale1ToNiri) {
-        let Locale1ToNiri::XkbChanged(xkb) = msg;
+    pub fn on_locale1_msg(&mut self, msg: Locale1ToNeori) {
+        let Locale1ToNeori::XkbChanged(xkb) = msg;
 
         trace!("locale1 xkb settings changed: {xkb:?}");
-        let xkb = self.niri.xkb_from_locale1.insert(xkb);
+        let xkb = self.neori.xkb_from_locale1.insert(xkb);
 
         {
-            let config = self.niri.config.borrow();
+            let config = self.neori.config.borrow();
             if config.input.keyboard.xkb != Xkb::default() {
-                trace!("ignoring locale1 xkb change because niri config has xkb settings");
+                trace!("ignoring locale1 xkb change because neori config has xkb settings");
                 return;
             }
         }
@@ -2233,7 +2278,7 @@ impl State {
     }
 }
 
-impl Niri {
+impl Neori {
     pub fn new(
         config: Rc<RefCell<Config>>,
         event_loop: LoopHandle<'static, State>,
@@ -2243,7 +2288,7 @@ impl Niri {
         create_wayland_socket: bool,
         is_session_instance: bool,
     ) -> Self {
-        let _span = tracy_client::span!("Niri::new");
+        let _span = tracy_client::span!("Neori::new");
 
         let (executor, scheduler) = calloop::futures::executor().unwrap();
         event_loop.insert_source(executor, |_, _, _| ()).unwrap();
@@ -2366,7 +2411,7 @@ impl Niri {
             .insert_source(
                 Timer::from_duration(XDG_ACTIVATION_TOKEN_TIMEOUT),
                 |_, _, state| {
-                    state.niri.activation_state.retain_tokens(|_, token_data| {
+                    state.neori.activation_state.retain_tokens(|_, token_data| {
                         token_data.timestamp.elapsed() < XDG_ACTIVATION_TOKEN_TIMEOUT
                     });
                     TimeoutAction::ToDuration(XDG_ACTIVATION_TOKEN_TIMEOUT)
@@ -2437,7 +2482,7 @@ impl Niri {
             .insert_source(
                 Timer::from_duration(Duration::from_secs(1)),
                 |_, _, state| {
-                    state.niri.send_frame_callbacks_on_fallback_timer();
+                    state.neori.send_frame_callbacks_on_fallback_timer();
                     TimeoutAction::ToDuration(Duration::from_secs(1))
                 },
             )
@@ -2448,7 +2493,7 @@ impl Niri {
             let socket_name = socket_source.socket_name().to_os_string();
             event_loop
                 .insert_source(socket_source, move |client, _, state| {
-                    state.niri.insert_client(NewClient {
+                    state.neori.insert_client(NewClient {
                         client,
                         restricted: false,
                         credentials_unknown: false,
@@ -2485,16 +2530,16 @@ impl Niri {
                 Timer::from_duration(Duration::from_secs(60)),
                 |_, _, state| {
                     let _span = tracy_client::span!("startup timeout");
-                    state.niri.is_at_startup = false;
-                    state.niri.recompute_window_rules();
-                    state.niri.recompute_layer_rules();
+                    state.neori.is_at_startup = false;
+                    state.neori.recompute_window_rules();
+                    state.neori.recompute_layer_rules();
                     TimeoutAction::Drop
                 },
             )
             .unwrap();
 
         drop(config_);
-        let mut niri = Self {
+        let mut neori = Self {
             config,
             config_file_output_config,
             config_file_watcher: None,
@@ -2640,9 +2685,9 @@ impl Niri {
             casting: screencasting,
         };
 
-        niri.reset_pointer_inactivity_timer();
+        neori.reset_pointer_inactivity_timer();
 
-        niri
+        neori
     }
 
     pub fn insert_client(&mut self, client: NewClient) {
@@ -2677,7 +2722,7 @@ impl Niri {
             "/org/freedesktop/login1",
             Some("org.freedesktop.login1.Manager"),
             "Inhibit",
-            &("handle-power-key", "niri", "Power key handling", "block"),
+            &("handle-power-key", "neori", "Power key handling", "block"),
         )?;
 
         let fd: zbus::zvariant::OwnedFd = message.body().deserialize()?;
@@ -2694,14 +2739,14 @@ impl Niri {
 
     /// Repositions all outputs, optionally adding a new output.
     pub fn reposition_outputs(&mut self, new_output: Option<&Output>) {
-        let _span = tracy_client::span!("Niri::reposition_outputs");
+        let _span = tracy_client::span!("Neori::reposition_outputs");
 
         #[derive(Debug)]
         struct Data {
             output: Output,
             name: OutputName,
             position: Option<Point<i32, Logical>>,
-            config: Option<niri_config::Position>,
+            config: Option<neori_config::Position>,
         }
 
         let config = self.config.borrow();
@@ -2894,6 +2939,11 @@ impl Niri {
 
         // Must be last since it will call queue_redraw(output) which needs things to be filled-in.
         self.reposition_outputs(Some(&output));
+
+        let connector = name.connector.clone();
+        self.event_loop.insert_idle(move |state| {
+            state.fire_monitor_event("monitor-added", &connector);
+        });
     }
 
     pub fn output_exists(&self, output: &Output) -> bool {
@@ -2903,14 +2953,19 @@ impl Niri {
     /// Converts a `WlOutput` to a corresponding `Output` if it exists.
     ///
     /// Compared to raw `Output::from_resource`, this method also verifies that the output still
-    /// exists in niri. Right after the output global is disabled, but before it is removed for
-    /// good, `Output::from_resource` will succeed, but since niri already forgot the output,
+    /// exists in neori. Right after the output global is disabled, but before it is removed for
+    /// good, `Output::from_resource` will succeed, but since neori already forgot the output,
     /// accessing it can cause logic bugs.
     pub fn output_from_resource(&self, wl_output: &WlOutput) -> Option<Output> {
         Output::from_resource(wl_output).filter(|output| self.output_exists(output))
     }
 
     pub fn remove_output(&mut self, output: &Output) {
+        let connector = output
+            .user_data()
+            .get::<OutputName>()
+            .map(|name| name.connector.clone());
+
         for layer in layer_map_for_output(output).layers() {
             layer.layer_surface().send_close();
         }
@@ -2942,7 +2997,7 @@ impl Niri {
                 Timer::from_duration(Duration::from_secs(10)),
                 move |_, _, state| {
                     state
-                        .niri
+                        .neori
                         .display_handle
                         .remove_global::<State>(global.clone());
                     TimeoutAction::Drop
@@ -2981,6 +3036,12 @@ impl Niri {
 
         if self.window_mru_ui.output() == Some(output) {
             self.cancel_mru();
+        }
+
+        if let Some(connector) = connector {
+            self.event_loop.insert_idle(move |state| {
+                state.fire_monitor_event("monitor-removed", &connector);
+            });
         }
     }
 
@@ -3590,23 +3651,26 @@ impl Niri {
         self.output_next_of(active)
     }
 
+    /// Finds the output and workspace number for the given reference.
+    ///
+    /// Returns the global, 1-based workspace number. `Index` references are
+    /// already 1-based; `Name`/`Id` references resolve to the workspace's
+    /// globally-unique number.
     pub fn find_output_and_workspace_index(
         &self,
         workspace_reference: WorkspaceReference,
-    ) -> Option<(Option<Output>, usize)> {
-        let (target_workspace_index, target_workspace) = match workspace_reference {
-            WorkspaceReference::Index(index) => {
-                return Some((None, index.saturating_sub(1) as usize));
-            }
-            WorkspaceReference::Name(name) => self.layout.find_workspace_by_name(&name)?,
+    ) -> Option<(Option<Output>, u32)> {
+        let target_workspace = match workspace_reference {
+            WorkspaceReference::Index(index) => return Some((None, u32::from(index))),
+            WorkspaceReference::Name(name) => self.layout.find_workspace_by_name(&name)?.1,
             WorkspaceReference::Id(id) => {
                 let id = WorkspaceId::specific(id);
-                self.layout.find_workspace_by_id(id)?
+                self.layout.find_workspace_by_id(id)?.1
             }
         };
 
         let target_output = target_workspace.current_output();
-        Some((target_output.cloned(), target_workspace_index))
+        Some((target_output.cloned(), target_workspace.index()))
     }
 
     pub fn find_window_by_id(&self, id: MappedId) -> Option<Window> {
@@ -3682,7 +3746,7 @@ impl Niri {
     }
 
     pub fn redraw_queued_outputs(&mut self, backend: &mut Backend) {
-        let _span = tracy_client::span!("Niri::redraw_queued_outputs");
+        let _span = tracy_client::span!("Neori::redraw_queued_outputs");
 
         while let Some((output, _)) = self.output_state.iter().find(|(_, state)| {
             matches!(
@@ -3702,7 +3766,7 @@ impl Niri {
         output: &Output,
         push: &mut dyn FnMut(PointerRenderElements<R>),
     ) {
-        let _span = tracy_client::span!("Niri::render_pointer");
+        let _span = tracy_client::span!("Neori::render_pointer");
         let output_scale = output.current_scale();
         let output_pos = self.global_space.output_geometry(output).unwrap().loc;
 
@@ -3842,7 +3906,7 @@ impl Niri {
             return;
         }
 
-        let _span = tracy_client::span!("Niri::refresh_pointer_outputs");
+        let _span = tracy_client::span!("Neori::refresh_pointer_outputs");
 
         // Check whether we need to draw the tablet cursor or the regular cursor.
         let pointer_pos = self
@@ -4004,7 +4068,7 @@ impl Niri {
     }
 
     pub fn refresh_idle_inhibit(&mut self) {
-        let _span = tracy_client::span!("Niri::refresh_idle_inhibit");
+        let _span = tracy_client::span!("Neori::refresh_idle_inhibit");
 
         self.idle_inhibiting_surfaces.retain(|s| s.is_alive());
 
@@ -4018,7 +4082,7 @@ impl Niri {
     }
 
     pub fn refresh_window_states(&mut self) {
-        let _span = tracy_client::span!("Niri::refresh_window_states");
+        let _span = tracy_client::span!("Neori::refresh_window_states");
 
         let config = self.config.borrow();
         self.layout.with_windows_mut(|mapped, _output| {
@@ -4028,7 +4092,7 @@ impl Niri {
     }
 
     pub fn refresh_window_rules(&mut self) {
-        let _span = tracy_client::span!("Niri::refresh_window_rules");
+        let _span = tracy_client::span!("Neori::refresh_window_rules");
 
         let config = self.config.borrow();
         let window_rules = &config.window_rules;
@@ -4063,7 +4127,7 @@ impl Niri {
     }
 
     pub fn advance_animations(&mut self) {
-        let _span = tracy_client::span!("Niri::advance_animations");
+        let _span = tracy_client::span!("Neori::advance_animations");
 
         self.layout.advance_animations();
         self.config_error_notification.advance_animations();
@@ -4179,7 +4243,7 @@ impl Niri {
         include_pointer: bool,
         push: &mut dyn FnMut(OutputRenderElements<R>),
     ) {
-        let _span = tracy_client::span!("Niri::render");
+        let _span = tracy_client::span!("Neori::render");
 
         if ctx.target == RenderTarget::Output {
             if let Some(preview) = self.config.borrow().debug.preview_render {
@@ -4448,7 +4512,7 @@ impl Niri {
     }
 
     pub fn fill_xray_elements(&self, mut ctx: RenderCtx<GlesRenderer>, output: &Output) {
-        let _span = tracy_client::span!("Niri::fill_xray_elements");
+        let _span = tracy_client::span!("Neori::fill_xray_elements");
 
         // Make sure the xrayed elements themselves cannot use xray by mistake.
         ctx.xray = None;
@@ -4589,7 +4653,7 @@ impl Niri {
     }
 
     fn redraw(&mut self, backend: &mut Backend, output: &Output) {
-        let _span = tracy_client::span!("Niri::redraw");
+        let _span = tracy_client::span!("Neori::redraw");
 
         // Verify our invariant.
         let state = self.output_state.get_mut(output).unwrap();
@@ -4718,7 +4782,7 @@ impl Niri {
     }
 
     pub fn refresh_on_demand_vrr(&mut self, backend: &mut Backend, output: &Output) {
-        let _span = tracy_client::span!("Niri::refresh_on_demand_vrr");
+        let _span = tracy_client::span!("Neori::refresh_on_demand_vrr");
 
         let name = output.user_data().get::<OutputName>().unwrap();
         let on_demand = self
@@ -4798,7 +4862,7 @@ impl Niri {
         }
 
         // We're only updating the current output's windows and layer surfaces. This should be fine
-        // as in niri they can only be rendered on a single output at a time.
+        // as in neori they can only be rendered on a single output at a time.
         //
         // The reason to do this at all is that it keeps track of whether the surface is visible or
         // not in a unified way with the pointer surfaces, which makes the logic elsewhere simpler.
@@ -4941,7 +5005,7 @@ impl Niri {
         feedback: &SurfaceDmabufFeedback,
         render_element_states: &RenderElementStates,
     ) {
-        let _span = tracy_client::span!("Niri::send_dmabuf_feedbacks");
+        let _span = tracy_client::span!("Neori::send_dmabuf_feedbacks");
 
         // We can unconditionally send the current output's feedback to regular and layer-shell
         // surfaces, as they can only be displayed on a single output at a time. Even if a surface
@@ -5026,7 +5090,7 @@ impl Niri {
     }
 
     pub fn send_frame_callbacks(&mut self, output: &Output) {
-        let _span = tracy_client::span!("Niri::send_frame_callbacks");
+        let _span = tracy_client::span!("Neori::send_frame_callbacks");
 
         let state = self.output_state.get(output).unwrap();
         let sequence = state.frame_callback_sequence;
@@ -5116,7 +5180,7 @@ impl Niri {
     }
 
     pub fn send_frame_callbacks_on_fallback_timer(&mut self) {
-        let _span = tracy_client::span!("Niri::send_frame_callbacks_on_fallback_timer");
+        let _span = tracy_client::span!("Neori::send_frame_callbacks_on_fallback_timer");
 
         // Make up a bogus output; we don't care about it here anyway, just the throttling timer.
         let output = Output::new(
@@ -5272,7 +5336,7 @@ impl Niri {
         renderer: &mut GlesRenderer,
         output: &Output,
     ) {
-        let _span = tracy_client::span!("Niri::render_for_screencopy_with_damage");
+        let _span = tracy_client::span!("Neori::render_for_screencopy_with_damage");
 
         let mut screencopy_state = mem::take(&mut self.screencopy_state);
 
@@ -5348,7 +5412,7 @@ impl Niri {
         manager: &ZwlrScreencopyManagerV1,
         screencopy: Screencopy,
     ) -> anyhow::Result<()> {
-        let _span = tracy_client::span!("Niri::render_for_screencopy");
+        let _span = tracy_client::span!("Neori::render_for_screencopy");
 
         let output = screencopy.output();
         ensure!(
@@ -5556,7 +5620,7 @@ impl Niri {
         include_pointer: bool,
         path: Option<String>,
     ) -> anyhow::Result<()> {
-        let _span = tracy_client::span!("Niri::screenshot");
+        let _span = tracy_client::span!("Neori::screenshot");
 
         self.update_render_elements(Some(output));
 
@@ -5594,7 +5658,7 @@ impl Niri {
         show_pointer: bool,
         path: Option<String>,
     ) -> anyhow::Result<()> {
-        let _span = tracy_client::span!("Niri::screenshot_window");
+        let _span = tracy_client::span!("Neori::screenshot_window");
 
         let scale = Scale::from(output.current_scale().fractional_scale());
         let alpha =
@@ -5682,8 +5746,8 @@ impl Niri {
             .insert_source(rx, move |event, _, state| match event {
                 calloop::channel::Event::Msg(buf) => {
                     set_data_device_selection(
-                        &state.niri.display_handle,
-                        &state.niri.seat,
+                        &state.neori.display_handle,
+                        &state.neori.seat,
                         vec![String::from("image/png")],
                         buf.clone(),
                     );
@@ -5767,7 +5831,7 @@ impl Niri {
         include_pointer: bool,
         on_done: impl FnOnce(PathBuf) + Send + 'static,
     ) -> anyhow::Result<()> {
-        let _span = tracy_client::span!("Niri::screenshot_all_outputs");
+        let _span = tracy_client::span!("Neori::screenshot_all_outputs");
 
         self.update_render_elements(None);
 
@@ -5890,7 +5954,7 @@ impl Niri {
                 .event_loop
                 .insert_source(timer, |_, _, state| {
                     trace!("lock deadline expired, continuing");
-                    state.niri.continue_to_locking();
+                    state.neori.continue_to_locking();
                     TimeoutAction::Drop
                 })
                 .unwrap();
@@ -6149,7 +6213,7 @@ impl Niri {
 
     #[cfg(feature = "dbus")]
     pub fn on_ipc_outputs_changed(&self) {
-        let _span = tracy_client::span!("Niri::on_ipc_outputs_changed");
+        let _span = tracy_client::span!("Neori::on_ipc_outputs_changed");
 
         let Some(dbus) = &self.dbus else { return };
         let Some(conn_display_config) = dbus.conn_display_config.clone() else {
@@ -6245,7 +6309,7 @@ impl Niri {
     }
 
     pub fn do_screen_transition(&mut self, renderer: &mut GlesRenderer, delay_ms: Option<u16>) {
-        let _span = tracy_client::span!("Niri::do_screen_transition");
+        let _span = tracy_client::span!("Neori::do_screen_transition");
 
         self.update_render_elements(None);
 
@@ -6325,7 +6389,7 @@ impl Niri {
     }
 
     pub fn recompute_window_rules(&mut self) {
-        let _span = tracy_client::span!("Niri::recompute_window_rules");
+        let _span = tracy_client::span!("Neori::recompute_window_rules");
 
         let changed = {
             let window_rules = &self.config.borrow().window_rules;
@@ -6361,7 +6425,7 @@ impl Niri {
     }
 
     pub fn recompute_layer_rules(&mut self) {
-        let _span = tracy_client::span!("Niri::recompute_layer_rules");
+        let _span = tracy_client::span!("Neori::recompute_layer_rules");
 
         let mut changed = false;
         {
@@ -6387,7 +6451,7 @@ impl Niri {
             return;
         }
 
-        let _span = tracy_client::span!("Niri::reset_pointer_inactivity_timer");
+        let _span = tracy_client::span!("Neori::reset_pointer_inactivity_timer");
 
         if let Some(token) = self.pointer_inactivity_timer.take() {
             self.event_loop.remove(token);
@@ -6402,13 +6466,13 @@ impl Niri {
         let token = self
             .event_loop
             .insert_source(timer, move |_, _, state| {
-                state.niri.pointer_inactivity_timer = None;
+                state.neori.pointer_inactivity_timer = None;
 
                 // If the pointer is already invisible, don't reset it back to Hidden causing one
                 // frame of hover.
-                if state.niri.pointer_visibility.is_visible() {
-                    state.niri.pointer_visibility = PointerVisibility::Hidden;
-                    state.niri.queue_redraw_all();
+                if state.neori.pointer_visibility.is_visible() {
+                    state.neori.pointer_visibility = PointerVisibility::Hidden;
+                    state.neori.queue_redraw_all();
                 }
 
                 TimeoutAction::Drop
@@ -6424,7 +6488,7 @@ impl Niri {
             return;
         }
 
-        let _span = tracy_client::span!("Niri::notify_activity");
+        let _span = tracy_client::span!("Neori::notify_activity");
 
         self.idle_notifier_state.notify_activity(&self.seat);
 
@@ -6505,21 +6569,21 @@ fn scale_relocate_crop<E: Element>(
     CropRenderElement::from_element(elem, output_scale, ws_geo)
 }
 
-niri_render_elements! {
+neori_render_elements! {
     PointerRenderElements<R> => {
         Wayland = WaylandSurfaceRenderElement<R>,
         NamedPointer = MemoryRenderBufferRenderElement<R>,
     }
 }
 
-niri_render_elements! {
+neori_render_elements! {
     WindowScreenshotRenderElement<R> => {
         Layout = LayoutElementRenderElement<R>,
         Pointer = RelocateRenderElement<PointerRenderElements<R>>,
     }
 }
 
-niri_render_elements! {
+neori_render_elements! {
     OutputRenderElements<R> => {
         Monitor = MonitorRenderElement<R>,
         RescaledTile = RescaleRenderElement<TileRenderElement<R>>,

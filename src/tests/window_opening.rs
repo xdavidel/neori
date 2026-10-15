@@ -1,7 +1,7 @@
 use std::fmt::{self, Write as _};
 
 use insta::assert_snapshot;
-use niri_config::Config;
+use neori_config::Config;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use super::*;
@@ -226,50 +226,37 @@ fn check_target_output_and_workspace(
 
     let mut config = String::from(
         r##"
-output "headless-2" {
-    layout {
-        border {
-            on
-        }
-    }
+neori.output { name = "headless-2", layout = { border = { on = true } } }
+
+neori.workspace { name = "ws-1", open_on_output = "headless-1" }
+
+neori.workspace {
+    name = "ws-2",
+    open_on_output = "headless-2",
+    layout = {
+        border = { width = 10 },
+        default_column_width = { fixed = 500 },
+    },
 }
 
-workspace "ws-1" {
-    open-on-output "headless-1"
-}
-
-workspace "ws-2" {
-    open-on-output "headless-2"
-
-    layout {
-        border {
-            width 10
-        }
-
-        default-column-width {
-            fixed 500
-        }
-    }
-}
-
-window-rule {
-    exclude title="parent"
+neori.window_rule {
+    exclude = { title = "parent" },
 
 "##,
     );
 
     if let Some(x) = open_on_workspace {
-        writeln!(config, "    open-on-workspace \"ws-{x}\"").unwrap();
+        writeln!(config, "    open_on_workspace = \"ws-{x}\",").unwrap();
         snapshot_suffix.push(format!("ws{x}"));
     }
 
     if let Some(x) = open_on_output {
-        writeln!(config, "    open-on-output \"headless-{x}\"").unwrap();
+        writeln!(config, "    open_on_output = \"headless-{x}\",").unwrap();
         snapshot_suffix.push(format!("out{x}"));
     }
 
     if let Some(x) = open_fullscreen {
-        writeln!(config, "    open-fullscreen {x}").unwrap();
+        writeln!(config, "    open_fullscreen = {x},").unwrap();
 
         let x = if x == "true" { "T" } else { "F" };
         snapshot_suffix.push(format!("fs{x}"));
@@ -293,9 +280,9 @@ window-rule {
             config,
             "
 
-window-rule {{
-    match title=\"parent\"
-    open-on-output \"headless-{mon}\"
+neori.window_rule {{
+    match = {{ title = \"parent\" }},
+    open_on_output = \"headless-{mon}\",
 }}"
         )
         .unwrap();
@@ -378,8 +365,8 @@ window-rule {{
         f.double_roundtrip(id);
     }
 
-    let niri = f.niri();
-    let (mon, ws_idx, ws, mapped) = niri
+    let neori = f.neori();
+    let (mon, ws_idx, ws, mapped) = neori
         .layout
         .workspaces()
         .find_map(|(mon, ws_idx, ws)| {
@@ -405,7 +392,7 @@ window-rule {{
     // If the window ended up fullscreen, unfullscreen it and output the configure.
     let mut post_unfullscreen = String::new();
     if is_fullscreen {
-        f.niri().layout.set_fullscreen(&win, false);
+        f.neori().layout.set_fullscreen(&win, false);
         f.double_roundtrip(id);
 
         let window = f.client(id).window(&surface);
@@ -655,11 +642,11 @@ layout {
 
     // If the window ended up fullscreen, unfullscreen it and output the configure.
     let mut post_unfullscreen = String::new();
-    let mapped = f.niri().layout.windows().next().unwrap().1;
+    let mapped = f.neori().layout.windows().next().unwrap().1;
     let is_fullscreen = mapped.sizing_mode().is_fullscreen();
     let win = mapped.window.clone();
     if is_fullscreen {
-        f.niri().layout.set_fullscreen(&win, false);
+        f.neori().layout.set_fullscreen(&win, false);
         f.double_roundtrip(id);
 
         let window = f.client(id).window(&surface);
@@ -732,27 +719,27 @@ fn check_fullscreen_maximize(
     let mut snapshot_desc = Vec::new();
     let mut snapshot_suffix = Vec::new();
 
-    let mut config = String::from(
-        r##"
-window-rule {
-"##,
-    );
+    let mut rule_fields = Vec::new();
 
     if let Some(x) = open_fullscreen {
-        writeln!(config, "    open-fullscreen {x}").unwrap();
+        rule_fields.push(format!("open_fullscreen = {x}"));
 
         let x = if x == "true" { "T" } else { "F" };
         snapshot_suffix.push(format!("fs{x}"));
     }
 
     if let Some(x) = open_maximized {
-        writeln!(config, "    open-maximized-to-edges {x}").unwrap();
+        rule_fields.push(format!("open_maximized_to_edges = {x}"));
 
         let x = if x == "true" { "T" } else { "F" };
         snapshot_suffix.push(format!("tm{x}"));
     }
 
-    config.push('}');
+    let config = if rule_fields.is_empty() {
+        String::from("neori.window_rule {}")
+    } else {
+        format!("neori.window_rule {{ {} }}", rule_fields.join(", "))
+    };
 
     match &want_fullscreen {
         WantFullscreen::No => (),
@@ -838,11 +825,11 @@ window-rule {
 
     // If the window ended up fullscreen, unfullscreen it and output the configure.
     let mut post_unfullscreen = String::new();
-    let mapped = f.niri().layout.windows().next().unwrap().1;
+    let mapped = f.neori().layout.windows().next().unwrap().1;
     let is_fullscreen = mapped.sizing_mode().is_fullscreen();
     let win = mapped.window.clone();
     if is_fullscreen {
-        f.niri().layout.set_fullscreen(&win, false);
+        f.neori().layout.set_fullscreen(&win, false);
         f.double_roundtrip(id);
 
         let window = f.client(id).window(&surface);
@@ -858,11 +845,11 @@ window-rule {
 
     // If the window ended up maximized, unmaximize it and output the configure.
     let mut post_unmaximize = String::new();
-    let mapped = f.niri().layout.windows().next().unwrap().1;
+    let mapped = f.neori().layout.windows().next().unwrap().1;
     let is_maximized = mapped.sizing_mode().is_maximized();
     let win = mapped.window.clone();
     if is_maximized {
-        f.niri().layout.set_maximized(&win, false);
+        f.neori().layout.set_maximized(&win, false);
         f.double_roundtrip(id);
 
         let window = f.client(id).window(&surface);

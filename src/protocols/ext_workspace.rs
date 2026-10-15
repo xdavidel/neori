@@ -1,6 +1,6 @@
 //! ext-workspace protocol implementation.
 //!
-//! This is how we map the protocol concepts to the niri concepts:
+//! This is how we map the protocol concepts to the neori concepts:
 //!
 //! - Workspace groups are outputs.
 //! - Workspace coordinates: X = 0, Y = workspace index. They need to be two-dimensional because 1D
@@ -30,7 +30,7 @@ use wayland_backend::server::ClientId;
 
 use crate::layout::monitor::Monitor;
 use crate::layout::workspace::{Workspace, WorkspaceId};
-use crate::niri::State;
+use crate::neori::State;
 use crate::window::Mapped;
 
 const VERSION: u32 = 1;
@@ -84,13 +84,13 @@ pub struct ExtWorkspaceGlobalData {
 pub fn refresh(state: &mut State) {
     let _span = tracy_client::span!("ext_workspace::refresh");
 
-    let protocol_state = &mut state.niri.ext_workspace_state;
+    let protocol_state = &mut state.neori.ext_workspace_state;
 
     let mut changed = false;
 
     // Remove workspaces that no longer exist (sending workspace_leave to workspace groups).
     let mut seen_workspaces = HashMap::new();
-    for (mon, _, ws) in state.niri.layout.workspaces() {
+    for (mon, _, ws) in state.neori.layout.workspaces() {
         let output = mon.map(|mon| mon.output());
         seen_workspaces.insert(ws.id(), output);
     }
@@ -107,7 +107,7 @@ pub fn refresh(state: &mut State) {
 
     // Remove workspace groups for outputs that no longer exist.
     protocol_state.workspace_groups.retain(|output, data| {
-        if state.niri.sorted_outputs.contains(output) {
+        if state.neori.sorted_outputs.contains(output) {
             return true;
         }
 
@@ -132,12 +132,12 @@ pub fn refresh(state: &mut State) {
     });
 
     // Update existing workspaces and create new ones.
-    for (mon, ws_idx, ws) in state.niri.layout.workspaces() {
+    for (mon, ws_idx, ws) in state.neori.layout.workspaces() {
         changed |= refresh_workspace(protocol_state, mon, ws_idx, ws);
     }
 
     // Update workspace groups and create new ones, sending workspace_enter events as needed.
-    for output in &state.niri.sorted_outputs {
+    for output in &state.neori.sorted_outputs {
         changed |= refresh_workspace_group(protocol_state, output);
     }
 
@@ -155,7 +155,7 @@ pub fn on_output_bound(state: &mut State, output: &Output, wl_output: &WlOutput)
 
     let mut sent = false;
 
-    let protocol_state = &mut state.niri.ext_workspace_state;
+    let protocol_state = &mut state.neori.ext_workspace_state;
     if let Some(data) = protocol_state.workspace_groups.get_mut(output) {
         for group in &mut data.instances {
             if group.client().as_ref() != Some(&client) {
@@ -250,10 +250,10 @@ fn remove_workspace_instances(
     }
 }
 
-fn build_name(ws: &Workspace<Mapped>, ws_idx: usize) -> String {
+fn build_name(ws: &Workspace<Mapped>) -> String {
     ws.name().cloned().unwrap_or_else(|| {
-        // Add 1 since this is a human-readable name, and our action indexing is 1-based.
-        (ws_idx + 1).to_string()
+        // Fall back to the workspace's globally-unique number, which is 1-based.
+        ws.index().to_string()
     })
 }
 
@@ -313,7 +313,7 @@ fn refresh_workspace(
                 };
             let mut name_changed = false;
             if check {
-                let new_name = build_name(ws, ws_idx);
+                let new_name = build_name(ws);
                 // This will likely be true, except if the workspace got named its index.
                 if data.name != new_name {
                     data.name = new_name;
@@ -378,7 +378,7 @@ fn refresh_workspace(
             // New workspace, start tracking it.
             let mut data = ExtWorkspaceData {
                 id: ws.name().cloned(),
-                name: build_name(ws, ws_idx),
+                name: build_name(ws),
                 coordinates: ArrayVec::from([0, ws_idx as u32]),
                 state,
                 instances: Vec::new(),

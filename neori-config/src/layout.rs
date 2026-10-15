@@ -1,10 +1,9 @@
-use knuffel::errors::DecodeError;
-use niri_ipc::{ColumnDisplay, SizeChange};
+use neori_ipc::{ColumnDisplay, SizeChange};
 
 use crate::appearance::{
     Border, FocusRing, InsertHint, Shadow, TabIndicator, DEFAULT_BACKGROUND_COLOR,
 };
-use crate::utils::{expect_only_children, Flag, MergeWith};
+use crate::utils::MergeWith;
 use crate::{BorderRule, Color, FloatOrInt, InsertHintPart, ShadowRule, TabIndicatorPart};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,82 +55,80 @@ impl Default for Layout {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct LayoutPart {
+    pub focus_ring: Option<BorderRule>,
+    pub border: Option<BorderRule>,
+    pub shadow: Option<ShadowRule>,
+    pub tab_indicator: Option<TabIndicatorPart>,
+    pub insert_hint: Option<InsertHintPart>,
+    pub preset_column_widths: Option<Vec<PresetSize>>,
+    pub default_column_width: Option<DefaultPresetSize>,
+    pub preset_window_heights: Option<Vec<PresetSize>>,
+    pub center_focused_column: Option<CenterFocusedColumn>,
+    pub always_center_single_column: Option<bool>,
+    pub empty_workspace_above_first: Option<bool>,
+    pub default_column_display: Option<ColumnDisplay>,
+    pub gaps: Option<FloatOrInt<0, 65535>>,
+    pub struts: Option<Struts>,
+    pub background_color: Option<Color>,
+}
+
 impl MergeWith<LayoutPart> for Layout {
     fn merge_with(&mut self, part: &LayoutPart) {
-        merge!(
-            (self, part),
-            focus_ring,
-            border,
-            shadow,
-            tab_indicator,
-            insert_hint,
-            always_center_single_column,
-            empty_workspace_above_first,
-            gaps,
-        );
-
-        merge_clone!(
-            (self, part),
-            preset_column_widths,
-            preset_window_heights,
-            center_focused_column,
-            default_column_display,
-            struts,
-            background_color,
-        );
-
-        if let Some(x) = part.default_column_width {
+        if let Some(x) = &part.focus_ring {
+            self.focus_ring.merge_with(x);
+        }
+        if let Some(x) = &part.border {
+            self.border.merge_with(x);
+        }
+        if let Some(x) = &part.shadow {
+            self.shadow.merge_with(x);
+        }
+        if let Some(x) = &part.tab_indicator {
+            self.tab_indicator.merge_with(x);
+        }
+        if let Some(x) = &part.insert_hint {
+            self.insert_hint.merge_with(x);
+        }
+        if let Some(x) = &part.preset_column_widths {
+            self.preset_column_widths.clone_from(x);
+        }
+        if let Some(x) = &part.default_column_width {
             self.default_column_width = x.0;
         }
-
-        if self.preset_column_widths.is_empty() {
-            self.preset_column_widths = Layout::default().preset_column_widths;
+        if let Some(x) = &part.preset_window_heights {
+            self.preset_window_heights.clone_from(x);
         }
-
-        if self.preset_window_heights.is_empty() {
-            self.preset_window_heights = Layout::default().preset_window_heights;
+        if let Some(x) = &part.center_focused_column {
+            self.center_focused_column = *x;
+        }
+        if let Some(x) = &part.always_center_single_column {
+            self.always_center_single_column = *x;
+        }
+        if let Some(x) = &part.empty_workspace_above_first {
+            self.empty_workspace_above_first = *x;
+        }
+        if let Some(x) = &part.default_column_display {
+            self.default_column_display = *x;
+        }
+        if let Some(x) = &part.gaps {
+            self.gaps = x.0;
+        }
+        if let Some(x) = &part.struts {
+            self.struts = *x;
+        }
+        if let Some(x) = &part.background_color {
+            self.background_color = *x;
         }
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
-pub struct LayoutPart {
-    #[knuffel(child)]
-    pub focus_ring: Option<BorderRule>,
-    #[knuffel(child)]
-    pub border: Option<BorderRule>,
-    #[knuffel(child)]
-    pub shadow: Option<ShadowRule>,
-    #[knuffel(child)]
-    pub tab_indicator: Option<TabIndicatorPart>,
-    #[knuffel(child)]
-    pub insert_hint: Option<InsertHintPart>,
-    #[knuffel(child, unwrap(children))]
-    pub preset_column_widths: Option<Vec<PresetSize>>,
-    #[knuffel(child)]
-    pub default_column_width: Option<DefaultPresetSize>,
-    #[knuffel(child, unwrap(children))]
-    pub preset_window_heights: Option<Vec<PresetSize>>,
-    #[knuffel(child, unwrap(argument))]
-    pub center_focused_column: Option<CenterFocusedColumn>,
-    #[knuffel(child)]
-    pub always_center_single_column: Option<Flag>,
-    #[knuffel(child)]
-    pub empty_workspace_above_first: Option<Flag>,
-    #[knuffel(child, unwrap(argument, str))]
-    pub default_column_display: Option<ColumnDisplay>,
-    #[knuffel(child, unwrap(argument))]
-    pub gaps: Option<FloatOrInt<0, 65535>>,
-    #[knuffel(child)]
-    pub struts: Option<Struts>,
-    #[knuffel(child)]
-    pub background_color: Option<Color>,
-}
-
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PresetSize {
-    Proportion(#[knuffel(argument)] f64),
-    Fixed(#[knuffel(argument)] i32),
+    Proportion(f64),
+    Fixed(i32),
 }
 
 impl From<PresetSize> for SizeChange {
@@ -146,53 +143,18 @@ impl From<PresetSize> for SizeChange {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DefaultPresetSize(pub Option<PresetSize>);
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Struts {
-    #[knuffel(child, unwrap(argument), default)]
     pub left: FloatOrInt<-65535, 65535>,
-    #[knuffel(child, unwrap(argument), default)]
     pub right: FloatOrInt<-65535, 65535>,
-    #[knuffel(child, unwrap(argument), default)]
     pub top: FloatOrInt<-65535, 65535>,
-    #[knuffel(child, unwrap(argument), default)]
     pub bottom: FloatOrInt<-65535, 65535>,
 }
 
-#[derive(knuffel::DecodeScalar, Debug, Default, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum CenterFocusedColumn {
-    /// Focusing a column will not center the column.
     #[default]
     Never,
-    /// The focused column will always be centered.
     Always,
-    /// Focusing a column will center it if it doesn't fit on the screen together with the
-    /// previously focused column.
     OnOverflow,
-}
-
-impl<S> knuffel::Decode<S> for DefaultPresetSize
-where
-    S: knuffel::traits::ErrorSpan,
-{
-    fn decode_node(
-        node: &knuffel::ast::SpannedNode<S>,
-        ctx: &mut knuffel::decode::Context<S>,
-    ) -> Result<Self, DecodeError<S>> {
-        expect_only_children(node, ctx);
-
-        let mut children = node.children();
-
-        if let Some(child) = children.next() {
-            if let Some(unwanted_child) = children.next() {
-                ctx.emit_error(DecodeError::unexpected(
-                    unwanted_child,
-                    "node",
-                    "expected no more than one child",
-                ));
-            }
-            PresetSize::decode_node(child, ctx).map(Some).map(Self)
-        } else {
-            Ok(Self(None))
-        }
-    }
 }

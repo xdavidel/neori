@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! merge {
     (($self:expr, $part:expr), $($field:ident),+ $(,)*) => {
         $(
@@ -8,6 +9,7 @@ macro_rules! merge {
     };
 }
 
+#[macro_export]
 macro_rules! merge_clone {
     (($self:expr, $part:expr), $($field:ident),+ $(,)*) => {
         $(
@@ -18,6 +20,7 @@ macro_rules! merge_clone {
     };
 }
 
+#[macro_export]
 macro_rules! merge_clone_opt {
     (($self:expr, $part:expr), $($field:ident),+ $(,)*) => {
         $(
@@ -28,6 +31,7 @@ macro_rules! merge_clone_opt {
     };
 }
 
+#[macro_export]
 macro_rules! merge_color_gradient {
     (($self:expr, $part:expr), $(($color:ident, $gradient:ident)),+ $(,)*) => {
         $(
@@ -42,6 +46,7 @@ macro_rules! merge_color_gradient {
     };
 }
 
+#[macro_export]
 macro_rules! merge_color_gradient_opt {
     (($self:expr, $part:expr), $(($color:ident, $gradient:ident)),+ $(,)*) => {
         $(
@@ -56,6 +61,7 @@ macro_rules! merge_color_gradient_opt {
     };
 }
 
+#[macro_export]
 macro_rules! merge_on_off {
     (($self:expr, $part:expr)) => {
         if $part.off {

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::iter::zip;
 use std::rc::Rc;
 
-use niri_config::{Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
+use neori_config::{Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{AttrColor, AttrInt, AttrList, AttrString, FontDescription, Weight};
 use smithay::backend::renderer::element::Kind;
@@ -457,7 +457,7 @@ fn render(
 
 fn action_name(action: &Action) -> String {
     match action {
-        Action::Quit(_) => String::from("Exit niri"),
+        Action::Quit(_) => String::from("Exit neori"),
         Action::ShowHotkeyOverlay => String::from("Show Important Hotkeys"),
         Action::CloseWindow => String::from("Close Focused Window"),
         Action::FocusColumnLeft => String::from("Focus Column to the Left"),
@@ -635,9 +635,7 @@ mod tests {
         // Bound with a default title.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P { screenshot; }
-                }"#,
+                r#"neori.bind("Mod+P", "screenshot")"#,
                 Action::Screenshot(true, None),
             ),
             @" Super + P : Take a Screenshot"
@@ -646,9 +644,7 @@ mod tests {
         // Custom title.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P hotkey-overlay-title="Hello" { screenshot; }
-                }"#,
+                r#"neori.bind("Mod+P", { screenshot = true, hotkey_overlay_title = "Hello" })"#,
                 Action::Screenshot(true, None),
             ),
             @" Super + P : Hello"
@@ -657,10 +653,10 @@ mod tests {
         // Prefer first bind.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P { screenshot; }
-                    Print { screenshot; }
-                }"#,
+                r#"
+                neori.bind("Mod+P", "screenshot")
+                neori.bind("Print", "screenshot")
+                "#,
                 Action::Screenshot(true, None),
             ),
             @" Super + P : Take a Screenshot"
@@ -669,10 +665,10 @@ mod tests {
         // Prefer bind with custom title.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P { screenshot; }
-                    Print hotkey-overlay-title="My Cool Bind" { screenshot; }
-                }"#,
+                r#"
+                neori.bind("Mod+P", "screenshot")
+                neori.bind("Print", { screenshot = true, hotkey_overlay_title = "My Cool Bind" })
+                "#,
                 Action::Screenshot(true, None),
             ),
             @" PrtSc : My Cool Bind"
@@ -681,10 +677,10 @@ mod tests {
         // Prefer first bind with custom title.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P hotkey-overlay-title="First" { screenshot; }
-                    Print hotkey-overlay-title="My Cool Bind" { screenshot; }
-                }"#,
+                r#"
+                neori.bind("Mod+P", { screenshot = true, hotkey_overlay_title = "First" })
+                neori.bind("Print", { screenshot = true, hotkey_overlay_title = "My Cool Bind" })
+                "#,
                 Action::Screenshot(true, None),
             ),
             @" Super + P : First"
@@ -693,10 +689,10 @@ mod tests {
         // Any bind with null title hides it.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P { screenshot; }
-                    Print hotkey-overlay-title=null { screenshot; }
-                }"#,
+                r#"
+                neori.bind("Mod+P", "screenshot")
+                neori.bind("Print", { screenshot = true, hotkey_overlay_title = false })
+                "#,
                 Action::Screenshot(true, None),
             ),
             @"None"
@@ -705,10 +701,10 @@ mod tests {
         // Custom title takes preference over null.
         assert_snapshot!(
             check(
-                r#"binds {
-                    Mod+P hotkey-overlay-title="Hello" { screenshot; }
-                    Print hotkey-overlay-title=null { screenshot; }
-                }"#,
+                r#"
+                neori.bind("Mod+P", { screenshot = true, hotkey_overlay_title = "Hello" })
+                neori.bind("Print", { screenshot = true, hotkey_overlay_title = false })
+                "#,
                 Action::Screenshot(true, None),
             ),
             @" Super + P : Hello"

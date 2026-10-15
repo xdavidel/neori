@@ -1,12 +1,13 @@
 use std::cmp::max;
 use std::rc::Rc;
+use std::cell::Cell;
 use std::time::Duration;
 
-use niri_config::utils::MergeWith as _;
-use niri_config::{
+use neori_config::utils::MergeWith as _;
+use neori_config::{
     CenterFocusedColumn, CornerRadius, OutputName, PresetSize, Workspace as WorkspaceConfig,
 };
-use niri_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
+use neori_ipc::{ColumnDisplay, PositionChange, SizeChange, WindowLayout};
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::desktop::{layer_map_for_output, Window};
@@ -28,7 +29,7 @@ use super::{
     RemovedTile, SizeFrac,
 };
 use crate::animation::Clock;
-use crate::niri_render_elements;
+use crate::neori_render_elements;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
@@ -103,11 +104,18 @@ pub struct Workspace<W: LayoutElement> {
     /// Configurable properties of the layout with logical sizes adjusted for the current `scale`.
     pub(super) options: Rc<Options>,
 
+    /// Globally-unique number of this workspace. Workspace 1 always exists.
+    ///
+    /// This number is assigned once at creation and never changes. Across the whole
+    /// compositor session every workspace has a distinct number, so focusing
+    /// workspace N always refers to a single workspace regardless of monitor.
+    pub(super) index: u32,
+
     /// Optional name of this workspace.
     pub(super) name: Option<String>,
 
     /// Layout config overrides for this workspace.
-    layout_config: Option<niri_config::LayoutPart>,
+    layout_config: Option<neori_config::LayoutPart>,
 
     /// Unique ID of this workspace.
     id: WorkspaceId,
@@ -124,6 +132,39 @@ impl OutputId {
 }
 
 static WORKSPACE_ID_COUNTER: IdCounter = IdCounter::new();
+
+// Counter for globally-assigned workspace numbers (Hyprland-style workspaces).
+//
+// Every workspace gets a unique number from this counter on creation, so that no
+// two workspaces across all monitors ever share the same number. Workspaces keep
+// their number for their entire lifetime (empty workspaces are not removed), so
+// the sequence 1, 2, 3, ... never needs to be renumbered.
+//
+// The counter is thread-local because a compositor creates and mutates all of its
+// workspaces on a single thread; keeping it local also gives each test its own
+// counter starting at 1.
+thread_local! {
+    static NEXT_WORKSPACE_INDEX: Cell<u32> = const { Cell::new(1) };
+}
+
+/// Assigns the next globally-unique workspace number.
+fn next_workspace_index() -> u32 {
+    NEXT_WORKSPACE_INDEX.with(|counter| {
+        let index = counter.get();
+        counter.set(index + 1);
+        index
+    })
+}
+
+/// Advances the counter past an explicitly-assigned workspace number so that later
+/// auto-assigned numbers can never collide with it.
+fn reserve_workspace_index(index: u32) {
+    NEXT_WORKSPACE_INDEX.with(|counter| {
+        if counter.get() <= index {
+            counter.set(index + 1);
+        }
+    });
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WorkspaceId(u64);
@@ -142,7 +183,7 @@ impl WorkspaceId {
     }
 }
 
-niri_render_elements! {
+neori_render_elements! {
     WorkspaceRenderElement<R> => {
         Scrolling = ScrollingSpaceRenderElement<R>,
         Floating = FloatingSpaceRenderElement<R>,
@@ -210,11 +251,32 @@ impl<W: LayoutElement> Workspace<W> {
         Self::new_with_config(output, None, clock, options)
     }
 
+    pub fn new_with_number(
+        index: u32,
+        output: Output,
+        clock: Clock,
+        options: Rc<Options>,
+    ) -> Self {
+        reserve_workspace_index(index);
+        Self::new_with_config_indexed(output, None, clock, options, index)
+    }
+
     pub fn new_with_config(
+        output: Output,
+        config: Option<WorkspaceConfig>,
+        clock: Clock,
+        base_options: Rc<Options>,
+    ) -> Self {
+        let index = next_workspace_index();
+        Self::new_with_config_indexed(output, config, clock, base_options, index)
+    }
+
+    fn new_with_config_indexed(
         output: Output,
         mut config: Option<WorkspaceConfig>,
         clock: Clock,
         base_options: Rc<Options>,
+        index: u32,
     ) -> Self {
         let original_output = config
             .as_ref()
@@ -257,17 +319,18 @@ impl<W: LayoutElement> Workspace<W> {
             scrolling,
             floating,
             floating_is_active: FloatingActive::No,
-            original_output,
-            scale,
             transform: output.current_transform(),
+            output: Some(output),
+            scale,
             view_size,
             working_area,
             shadow: Shadow::new(shadow_config),
             background_buffer: SolidColorBuffer::new(view_size, options.layout.background_color),
-            output: Some(output),
+            original_output,
             clock,
             base_options,
             options,
+            index,
             name: config.map(|c| c.name.0),
             layout_config,
             id: WorkspaceId::next(),
@@ -332,6 +395,7 @@ impl<W: LayoutElement> Workspace<W> {
             clock,
             base_options,
             options,
+            index: next_workspace_index(),
             name: config.map(|c| c.name.0),
             layout_config,
             id: WorkspaceId::next(),
@@ -344,6 +408,10 @@ impl<W: LayoutElement> Workspace<W> {
 
     pub fn id(&self) -> WorkspaceId {
         self.id
+    }
+
+    pub fn index(&self) -> u32 {
+        self.index
     }
 
     pub fn name(&self) -> Option<&String> {
@@ -425,7 +493,7 @@ impl<W: LayoutElement> Workspace<W> {
         self.options = options;
     }
 
-    pub fn update_layout_config(&mut self, layout_config: Option<niri_config::LayoutPart>) {
+    pub fn update_layout_config(&mut self, layout_config: Option<neori_config::LayoutPart>) {
         if self.layout_config == layout_config {
             return;
         }
@@ -1973,7 +2041,7 @@ impl<W: LayoutElement> Workspace<W> {
         self.working_area
     }
 
-    pub fn layout_config(&self) -> Option<&niri_config::LayoutPart> {
+    pub fn layout_config(&self) -> Option<&neori_config::LayoutPart> {
         self.layout_config.as_ref()
     }
 
@@ -2067,14 +2135,14 @@ pub(super) fn compute_working_area(output: &Output) -> Rectangle<f64, Logical> {
 }
 
 fn compute_workspace_shadow_config(
-    config: niri_config::WorkspaceShadow,
+    config: neori_config::WorkspaceShadow,
     view_size: Size<f64, Logical>,
-) -> niri_config::Shadow {
+) -> neori_config::Shadow {
     // Gaps between workspaces are a multiple of the view height, so shadow settings should also be
     // normalized to the view height to prevent them from overlapping on lower resolutions.
     let norm = view_size.h / 1080.;
 
-    let mut config = niri_config::Shadow::from(config);
+    let mut config = neori_config::Shadow::from(config);
     config.softness *= norm;
     config.spread *= norm;
     config.offset.x.0 *= norm;

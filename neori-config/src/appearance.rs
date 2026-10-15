@@ -1,7 +1,6 @@
 use std::ops::{Mul, MulAssign};
 use std::str::FromStr;
 
-use knuffel::errors::DecodeError;
 use miette::{miette, IntoDiagnostic as _};
 use smithay::backend::renderer::Color32F;
 
@@ -83,17 +82,12 @@ impl From<Color> for Color32F {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gradient {
-    #[knuffel(property, str)]
     pub from: Color,
-    #[knuffel(property, str)]
     pub to: Color,
-    #[knuffel(property, default = 180)]
     pub angle: i16,
-    #[knuffel(property, default)]
     pub relative_to: GradientRelativeTo,
-    #[knuffel(property(name = "in"), str, default)]
     pub in_: GradientInterpolation,
 }
 
@@ -109,7 +103,7 @@ impl From<Color> for Gradient {
     }
 }
 
-#[derive(knuffel::DecodeScalar, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum GradientRelativeTo {
     #[default]
     Window,
@@ -319,7 +313,9 @@ impl MergeWith<BorderRule> for Border {
             self.off = false;
         }
 
-        merge!((self, part), width);
+        if let Some(x) = &part.width {
+            self.width = x.0;
+        }
 
         merge_color_gradient!(
             (self, part),
@@ -373,7 +369,12 @@ impl MergeWith<ShadowRule> for Shadow {
             self.on = false;
         }
 
-        merge!((self, part), softness, spread);
+        if let Some(x) = &part.softness {
+            self.softness = x.0;
+        }
+        if let Some(x) = &part.spread {
+            self.spread = x.0;
+        }
 
         merge_clone!((self, part), offset, draw_behind_window, color);
 
@@ -381,11 +382,9 @@ impl MergeWith<ShadowRule> for Shadow {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShadowOffset {
-    #[knuffel(property, default)]
     pub x: FloatOrInt<-65535, 65535>,
-    #[knuffel(property, default)]
     pub y: FloatOrInt<-65535, 65535>,
 }
 
@@ -427,19 +426,14 @@ impl From<WorkspaceShadow> for Shadow {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorkspaceShadowPart {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child)]
     pub offset: Option<ShadowOffset>,
-    #[knuffel(child, unwrap(argument))]
     pub softness: Option<FloatOrInt<0, 1024>>,
-    #[knuffel(child, unwrap(argument))]
     pub spread: Option<FloatOrInt<-1024, 1024>>,
-    #[knuffel(child)]
     pub color: Option<Color>,
 }
 
@@ -451,7 +445,12 @@ impl MergeWith<WorkspaceShadowPart> for WorkspaceShadow {
         }
 
         merge_clone!((self, part), offset, color);
-        merge!((self, part), softness, spread);
+        if let Some(x) = &part.softness {
+            self.softness = x.0;
+        }
+        if let Some(x) = &part.spread {
+            self.spread = x.0;
+        }
     }
 }
 
@@ -505,15 +504,24 @@ impl MergeWith<TabIndicatorPart> for TabIndicator {
             self.off = false;
         }
 
-        merge!(
-            (self, part),
-            hide_when_single_tab,
-            place_within_column,
-            gap,
-            width,
-            gaps_between_tabs,
-            corner_radius,
-        );
+        if let Some(x) = &part.hide_when_single_tab {
+            self.hide_when_single_tab = x.0;
+        }
+        if let Some(x) = &part.place_within_column {
+            self.place_within_column = x.0;
+        }
+        if let Some(x) = &part.gap {
+            self.gap = x.0;
+        }
+        if let Some(x) = &part.width {
+            self.width = x.0;
+        }
+        if let Some(x) = &part.gaps_between_tabs {
+            self.gaps_between_tabs = x.0;
+        }
+        if let Some(x) = &part.corner_radius {
+            self.corner_radius = x.0;
+        }
 
         merge_clone!((self, part), length, position);
 
@@ -526,49 +534,33 @@ impl MergeWith<TabIndicatorPart> for TabIndicator {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct TabIndicatorPart {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child)]
     pub hide_when_single_tab: Option<Flag>,
-    #[knuffel(child)]
     pub place_within_column: Option<Flag>,
-    #[knuffel(child, unwrap(argument))]
     pub gap: Option<FloatOrInt<-65535, 65535>>,
-    #[knuffel(child, unwrap(argument))]
     pub width: Option<FloatOrInt<0, 65535>>,
-    #[knuffel(child)]
     pub length: Option<TabIndicatorLength>,
-    #[knuffel(child, unwrap(argument))]
     pub position: Option<TabIndicatorPosition>,
-    #[knuffel(child, unwrap(argument))]
     pub gaps_between_tabs: Option<FloatOrInt<0, 65535>>,
-    #[knuffel(child, unwrap(argument))]
     pub corner_radius: Option<FloatOrInt<0, 65535>>,
-    #[knuffel(child)]
     pub active_color: Option<Color>,
-    #[knuffel(child)]
     pub inactive_color: Option<Color>,
-    #[knuffel(child)]
     pub urgent_color: Option<Color>,
-    #[knuffel(child)]
     pub active_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub inactive_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub urgent_gradient: Option<Gradient>,
 }
 
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TabIndicatorLength {
-    #[knuffel(property)]
     pub total_proportion: Option<f64>,
 }
 
-#[derive(knuffel::DecodeScalar, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TabIndicatorPosition {
     Left,
     Right,
@@ -604,79 +596,53 @@ impl MergeWith<InsertHintPart> for InsertHint {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct InsertHintPart {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child)]
     pub color: Option<Color>,
-    #[knuffel(child)]
     pub gradient: Option<Gradient>,
 }
 
-#[derive(knuffel::DecodeScalar, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockOutFrom {
     Screencast,
     ScreenCapture,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct BorderRule {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child, unwrap(argument))]
     pub width: Option<FloatOrInt<0, 65535>>,
-    #[knuffel(child)]
     pub active_color: Option<Color>,
-    #[knuffel(child)]
     pub inactive_color: Option<Color>,
-    #[knuffel(child)]
     pub urgent_color: Option<Color>,
-    #[knuffel(child)]
     pub active_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub inactive_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub urgent_gradient: Option<Gradient>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ShadowRule {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child)]
     pub offset: Option<ShadowOffset>,
-    #[knuffel(child, unwrap(argument))]
     pub softness: Option<FloatOrInt<0, 1024>>,
-    #[knuffel(child, unwrap(argument))]
     pub spread: Option<FloatOrInt<-1024, 1024>>,
-    #[knuffel(child, unwrap(argument))]
     pub draw_behind_window: Option<bool>,
-    #[knuffel(child)]
     pub color: Option<Color>,
-    #[knuffel(child)]
     pub inactive_color: Option<Color>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct TabIndicatorRule {
-    #[knuffel(child)]
     pub active_color: Option<Color>,
-    #[knuffel(child)]
     pub inactive_color: Option<Color>,
-    #[knuffel(child)]
     pub urgent_color: Option<Color>,
-    #[knuffel(child)]
     pub active_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub inactive_gradient: Option<Gradient>,
-    #[knuffel(child)]
     pub urgent_gradient: Option<Gradient>,
 }
 
@@ -795,15 +761,11 @@ impl FromStr for Color {
     }
 }
 
-#[derive(knuffel::Decode)]
+#[allow(dead_code)]
 struct ColorRgba {
-    #[knuffel(argument)]
     r: u8,
-    #[knuffel(argument)]
     g: u8,
-    #[knuffel(argument)]
     b: u8,
-    #[knuffel(argument)]
     a: u8,
 }
 
@@ -811,198 +773,6 @@ impl From<ColorRgba> for Color {
     fn from(value: ColorRgba) -> Self {
         let ColorRgba { r, g, b, a } = value;
         Self::from_array_unpremul([r, g, b, a].map(|x| x as f32 / 255.))
-    }
-}
-
-// Manual impl to allow both one-argument string and 4-argument RGBA forms.
-impl<S> knuffel::Decode<S> for Color
-where
-    S: knuffel::traits::ErrorSpan,
-{
-    fn decode_node(
-        node: &knuffel::ast::SpannedNode<S>,
-        ctx: &mut knuffel::decode::Context<S>,
-    ) -> Result<Self, DecodeError<S>> {
-        // Check for unexpected type name.
-        if let Some(type_name) = &node.type_name {
-            ctx.emit_error(DecodeError::unexpected(
-                type_name,
-                "type name",
-                "no type name expected for this node",
-            ));
-        }
-
-        // Get the first argument.
-        let mut iter_args = node.arguments.iter();
-        let val = iter_args
-            .next()
-            .ok_or_else(|| DecodeError::missing(node, "additional argument is required"))?;
-
-        // Check for unexpected type name.
-        if let Some(typ) = &val.type_name {
-            ctx.emit_error(DecodeError::TypeName {
-                span: typ.span().clone(),
-                found: Some((**typ).clone()),
-                expected: knuffel::errors::ExpectedType::no_type(),
-                rust_type: "str",
-            });
-        }
-
-        // Check the argument type.
-        let rv = match *val.literal {
-            // If it's a string, use FromStr.
-            knuffel::ast::Literal::String(ref s) => {
-                Color::from_str(s).map_err(|e| DecodeError::conversion(&val.literal, e))
-            }
-            // Otherwise, fall back to the 4-argument RGBA form.
-            _ => return ColorRgba::decode_node(node, ctx).map(Color::from),
-        }?;
-
-        // Check for unexpected following arguments.
-        if let Some(val) = iter_args.next() {
-            ctx.emit_error(DecodeError::unexpected(
-                &val.literal,
-                "argument",
-                "unexpected argument",
-            ));
-        }
-
-        // Check for unexpected properties and children.
-        for name in node.properties.keys() {
-            ctx.emit_error(DecodeError::unexpected(
-                name,
-                "property",
-                format!("unexpected property `{}`", name.escape_default()),
-            ));
-        }
-        for child in node.children.as_ref().map(|lst| &lst[..]).unwrap_or(&[]) {
-            ctx.emit_error(DecodeError::unexpected(
-                child,
-                "node",
-                format!("unexpected node `{}`", child.node_name.escape_default()),
-            ));
-        }
-
-        Ok(rv)
-    }
-}
-
-impl<S> knuffel::Decode<S> for CornerRadius
-where
-    S: knuffel::traits::ErrorSpan,
-{
-    fn decode_node(
-        node: &knuffel::ast::SpannedNode<S>,
-        ctx: &mut knuffel::decode::Context<S>,
-    ) -> Result<Self, DecodeError<S>> {
-        // Check for unexpected type name.
-        if let Some(type_name) = &node.type_name {
-            ctx.emit_error(DecodeError::unexpected(
-                type_name,
-                "type name",
-                "no type name expected for this node",
-            ));
-        }
-
-        let decode_radius = |ctx: &mut knuffel::decode::Context<S>,
-                             val: &knuffel::ast::Value<S>| {
-            // Check for unexpected type name.
-            if let Some(typ) = &val.type_name {
-                ctx.emit_error(DecodeError::TypeName {
-                    span: typ.span().clone(),
-                    found: Some((**typ).clone()),
-                    expected: knuffel::errors::ExpectedType::no_type(),
-                    rust_type: "str",
-                });
-            }
-
-            // Decode both integers and floats.
-            let radius = match *val.literal {
-                knuffel::ast::Literal::Int(ref x) => f32::from(match x.try_into() {
-                    Ok(x) => x,
-                    Err(err) => {
-                        ctx.emit_error(DecodeError::conversion(&val.literal, err));
-                        0i16
-                    }
-                }),
-                knuffel::ast::Literal::Decimal(ref x) => match x.try_into() {
-                    Ok(x) => x,
-                    Err(err) => {
-                        ctx.emit_error(DecodeError::conversion(&val.literal, err));
-                        0.
-                    }
-                },
-                _ => {
-                    ctx.emit_error(DecodeError::scalar_kind(
-                        knuffel::decode::Kind::Int,
-                        &val.literal,
-                    ));
-                    0.
-                }
-            };
-
-            if radius < 0. {
-                ctx.emit_error(DecodeError::conversion(&val.literal, "radius must be >= 0"));
-            }
-
-            radius
-        };
-
-        // Get the first argument.
-        let mut iter_args = node.arguments.iter();
-        let val = iter_args
-            .next()
-            .ok_or_else(|| DecodeError::missing(node, "additional argument is required"))?;
-
-        let top_left = decode_radius(ctx, val);
-
-        let mut rv = CornerRadius {
-            top_left,
-            top_right: top_left,
-            bottom_right: top_left,
-            bottom_left: top_left,
-        };
-
-        if let Some(val) = iter_args.next() {
-            rv.top_right = decode_radius(ctx, val);
-
-            let val = iter_args.next().ok_or_else(|| {
-                DecodeError::missing(node, "either 1 or 4 arguments are required")
-            })?;
-            rv.bottom_right = decode_radius(ctx, val);
-
-            let val = iter_args.next().ok_or_else(|| {
-                DecodeError::missing(node, "either 1 or 4 arguments are required")
-            })?;
-            rv.bottom_left = decode_radius(ctx, val);
-
-            // Check for unexpected following arguments.
-            if let Some(val) = iter_args.next() {
-                ctx.emit_error(DecodeError::unexpected(
-                    &val.literal,
-                    "argument",
-                    "unexpected argument",
-                ));
-            }
-        }
-
-        // Check for unexpected properties and children.
-        for name in node.properties.keys() {
-            ctx.emit_error(DecodeError::unexpected(
-                name,
-                "property",
-                format!("unexpected property `{}`", name.escape_default()),
-            ));
-        }
-        for child in node.children.as_ref().map(|lst| &lst[..]).unwrap_or(&[]) {
-            ctx.emit_error(DecodeError::unexpected(
-                child,
-                "node",
-                format!("unexpected node `{}`", child.node_name.escape_default()),
-            ));
-        }
-
-        Ok(rv)
     }
 }
 
@@ -1027,19 +797,14 @@ impl Default for Blur {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct BlurPart {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub on: bool,
-    #[knuffel(child, unwrap(argument))]
     pub passes: Option<u8>,
-    #[knuffel(child, unwrap(argument))]
     pub offset: Option<FloatOrInt<0, 100>>,
-    #[knuffel(child, unwrap(argument))]
     pub noise: Option<FloatOrInt<0, 1000>>,
-    #[knuffel(child, unwrap(argument))]
     pub saturation: Option<FloatOrInt<0, 1000>>,
 }
 
@@ -1051,19 +816,23 @@ impl MergeWith<BlurPart> for Blur {
         }
 
         merge_clone!((self, part), passes);
-        merge!((self, part), offset, noise, saturation);
+        if let Some(x) = &part.offset {
+            self.offset = x.0;
+        }
+        if let Some(x) = &part.noise {
+            self.noise = x.0;
+        }
+        if let Some(x) = &part.saturation {
+            self.saturation = x.0;
+        }
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct BackgroundEffectRule {
-    #[knuffel(child, unwrap(argument))]
     pub xray: Option<bool>,
-    #[knuffel(child, unwrap(argument))]
     pub blur: Option<bool>,
-    #[knuffel(child, unwrap(argument))]
     pub noise: Option<FloatOrInt<0, 1000>>,
-    #[knuffel(child, unwrap(argument))]
     pub saturation: Option<FloatOrInt<0, 1000>>,
 }
 
@@ -1108,7 +877,7 @@ mod tests {
     use insta::{assert_debug_snapshot, assert_snapshot};
 
     use super::*;
-    use crate::Config;
+    use crate::{Config, WindowRule};
 
     #[test]
     fn parse_gradient_interpolation() {
@@ -1229,33 +998,29 @@ mod tests {
 
     #[test]
     fn rule_color_can_override_base_gradient() {
-        let config = Config::parse_mem(
-            r##"
-            // Start with gradient set.
-            layout {
-                border {
-                    active-gradient from="#101010" to="#202020"
-                    inactive-gradient from="#111111" to="#212121"
-                    urgent-gradient from="#121212" to="#222222"
-                }
-            }
+        let mut border = Border {
+            active_color: Color::from_rgba8_unpremul(0x10, 0x10, 0x10, 0xff),
+            active_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x10, 0x10, 0x10, 0xff,
+            ))),
+            inactive_color: Color::from_rgba8_unpremul(0x11, 0x11, 0x11, 0xff),
+            inactive_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x11, 0x11, 0x11, 0xff,
+            ))),
+            urgent_color: Color::from_rgba8_unpremul(0x12, 0x12, 0x12, 0xff),
+            urgent_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x12, 0x12, 0x12, 0xff,
+            ))),
+            ..Default::default()
+        };
 
-            // Override with color.
-            window-rule {
-                border {
-                    active-color "#abcdef"
-                    inactive-color "#123456"
-                    urgent-color "#fedcba"
-                }
-            }
-            "##,
-        )
-        .unwrap();
-
-        let mut border = config.layout.border;
-        for rule in &config.window_rules {
-            border.merge_with(&rule.border);
-        }
+        let rule = BorderRule {
+            active_color: Some(Color::from_rgba8_unpremul(0xab, 0xcd, 0xef, 0xff)),
+            inactive_color: Some(Color::from_rgba8_unpremul(0x12, 0x34, 0x56, 0xff)),
+            urgent_color: Some(Color::from_rgba8_unpremul(0xfe, 0xdc, 0xba, 0xff)),
+            ..Default::default()
+        };
+        border.merge_with(&rule);
 
         // Gradient should be None because it's overwritten.
         assert_debug_snapshot!(
@@ -1276,56 +1041,74 @@ mod tests {
 
     #[test]
     fn rule_color_can_override_rule_gradient() {
-        let config = Config::parse_mem(
-            r##"
-            // Start with gradient set.
-            layout {
-                border {
-                    active-gradient from="#101010" to="#202020"
-                    inactive-gradient from="#111111" to="#212121"
-                    urgent-gradient from="#121212" to="#222222"
-                }
-            }
+        let mut border = Border {
+            active_color: Color::from_rgba8_unpremul(0x10, 0x10, 0x10, 0xff),
+            active_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x10, 0x10, 0x10, 0xff,
+            ))),
+            inactive_color: Color::from_rgba8_unpremul(0x11, 0x11, 0x11, 0xff),
+            inactive_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x11, 0x11, 0x11, 0xff,
+            ))),
+            urgent_color: Color::from_rgba8_unpremul(0x12, 0x12, 0x12, 0xff),
+            urgent_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                0x12, 0x12, 0x12, 0xff,
+            ))),
+            ..Default::default()
+        };
 
-            // Window rule with gradients set.
-            window-rule {
-                border {
-                    active-gradient from="#303030" to="#404040"
-                    inactive-gradient from="#313131" to="#414141"
-                    urgent-gradient from="#323232" to="#424242"
-                }
-
-                tab-indicator {
-                    active-gradient from="#505050" to="#606060"
-                    inactive-gradient from="#515151" to="#616161"
-                    urgent-gradient from="#525252" to="#626262"
-                }
-            }
-
-            // Override with color.
-            window-rule {
-                border {
-                    active-color "#abcdef"
-                    inactive-color "#123456"
-                    urgent-color "#fedcba"
-                }
-
-                tab-indicator {
-                    active-color "#abcdef"
-                    inactive-color "#123456"
-                    urgent-color "#fedcba"
-                }
-            }
-            "##,
-        )
-        .unwrap();
-
-        let mut border = config.layout.border;
         let mut tab_indicator_rule = TabIndicatorRule::default();
-        for rule in &config.window_rules {
-            border.merge_with(&rule.border);
-            tab_indicator_rule.merge_with(&rule.tab_indicator);
-        }
+
+        // Rule with gradients set.
+        let rule1 = WindowRule {
+            border: BorderRule {
+                active_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x30, 0x30, 0x30, 0xff,
+                ))),
+                inactive_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x31, 0x31, 0x31, 0xff,
+                ))),
+                urgent_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x32, 0x32, 0x32, 0xff,
+                ))),
+                ..Default::default()
+            },
+            tab_indicator: TabIndicatorRule {
+                active_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x50, 0x50, 0x50, 0xff,
+                ))),
+                inactive_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x51, 0x51, 0x51, 0xff,
+                ))),
+                urgent_gradient: Some(Gradient::from(Color::from_rgba8_unpremul(
+                    0x52, 0x52, 0x52, 0xff,
+                ))),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Override with color.
+        let rule2 = WindowRule {
+            border: BorderRule {
+                active_color: Some(Color::from_rgba8_unpremul(0xab, 0xcd, 0xef, 0xff)),
+                inactive_color: Some(Color::from_rgba8_unpremul(0x12, 0x34, 0x56, 0xff)),
+                urgent_color: Some(Color::from_rgba8_unpremul(0xfe, 0xdc, 0xba, 0xff)),
+                ..Default::default()
+            },
+            tab_indicator: TabIndicatorRule {
+                active_color: Some(Color::from_rgba8_unpremul(0xab, 0xcd, 0xef, 0xff)),
+                inactive_color: Some(Color::from_rgba8_unpremul(0x12, 0x34, 0x56, 0xff)),
+                urgent_color: Some(Color::from_rgba8_unpremul(0xfe, 0xdc, 0xba, 0xff)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        border.merge_with(&rule1.border);
+        border.merge_with(&rule2.border);
+        tab_indicator_rule.merge_with(&rule1.tab_indicator);
+        tab_indicator_rule.merge_with(&rule2.tab_indicator);
 
         // Gradient should be None because it's overwritten.
         assert_debug_snapshot!(

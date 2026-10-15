@@ -3,7 +3,7 @@ use std::iter::zip;
 use std::rc::Rc;
 use std::time::Duration;
 
-use niri_config::{CornerRadius, LayoutPart};
+use neori_config::{CornerRadius, LayoutPart};
 use smithay::backend::renderer::element::utils::{
     CropRenderElement, Relocate, RelocateRenderElement, RescaleRenderElement,
 };
@@ -20,7 +20,7 @@ use super::workspace::{
 use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Options};
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
-use crate::niri_render_elements;
+use crate::neori_render_elements;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::SolidColorRenderElement;
@@ -87,7 +87,7 @@ pub struct Monitor<W: LayoutElement> {
     /// Configurable properties of the layout.
     pub(super) options: Rc<Options>,
     /// Layout config overrides for this monitor.
-    layout_config: Option<niri_config::LayoutPart>,
+    layout_config: Option<neori_config::LayoutPart>,
 }
 
 #[derive(Debug)]
@@ -146,6 +146,27 @@ pub(super) struct InsertHint {
     pub corner_radius: CornerRadius,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceGestureEnd {
+    /// The gesture was not ongoing, or not for this monitor.
+    NotAffected,
+    /// The gesture resolved to a workspace on this monitor.
+    Resolved,
+    /// The gesture went past the first workspace of this monitor; the layout
+    /// should switch to the globally previous workspace.
+    GoPreviousGlobal,
+    /// The gesture went past the last workspace of this monitor; the layout
+    /// should switch to the globally next workspace.
+    GoNextGlobal,
+}
+
+/// Direction of a workspace focus change that crosses monitor boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusWorkspaceDirection {
+    Next,
+    Previous,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct InsertHintRenderLoc {
     workspace: InsertWorkspace,
@@ -183,7 +204,7 @@ impl<'a, W: LayoutElement> Clone for MonitorAddWindowTarget<'a, W> {
     }
 }
 
-niri_render_elements! {
+neori_render_elements! {
     MonitorInnerRenderElement<R> => {
         Workspace = CropRenderElement<WorkspaceRenderElement<R>>,
         InsertHint = CropRenderElement<InsertHintRenderElement>,
@@ -247,7 +268,7 @@ impl WorkspaceSwitchGesture {
         }
     }
 
-    fn animate_from(&mut self, from: f64, clock: Clock, config: niri_config::Animation) {
+    fn animate_from(&mut self, from: f64, clock: Clock, config: neori_config::Animation) {
         let current = self.animation.as_ref().map_or(0., Animation::value);
         self.animation = Some(Animation::new(clock, from + current, 0., 0., config));
     }
@@ -304,12 +325,10 @@ impl<W: LayoutElement> Monitor<W> {
         let view_size = output_size(&output);
         let working_area = compute_working_area(&output);
 
-        // Prepare the workspaces: set output, empty first, empty last.
+        // Prepare the workspaces: set output, keep their globally-unique numbers.
         let mut active_workspace_idx = 0;
 
         for (idx, ws) in workspaces.iter_mut().enumerate() {
-            assert!(ws.has_windows_or_name());
-
             ws.set_output(Some(output.clone()));
             ws.update_config(options.clone());
 
@@ -318,14 +337,13 @@ impl<W: LayoutElement> Monitor<W> {
             }
         }
 
-        if options.layout.empty_workspace_above_first && !workspaces.is_empty() {
+        // In the global workspace model, workspaces are created on demand with
+        // globally-unique numbers. If the config provided no workspaces for this
+        // output, create a single one so the monitor always has something to show.
+        if workspaces.is_empty() {
             let ws = Workspace::new(output.clone(), clock.clone(), options.clone());
-            workspaces.insert(0, ws);
-            active_workspace_idx += 1;
+            workspaces.push(ws);
         }
-
-        let ws = Workspace::new(output.clone(), clock.clone(), options.clone());
-        workspaces.push(ws);
 
         Self {
             output_name: output.name(),
@@ -350,8 +368,9 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn into_workspaces(mut self) -> Vec<Workspace<W>> {
-        self.workspaces.retain(|ws| ws.has_windows_or_name());
-
+        // In the global workspace model, empty workspaces are kept with their number
+        // and monitor assignment, so nothing is removed here. The workspaces are
+        // simply unbound from this output.
         for ws in &mut self.workspaces {
             ws.set_output(None);
         }
@@ -422,6 +441,33 @@ impl<W: LayoutElement> Monitor<W> {
         }
     }
 
+    /// Creates an empty workspace with the given global number.
+    ///
+    /// The workspace is inserted in its ordered position by number, keeping each
+    /// monitor's workspace list sorted, and keeping the last workspace of the
+    /// monitor empty.
+    pub fn add_workspace_with_number(&mut self, index: u32) -> usize {
+        let ws = Workspace::new_with_number(
+            index,
+            self.output.clone(),
+            self.clock.clone(),
+            self.options.clone(),
+        );
+
+        let insert_idx = self
+            .workspaces
+            .iter()
+            .position(|ws| ws.index() > index)
+            .unwrap_or(self.workspaces.len());
+
+        self.workspaces.insert(insert_idx, ws);
+        if insert_idx <= self.active_workspace_idx {
+            self.active_workspace_idx += 1;
+        }
+
+        insert_idx
+    }
+
     pub fn add_workspace_top(&mut self) {
         self.add_workspace_at(0);
     }
@@ -437,7 +483,7 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn activate_workspace_with_anim_config(
         &mut self,
         idx: usize,
-        config: Option<niri_config::Animation>,
+        config: Option<neori_config::Animation>,
     ) {
         // FIXME: also compute and use current velocity.
         let current_idx = self.workspace_render_idx();
@@ -544,9 +590,6 @@ impl<W: LayoutElement> Monitor<W> {
             workspace.original_output = OutputId::new(&self.output);
         }
 
-        if workspace_idx == self.workspaces.len() - 1 {
-            self.add_workspace_bottom();
-        }
         if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
             self.add_workspace_top();
             workspace_idx += 1;
@@ -578,11 +621,6 @@ impl<W: LayoutElement> Monitor<W> {
         // After adding a new window, workspace becomes this output's own.
         if workspace.name().is_none() {
             workspace.original_output = OutputId::new(&self.output);
-        }
-
-        if workspace_idx == self.workspaces.len() - 1 {
-            // Insert a new empty workspace.
-            self.add_workspace_bottom();
         }
 
         if self.options.layout.empty_workspace_above_first && workspace_idx == 0 {
@@ -623,34 +661,13 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn clean_up_workspaces(&mut self) {
+        // In the global workspace model, empty workspaces keep their number and
+        // monitor assignment (Hyprland-style), so there is nothing to clean up.
+        //
+        // This is deliberately a no-op: workspaces are never removed automatically.
+        // Keeping the name avoids touching every call site that used to rely on
+        // the old dynamic-stack clean-up behavior.
         assert!(self.workspace_switch.is_none());
-
-        let range_start = if self.options.layout.empty_workspace_above_first {
-            1
-        } else {
-            0
-        };
-        for idx in (range_start..self.workspaces.len() - 1).rev() {
-            if self.active_workspace_idx == idx {
-                continue;
-            }
-
-            if !self.workspaces[idx].has_windows_or_name() {
-                self.workspaces.remove(idx);
-                if self.active_workspace_idx > idx {
-                    self.active_workspace_idx -= 1;
-                }
-            }
-        }
-
-        // Special case handling when empty_workspace_above_first is set and all workspaces
-        // are empty.
-        if self.options.layout.empty_workspace_above_first && self.workspaces.len() == 2 {
-            assert!(!self.workspaces[0].has_windows_or_name());
-            assert!(!self.workspaces[1].has_windows_or_name());
-            self.workspaces.remove(1);
-            self.active_workspace_idx = 0;
-        }
     }
 
     pub fn unname_workspace(&mut self, id: WorkspaceId) -> bool {
@@ -668,9 +685,6 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn remove_workspace_by_idx(&mut self, mut idx: usize) -> Workspace<W> {
-        if idx == self.workspaces.len() - 1 {
-            self.add_workspace_bottom();
-        }
         if self.options.layout.empty_workspace_above_first && idx == 0 {
             self.add_workspace_top();
             idx += 1;
@@ -686,35 +700,38 @@ impl<W: LayoutElement> Monitor<W> {
             self.active_workspace_idx -= 1;
         }
 
+        // A monitor must always have at least one workspace.
+        if self.workspaces.is_empty() {
+            self.add_workspace_bottom();
+            self.active_workspace_idx = 0;
+        }
+
         self.workspace_switch = None;
         self.clean_up_workspaces();
 
         ws
     }
 
-    pub fn insert_workspace(&mut self, mut ws: Workspace<W>, mut idx: usize, activate: bool) {
+    pub fn insert_workspace(&mut self, mut ws: Workspace<W>, _idx: usize, activate: bool) {
         ws.set_output(Some(self.output.clone()));
         ws.update_config(self.options.clone());
 
-        // Don't insert past the last empty workspace.
-        if idx == self.workspaces.len() {
-            idx -= 1;
-        }
-        if idx == 0 && self.options.layout.empty_workspace_above_first {
-            // Insert a new empty workspace on top to prepare for insertion of new workspace.
-            self.add_workspace_top();
-            idx += 1;
-        }
+        // Keep the list sorted by globally-unique workspace number.
+        let insert_idx = self
+            .workspaces
+            .iter()
+            .position(|w| w.index() > ws.index())
+            .unwrap_or(self.workspaces.len());
 
-        self.workspaces.insert(idx, ws);
+        self.workspaces.insert(insert_idx, ws);
 
-        if idx <= self.active_workspace_idx {
+        if insert_idx <= self.active_workspace_idx {
             self.active_workspace_idx += 1;
         }
 
         if activate {
             self.workspace_switch = None;
-            self.activate_workspace(idx);
+            self.activate_workspace(insert_idx);
         }
 
         self.workspace_switch = None;
@@ -731,26 +748,18 @@ impl<W: LayoutElement> Monitor<W> {
             ws.update_config(self.options.clone());
         }
 
-        let empty_was_focused = self.active_workspace_idx == self.workspaces.len() - 1;
+        // Keep the currently active workspace active across the merge.
+        let active_id = self.workspaces[self.active_workspace_idx].id();
 
-        // Push the workspaces from the removed monitor in the end, right before the
-        // last, empty, workspace.
-        let empty = self.workspaces.remove(self.workspaces.len() - 1);
         self.workspaces.extend(workspaces);
-        self.workspaces.push(empty);
 
-        // If empty_workspace_above_first is set and the first workspace is now no longer empty,
-        // add a new empty workspace on top.
-        if self.options.layout.empty_workspace_above_first
-            && self.workspaces[0].has_windows_or_name()
-        {
-            self.add_workspace_top();
-        }
-
-        // If the empty workspace was focused on the primary monitor, keep it focused.
-        if empty_was_focused {
-            self.active_workspace_idx = self.workspaces.len() - 1;
-        }
+        // Keep the list sorted by globally-unique workspace number.
+        self.workspaces.sort_by_key(|ws| ws.index());
+        self.active_workspace_idx = self
+            .workspaces
+            .iter()
+            .position(|ws| ws.id() == active_id)
+            .unwrap();
 
         // FIXME: if we're adding workspaces to currently invisible positions
         // (outside the workspace switch), we don't need to cancel it.
@@ -770,16 +779,21 @@ impl<W: LayoutElement> Monitor<W> {
         }
     }
 
-    pub fn focus_window_or_workspace_down(&mut self) {
+    /// If the active workspace has no window below to move focus to, returns the
+    /// direction in which the layout should continue on the global workspace
+    /// sequence.
+    pub fn focus_window_or_workspace_down(&mut self) -> Option<FocusWorkspaceDirection> {
         if !self.active_workspace().focus_down() {
-            self.switch_workspace_down();
+            return Some(FocusWorkspaceDirection::Next);
         }
+        None
     }
 
-    pub fn focus_window_or_workspace_up(&mut self) {
+    pub fn focus_window_or_workspace_up(&mut self) -> Option<FocusWorkspaceDirection> {
         if !self.active_workspace().focus_up() {
-            self.switch_workspace_up();
+            return Some(FocusWorkspaceDirection::Previous);
         }
+        None
     }
 
     pub fn move_to_workspace_up(&mut self, focus: bool) {
@@ -819,10 +833,13 @@ impl<W: LayoutElement> Monitor<W> {
     pub fn move_to_workspace_down(&mut self, focus: bool) {
         let source_workspace_idx = self.active_workspace_idx;
 
-        let new_idx = min(source_workspace_idx + 1, self.workspaces.len() - 1);
-        if new_idx == source_workspace_idx {
-            return;
+        // If the active workspace is the last one, create a new workspace below so
+        // the window has somewhere to go.
+        if source_workspace_idx + 1 >= self.workspaces.len() {
+            self.add_workspace_bottom();
         }
+
+        let new_idx = source_workspace_idx + 1;
         let new_id = self.workspaces[new_idx].id();
 
         let workspace = &mut self.workspaces[source_workspace_idx];
@@ -1009,12 +1026,11 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn switch_workspace(&mut self, idx: usize) {
-        self.activate_workspace(min(idx, self.workspaces.len() - 1));
+        debug_assert!(idx < self.workspaces.len());
+        self.activate_workspace(idx);
     }
 
     pub fn switch_workspace_auto_back_and_forth(&mut self, idx: usize) {
-        let idx = min(idx, self.workspaces.len() - 1);
-
         if idx == self.active_workspace_idx {
             if let Some(prev_idx) = self.previous_workspace_idx() {
                 self.switch_workspace(prev_idx);
@@ -1210,7 +1226,7 @@ impl<W: LayoutElement> Monitor<W> {
         self.options = options;
     }
 
-    pub fn update_layout_config(&mut self, layout_config: Option<niri_config::LayoutPart>) -> bool {
+    pub fn update_layout_config(&mut self, layout_config: Option<neori_config::LayoutPart>) -> bool {
         if self.layout_config == layout_config {
             return false;
         }
@@ -1966,13 +1982,13 @@ impl<W: LayoutElement> Monitor<W> {
         true
     }
 
-    pub fn workspace_switch_gesture_end(&mut self, is_touchpad: Option<bool>) -> bool {
+    pub fn workspace_switch_gesture_end(&mut self, is_touchpad: Option<bool>) -> WorkspaceGestureEnd {
         let Some(WorkspaceSwitch::Gesture(gesture)) = &self.workspace_switch else {
-            return false;
+            return WorkspaceGestureEnd::NotAffected;
         };
 
         if is_touchpad.is_some_and(|x| gesture.is_touchpad != x) {
-            return false;
+            return WorkspaceGestureEnd::NotAffected;
         }
 
         let zoom = self.overview_zoom();
@@ -1985,7 +2001,7 @@ impl<W: LayoutElement> Monitor<W> {
         };
 
         let Some(WorkspaceSwitch::Gesture(gesture)) = &mut self.workspace_switch else {
-            return false;
+            return WorkspaceGestureEnd::NotAffected;
         };
 
         // Take into account any idle time between the last event and now.
@@ -2000,10 +2016,21 @@ impl<W: LayoutElement> Monitor<W> {
         let pos = gesture.tracker.projected_end_pos() / total_height;
 
         let (min, max) = gesture.min_max(self.workspaces.len());
-        let new_idx = gesture.start_idx + pos;
+        let raw_idx = gesture.start_idx + pos;
 
-        let new_idx = new_idx.clamp(min, max);
-        let new_idx = new_idx.round() as usize;
+        // Past the first or last workspace of this monitor: continue on the global
+        // workspace sequence instead of clamping.
+        let last_idx = (self.workspaces.len() - 1) as f64;
+        if raw_idx < 0. {
+            self.workspace_switch = None;
+            return WorkspaceGestureEnd::GoPreviousGlobal;
+        }
+        if raw_idx > last_idx {
+            self.workspace_switch = None;
+            return WorkspaceGestureEnd::GoNextGlobal;
+        }
+
+        let new_idx = raw_idx.clamp(min, max).round() as usize;
 
         velocity *= rubber_band.clamp_derivative(min, max, gesture.start_idx + current_pos);
 
@@ -2020,7 +2047,7 @@ impl<W: LayoutElement> Monitor<W> {
             self.options.animations.workspace_switch.0,
         )));
 
-        true
+        WorkspaceGestureEnd::Resolved
     }
 
     pub fn dnd_scroll_gesture_end(&mut self) {
@@ -2050,7 +2077,7 @@ impl<W: LayoutElement> Monitor<W> {
         self.working_area
     }
 
-    pub fn layout_config(&self) -> Option<&niri_config::LayoutPart> {
+    pub fn layout_config(&self) -> Option<&neori_config::LayoutPart> {
         self.layout_config.as_ref()
     }
 
@@ -2076,60 +2103,15 @@ impl<W: LayoutElement> Monitor<W> {
             assert!(after_idx < self.workspaces.len());
         }
 
-        assert!(
-            !self.workspaces.last().unwrap().has_windows(),
-            "monitor must have an empty workspace in the end"
-        );
-        if self.options.layout.empty_workspace_above_first {
+        // In the global workspace model, empty and unnamed workspaces are kept
+        // indefinitely, so there is no "empty workspace in the end" invariant.
+        // Each monitor's workspace list is kept sorted by workspace number, and
+        // numbers are globally unique.
+        for pair in self.workspaces.windows(2) {
             assert!(
-                !self.workspaces.first().unwrap().has_windows(),
-                "first workspace must be empty when empty_workspace_above_first is set"
-            )
-        }
-
-        assert!(
-            self.workspaces.last().unwrap().name.is_none(),
-            "monitor must have an unnamed workspace in the end"
-        );
-        if self.options.layout.empty_workspace_above_first {
-            assert!(
-                self.workspaces.first().unwrap().name.is_none(),
-                "first workspace must be unnamed when empty_workspace_above_first is set"
-            )
-        }
-
-        if self.options.layout.empty_workspace_above_first {
-            assert!(
-                self.workspaces.len() != 2,
-                "if empty_workspace_above_first is set there must be just 1 or 3+ workspaces"
-            )
-        }
-
-        // If there's no workspace switch in progress, there can't be any non-last non-active
-        // empty workspaces. If empty_workspace_above_first is set then the first workspace
-        // will be empty too.
-        let pre_skip = if self.options.layout.empty_workspace_above_first {
-            1
-        } else {
-            0
-        };
-        if self.workspace_switch.is_none() {
-            for (idx, ws) in self
-                .workspaces
-                .iter()
-                .enumerate()
-                .skip(pre_skip)
-                .rev()
-                // skip last
-                .skip(1)
-            {
-                if idx != self.active_workspace_idx {
-                    assert!(
-                        ws.has_windows_or_name(),
-                        "non-active workspace can't be empty and unnamed except the last one"
-                    );
-                }
-            }
+                pair[0].index() < pair[1].index(),
+                "monitor workspace list must be sorted by number"
+            );
         }
 
         for workspace in &self.workspaces {

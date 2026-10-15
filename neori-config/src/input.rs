@@ -5,7 +5,7 @@ use smithay::input::keyboard::XkbConfig;
 use smithay::reexports::input;
 
 use crate::binds::Modifiers;
-use crate::utils::{Flag, MergeWith, Percent};
+use crate::utils::{Flag, Percent};
 use crate::FloatOrInt;
 
 #[derive(Debug, Default, PartialEq)]
@@ -25,63 +25,22 @@ pub struct Input {
     pub mod_key_nested: Option<ModKey>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, PartialEq)]
+#[allow(dead_code)]
+#[derive(Debug, Default, PartialEq)]
 pub struct InputPart {
-    #[knuffel(child)]
     pub keyboard: Option<KeyboardPart>,
-    #[knuffel(child)]
     pub touchpad: Option<Touchpad>,
-    #[knuffel(child)]
     pub mouse: Option<Mouse>,
-    #[knuffel(child)]
     pub trackpoint: Option<Trackpoint>,
-    #[knuffel(child)]
     pub trackball: Option<Trackball>,
-    #[knuffel(child)]
     pub tablet: Option<Tablet>,
-    #[knuffel(child)]
     pub touch: Option<Touch>,
-    #[knuffel(child)]
     pub disable_power_key_handling: Option<Flag>,
-    #[knuffel(child)]
     pub warp_mouse_to_focus: Option<WarpMouseToFocus>,
-    #[knuffel(child)]
     pub focus_follows_mouse: Option<FocusFollowsMouse>,
-    #[knuffel(child)]
     pub workspace_auto_back_and_forth: Option<Flag>,
-    #[knuffel(child, unwrap(argument, str))]
     pub mod_key: Option<ModKey>,
-    #[knuffel(child, unwrap(argument, str))]
     pub mod_key_nested: Option<ModKey>,
-}
-
-impl MergeWith<InputPart> for Input {
-    fn merge_with(&mut self, part: &InputPart) {
-        merge!(
-            (self, part),
-            keyboard,
-            disable_power_key_handling,
-            workspace_auto_back_and_forth,
-        );
-
-        merge_clone!(
-            (self, part),
-            touchpad,
-            mouse,
-            trackpoint,
-            trackball,
-            tablet,
-            touch,
-        );
-
-        merge_clone_opt!(
-            (self, part),
-            warp_mouse_to_focus,
-            focus_follows_mouse,
-            mod_key,
-            mod_key_nested,
-        );
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -97,7 +56,6 @@ impl Default for Keyboard {
     fn default() -> Self {
         Self {
             xkb: Default::default(),
-            // The defaults were chosen to match wlroots and sway.
             repeat_delay: 600,
             repeat_rate: 25,
             track_layout: Default::default(),
@@ -106,40 +64,23 @@ impl Default for Keyboard {
     }
 }
 
-#[derive(knuffel::Decode, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct KeyboardPart {
-    #[knuffel(child)]
     pub xkb: Option<Xkb>,
-    #[knuffel(child, unwrap(argument))]
     pub repeat_delay: Option<u16>,
-    #[knuffel(child, unwrap(argument))]
     pub repeat_rate: Option<u8>,
-    #[knuffel(child, unwrap(argument))]
     pub track_layout: Option<TrackLayout>,
-    #[knuffel(child)]
     pub numlock: Option<Flag>,
 }
 
-impl MergeWith<KeyboardPart> for Keyboard {
-    fn merge_with(&mut self, part: &KeyboardPart) {
-        merge_clone!((self, part), xkb, repeat_delay, repeat_rate, track_layout);
-        merge!((self, part), numlock);
-    }
-}
-
-#[derive(knuffel::Decode, Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct Xkb {
-    #[knuffel(child, unwrap(argument), default)]
     pub rules: String,
-    #[knuffel(child, unwrap(argument), default)]
     pub model: String,
-    #[knuffel(child, unwrap(argument), default)]
     pub layout: String,
-    #[knuffel(child, unwrap(argument), default)]
     pub variant: String,
-    #[knuffel(child, unwrap(argument))]
     pub options: Option<String>,
-    #[knuffel(child, unwrap(argument))]
     pub file: Option<String>,
 }
 
@@ -155,22 +96,17 @@ impl Xkb {
     }
 }
 
-#[derive(knuffel::DecodeScalar, Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TrackLayout {
-    /// The layout change is global.
     #[default]
     Global,
-    /// The layout change is window local.
     Window,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ScrollFactor {
-    #[knuffel(argument)]
     pub base: Option<FloatOrInt<0, 100>>,
-    #[knuffel(property)]
     pub horizontal: Option<FloatOrInt<-100, 100>>,
-    #[knuffel(property)]
     pub vertical: Option<FloatOrInt<-100, 100>>,
 }
 
@@ -183,111 +119,65 @@ impl ScrollFactor {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Touchpad {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub tap: bool,
-    #[knuffel(child)]
     pub dwt: bool,
-    #[knuffel(child)]
     pub dwtp: bool,
-    #[knuffel(child, unwrap(argument))]
     pub drag: Option<bool>,
-    #[knuffel(child)]
     pub drag_lock: bool,
-    #[knuffel(child)]
     pub natural_scroll: bool,
-    #[knuffel(child, unwrap(argument, str))]
     pub click_method: Option<ClickMethod>,
-    #[knuffel(child, unwrap(argument), default)]
     pub accel_speed: FloatOrInt<-1, 1>,
-    #[knuffel(child, unwrap(argument, str))]
     pub accel_profile: Option<AccelProfile>,
-    #[knuffel(child, unwrap(argument, str))]
     pub scroll_method: Option<ScrollMethod>,
-    #[knuffel(child, unwrap(argument))]
     pub scroll_button: Option<u32>,
-    #[knuffel(child)]
     pub scroll_button_lock: bool,
-    #[knuffel(child, unwrap(argument, str))]
     pub tap_button_map: Option<TapButtonMap>,
-    #[knuffel(child)]
     pub left_handed: bool,
-    #[knuffel(child)]
     pub disabled_on_external_mouse: bool,
-    #[knuffel(child)]
     pub middle_emulation: bool,
-    #[knuffel(child)]
     pub scroll_factor: Option<ScrollFactor>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Mouse {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub natural_scroll: bool,
-    #[knuffel(child, unwrap(argument), default)]
     pub accel_speed: FloatOrInt<-1, 1>,
-    #[knuffel(child, unwrap(argument, str))]
     pub accel_profile: Option<AccelProfile>,
-    #[knuffel(child, unwrap(argument, str))]
     pub scroll_method: Option<ScrollMethod>,
-    #[knuffel(child, unwrap(argument))]
     pub scroll_button: Option<u32>,
-    #[knuffel(child)]
     pub scroll_button_lock: bool,
-    #[knuffel(child)]
     pub left_handed: bool,
-    #[knuffel(child)]
     pub middle_emulation: bool,
-    #[knuffel(child)]
     pub scroll_factor: Option<ScrollFactor>,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Trackpoint {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub natural_scroll: bool,
-    #[knuffel(child, unwrap(argument), default)]
     pub accel_speed: FloatOrInt<-1, 1>,
-    #[knuffel(child, unwrap(argument, str))]
     pub accel_profile: Option<AccelProfile>,
-    #[knuffel(child, unwrap(argument, str))]
     pub scroll_method: Option<ScrollMethod>,
-    #[knuffel(child, unwrap(argument))]
     pub scroll_button: Option<u32>,
-    #[knuffel(child)]
     pub scroll_button_lock: bool,
-    #[knuffel(child)]
     pub left_handed: bool,
-    #[knuffel(child)]
     pub middle_emulation: bool,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Trackball {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child)]
     pub natural_scroll: bool,
-    #[knuffel(child, unwrap(argument), default)]
     pub accel_speed: FloatOrInt<-1, 1>,
-    #[knuffel(child, unwrap(argument, str))]
     pub accel_profile: Option<AccelProfile>,
-    #[knuffel(child, unwrap(argument, str))]
     pub scroll_method: Option<ScrollMethod>,
-    #[knuffel(child, unwrap(argument))]
     pub scroll_button: Option<u32>,
-    #[knuffel(child)]
     pub scroll_button_lock: bool,
-    #[knuffel(child)]
     pub left_handed: bool,
-    #[knuffel(child)]
     pub middle_emulation: bool,
 }
 
@@ -355,41 +245,30 @@ impl From<TapButtonMap> for input::TapButtonMap {
     }
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Tablet {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child, unwrap(arguments))]
     pub calibration_matrix: Option<Vec<f32>>,
-    #[knuffel(child, unwrap(argument))]
     pub map_to_output: Option<String>,
-    #[knuffel(child)]
     pub map_to_focused_output: bool,
-    #[knuffel(child)]
     pub map_to_focused_window: bool,
-    #[knuffel(child)]
     pub left_handed: bool,
 }
 
-#[derive(knuffel::Decode, Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Touch {
-    #[knuffel(child)]
     pub off: bool,
-    #[knuffel(child, unwrap(arguments))]
     pub calibration_matrix: Option<Vec<f32>>,
-    #[knuffel(child, unwrap(argument))]
     pub map_to_output: Option<String>,
 }
 
-#[derive(knuffel::Decode, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FocusFollowsMouse {
-    #[knuffel(property, str)]
     pub max_scroll_amount: Option<Percent>,
 }
 
-#[derive(knuffel::Decode, Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct WarpMouseToFocus {
-    #[knuffel(property, str)]
     pub mode: Option<WarpMouseToFocusMode>,
 }
 
@@ -515,198 +394,6 @@ mod tests {
     use insta::assert_debug_snapshot;
 
     use super::*;
-
-    #[track_caller]
-    fn do_parse(text: &str) -> Input {
-        let part = knuffel::parse("test.kdl", text)
-            .map_err(miette::Report::new)
-            .unwrap();
-        Input::from_part(&part)
-    }
-
-    #[test]
-    fn parse_scroll_factor_combined() {
-        // Test combined scroll-factor syntax
-        let parsed = do_parse(
-            r#"
-            mouse {
-                scroll-factor 2.0
-            }
-            touchpad {
-                scroll-factor 1.5
-            }
-            "#,
-        );
-
-        assert_debug_snapshot!(parsed.mouse.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: Some(
-                    FloatOrInt(
-                        2.0,
-                    ),
-                ),
-                horizontal: None,
-                vertical: None,
-            },
-        )
-        "#);
-        assert_debug_snapshot!(parsed.touchpad.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: Some(
-                    FloatOrInt(
-                        1.5,
-                    ),
-                ),
-                horizontal: None,
-                vertical: None,
-            },
-        )
-        "#);
-    }
-
-    #[test]
-    fn parse_scroll_factor_split() {
-        // Test split horizontal/vertical syntax
-        let parsed = do_parse(
-            r#"
-            mouse {
-                scroll-factor horizontal=2.0 vertical=-1.0
-            }
-            touchpad {
-                scroll-factor horizontal=-1.5 vertical=0.5
-            }
-            "#,
-        );
-
-        assert_debug_snapshot!(parsed.mouse.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: None,
-                horizontal: Some(
-                    FloatOrInt(
-                        2.0,
-                    ),
-                ),
-                vertical: Some(
-                    FloatOrInt(
-                        -1.0,
-                    ),
-                ),
-            },
-        )
-        "#);
-        assert_debug_snapshot!(parsed.touchpad.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: None,
-                horizontal: Some(
-                    FloatOrInt(
-                        -1.5,
-                    ),
-                ),
-                vertical: Some(
-                    FloatOrInt(
-                        0.5,
-                    ),
-                ),
-            },
-        )
-        "#);
-    }
-
-    #[test]
-    fn parse_scroll_factor_partial() {
-        // Test partial specification (only one axis)
-        let parsed = do_parse(
-            r#"
-            mouse {
-                scroll-factor horizontal=2.0
-            }
-            touchpad {
-                scroll-factor vertical=-1.5
-            }
-            "#,
-        );
-
-        assert_debug_snapshot!(parsed.mouse.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: None,
-                horizontal: Some(
-                    FloatOrInt(
-                        2.0,
-                    ),
-                ),
-                vertical: None,
-            },
-        )
-        "#);
-        assert_debug_snapshot!(parsed.touchpad.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: None,
-                horizontal: None,
-                vertical: Some(
-                    FloatOrInt(
-                        -1.5,
-                    ),
-                ),
-            },
-        )
-        "#);
-    }
-
-    #[test]
-    fn parse_scroll_factor_mixed() {
-        // Test mixed base + override syntax
-        let parsed = do_parse(
-            r#"
-            mouse {
-                scroll-factor 2 vertical=-1
-            }
-            touchpad {
-                scroll-factor 1.5 horizontal=3
-            }
-            "#,
-        );
-
-        assert_debug_snapshot!(parsed.mouse.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: Some(
-                    FloatOrInt(
-                        2.0,
-                    ),
-                ),
-                horizontal: None,
-                vertical: Some(
-                    FloatOrInt(
-                        -1.0,
-                    ),
-                ),
-            },
-        )
-        "#);
-        assert_debug_snapshot!(parsed.touchpad.scroll_factor, @r#"
-        Some(
-            ScrollFactor {
-                base: Some(
-                    FloatOrInt(
-                        1.5,
-                    ),
-                ),
-                horizontal: Some(
-                    FloatOrInt(
-                        3.0,
-                    ),
-                ),
-                vertical: None,
-            },
-        )
-        "#);
-    }
 
     #[test]
     fn scroll_factor_h_v_factors() {
