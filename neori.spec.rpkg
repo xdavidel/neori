@@ -136,11 +136,11 @@ target/release/neori completions zsh > ./_neori
 %install
 %cargo_install
 
-install -Dm755 -t %{buildroot}%{_bindir} ./resource./neori-session
-install -Dm644 -t %{buildroot}%{_datadir}/wayland-sessions ./resource./neori.desktop
-install -Dm644 -t %{buildroot}%{_datadir}/xdg-desktop-portal ./resource./neori-portals.conf
-install -Dm644 -t %{buildroot}%{_userunitdir} ./resource./neori.service
-install -Dm644 -t %{buildroot}%{_userunitdir} ./resource./neori-shutdown.target
+install -Dm755 -t %{buildroot}%{_bindir} ./resources/neori-session
+install -Dm644 -t %{buildroot}%{_datadir}/wayland-sessions ./resources/neori.desktop
+install -Dm644 -t %{buildroot}%{_datadir}/xdg-desktop-portal ./resources/neori-portals.conf
+install -Dm644 -t %{buildroot}%{_userunitdir} ./resources/neori.service
+install -Dm644 -t %{buildroot}%{_userunitdir} ./resources/neori-shutdown.target
 
 install -Dm644 -t %{buildroot}%{bash_completions_dir} ./neori
 install -Dm644 -t %{buildroot}%{fish_completions_dir} ./neori.fish
@@ -154,18 +154,18 @@ install -Dm644 -t %{buildroot}%{zsh_completions_dir} ./_neori
 %files
 %license LICENSE
 %doc README.md
-%doc resources/default-config.kdl
+%doc resources/default-config.lua
 %doc docs/wiki
-%{_bindir./neori
-%{_bindir./neori-session
-%{_datadir}/wayland-session./neori.desktop
+%{_bindir}/neori
+%{_bindir}/neori-session
+%{_datadir}/wayland-sessions/neori.desktop
 %dir %{_datadir}/xdg-desktop-portal
-%{_datadir}/xdg-desktop-porta./neori-portals.conf
-%{_userunitdir./neori.service
-%{_userunitdir./neori-shutdown.target
-%{bash_completions_dir./neori
-%{fish_completions_dir./neori.fish
-%{zsh_completions_dir./_neori
+%{_datadir}/xdg-desktop-portal/neori-portals.conf
+%{_userunitdir}/neori.service
+%{_userunitdir}/neori-shutdown.target
+%{bash_completions_dir}/neori
+%{fish_completions_dir}/neori.fish
+%{zsh_completions_dir}/_neori
 
 %changelog
 {{{ git_dir_changelog }}}

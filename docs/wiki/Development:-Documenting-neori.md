@@ -1,8 +1,8 @@
-niri's documentation files are found in `docs/wiki/` and should be viewable and browsable in at least three systems:
+neori's documentation files are found in `docs/wiki/` and should be viewable and browsable in at least three systems:
 
 - The GitHub repo's markdown file preview
-- [The GitHub repo's wiki](https://github.com/niri-wm/niri/wiki)
-- [The documentation site](https://niri-wm.github.io/niri/)
+- [The GitHub repo's wiki](https://github.com/neori-wm/neori/wiki)
+- [The documentation site](https://neori-wm.github.io/neori/)
 
 ## The GitHub repo's wiki
 
@@ -24,7 +24,7 @@ In the `docs/` subdirectory:
 - `uv sync`
 - `uv run mkdocs serve`
 
-The documentation site should now be available on http://127.0.0.1:8000/niri/
+The documentation site should now be available on http://127.0.0.1:8000/neori/
 
 Changes made to the documentation while the development server is running will cause an automatic page refresh in the browser.
 

@@ -1,4 +1,4 @@
-This is a checklist of things to release a new niri version.
+This is a checklist of things to release a new neori version.
 
 We'll use `26.04` as the example new version.
 When making a patch release, append the patch number like `26.04.1`.
@@ -26,8 +26,8 @@ cargo set-version 26.4.0
 Then, manually update version in:
 
 - `[package.metadata.generate-rpm]` in Cargo.toml
-- Dependency example in `niri-ipc/README.md`
-- Dependency example in `niri-ipc/src/lib.rs`
+- Dependency example in `neori-ipc/README.md`
+- Dependency example in `neori-ipc/src/lib.rs`
 
 Do a full text search for the old version to make sure there are no other places.
 
@@ -43,7 +43,7 @@ Run all tests:
 RUN_SLOW_TESTS=1 cargo test --release --all
 ```
 
-- Run `cargo package -p niri-ipc` and make sure it succeeds.
+- Run `cargo package -p neori-ipc` and make sure it succeeds.
 - Make sure the CI passes.
 - Make sure the niri-git COPR build passes.
 
@@ -55,13 +55,13 @@ This workflow will:
 
 - do some pre-release checks like grepping the wiki for "next version",
 - make a vendored dependency archive,
-- build and test niri with that dependency archive,
+- build and test neori with that dependency archive,
 - draft a new GitHub release with the archive attached.
 It will NOT override an existing draft release with the same name so the release notes are safe.
 
 Make sure it succeeds and grab the vendored dependency archive that it produces.
 
-## Update the niri COPR spec, update licenses in .spec.rpkg
+## Update the neori COPR spec, update licenses in .spec.rpkg
 
 You can grab the previous spec from [the last build](https://copr.fedorainfracloud.org/coprs/yalter/niri/builds/) in the COPR.
 
@@ -76,7 +76,7 @@ Comment/uncomment `Source:` and `%autosetup` lines accordingly.
 Download the source files:
 
 ```
-spectool -g niri.spec
+spectool -g neori.spec
 ```
 
 Build RPMs:
@@ -86,9 +86,9 @@ fedpkg --release 44 mockbuild
 ```
 
 During the build, it will print the list of licenses.
-Update it in both the COPR spec and in `niri.spec.rpkg` accordingly.
+Update it in both the COPR spec and in `neori.spec.rpkg` accordingly.
 
-If you had to update `niri.spec.rpkg` and therefore make another commit to the niri repo, make sure to update the commit hash in the COPR spec again.
+If you had to update `neori.spec.rpkg` and therefore make another commit to the neori repo, make sure to update the commit hash in the COPR spec again.
 
 Revert any temporary changes that you did to the COPR spec for local testing.
 
@@ -111,10 +111,10 @@ GitHub creates a *lightweight* tag, but we want an annotated tag that plays bett
 - Set the release title to `v26.04`.
 - Check "Create a discussion for this release".
 
-## Publish the niri-ipc crate
+## Publish the neori-ipc crate
 
 ```
-cargo publish -p niri-ipc
+cargo publish -p neori-ipc
 ```
 
 ## Kick off the COPR build
@@ -122,7 +122,7 @@ cargo publish -p niri-ipc
 Upload on the web or:
 
 ```
-copr-cli build niri niri.spec
+copr-cli build neori neori.spec
 ```
 
 ## Announce the release
@@ -136,7 +136,7 @@ Chat rooms, social media, etc.
 - Generate data:
 
     ```
-    wlprobe > ./src/data/compositors/niri.json
+    wlprobe > ./src/data/compositors/neori.json
     ```
 
 - Manually add `"version": "26.04"`, then clean up the diff from unrelated changes, for example:
