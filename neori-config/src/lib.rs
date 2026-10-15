@@ -836,6 +836,20 @@ mod tests {
     }
 
     #[test]
+    fn max_bpc_rejects_out_of_range() {
+        // Valid values parse.
+        let config = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 10 }"#).unwrap();
+        assert_eq!(config.outputs.0[0].max_bpc, Some(MaxBpc(neori_ipc::MaxBpc::_10)));
+
+        // Out-of-range integers must not wrap into a valid variant (262 as u8 == 6).
+        let err = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 262 }"#).unwrap_err();
+        assert!(err.main.contains("max-bpc"), "{err}");
+
+        let err = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 7 }"#).unwrap_err();
+        assert!(err.main.contains("max-bpc"), "{err}");
+    }
+
+    #[test]
     fn neori_api_animation_boolean_sugar() {
         let config = Config::parse_mem(
             r#"

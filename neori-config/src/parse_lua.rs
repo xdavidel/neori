@@ -1451,7 +1451,8 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
 
         let max_bpc: Option<MaxBpc> = match table_get_alias(&t, "max_bpc", "max-bpc")? {
             Value::Integer(n) => Some(MaxBpc(
-                neori_ipc::MaxBpc::try_from(n as u8).map_err(|e| format!("max-bpc: {e}"))?,
+                neori_ipc::MaxBpc::try_from(u8::try_from(n).map_err(|e| format!("max-bpc: {e}"))?)
+                    .map_err(|e| format!("max-bpc: {e}"))?,
             )),
             Value::String(s) => Some(MaxBpc(
                 neori_ipc::MaxBpc::from_str(&s.to_str().map_err(|e| format!("{e}"))?)
@@ -3472,7 +3473,13 @@ fn parse_animation_switch(value: &Value, default: Animation) -> Result<Option<An
             kind: default.kind,
         })),
         Value::Nil => Ok(None),
-        _ => Ok(None),
+        other => {
+            warn!(
+                "neori-config: animation value must be a table or boolean, got {}",
+                other.type_name()
+            );
+            Ok(None)
+        }
     }
 }
 
