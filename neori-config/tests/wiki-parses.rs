@@ -1,18 +1,18 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-struct KdlCodeBlock {
+struct LuaCodeBlock {
     filename: String,
     code: String,
     line_number: usize,
     must_fail: bool,
 }
 
-fn extract_kdl_from_file(file_contents: &str, filename: &str) -> Vec<KdlCodeBlock> {
+fn extract_lua_from_file(file_contents: &str, filename: &str) -> Vec<LuaCodeBlock> {
     let mut lines = file_contents
         .lines()
         .map(|line| {
-            // Removes the > from callouts that might contain ```kdl```
+            // Removes the > from callouts that might contain ```lua```
             let line = line.trim();
             if line.starts_with('>') {
                 if line.len() == 1 {
@@ -26,12 +26,14 @@ fn extract_kdl_from_file(file_contents: &str, filename: &str) -> Vec<KdlCodeBloc
         })
         .enumerate();
 
-    let mut kdl_code_blocks = vec![];
+    let mut lua_code_blocks = vec![];
 
     while let Some((line_number, line)) = lines.next() {
-        if !line.starts_with("```kdl") {
+        if !line.starts_with("```lua") {
             continue;
         }
+
+        let must_fail = line.contains("must-fail");
 
         let mut snippet = String::new();
 
@@ -43,19 +45,18 @@ fn extract_kdl_from_file(file_contents: &str, filename: &str) -> Vec<KdlCodeBloc
             snippet.push('\n');
         }
 
-        kdl_code_blocks.push(KdlCodeBlock {
+        lua_code_blocks.push(LuaCodeBlock {
             code: snippet,
             line_number,
             filename: filename.to_string(),
-            must_fail: line.contains("must-fail"),
+            must_fail,
         });
     }
 
-    kdl_code_blocks
+    lua_code_blocks
 }
 
 #[test]
-#[ignore = "docs still use KDL syntax, need to be rewritten for Lua"]
 fn wiki_docs_parses() {
     let wiki_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../docs/wiki");
 
@@ -73,22 +74,26 @@ fn wiki_docs_parses() {
             let file_contents = fs::read_to_string(file.path()).unwrap();
             let file_path = file.path();
             let filename = file_path.to_str().unwrap();
-            extract_kdl_from_file(&file_contents, filename)
+            extract_lua_from_file(&file_contents, filename)
         });
 
     let mut errors = vec![];
 
-    for KdlCodeBlock {
+    for LuaCodeBlock {
         code,
         line_number,
         filename,
         must_fail,
     } in code_blocks
     {
+        // Blocks that pull in other files can't be validated in isolation.
+        if code.contains("neori.include(") || code.contains("require(") {
+            continue;
+        }
         if let Err(error) = neori_config::Config::parse(Path::new(&filename), &code).config {
             if !must_fail {
                 errors.push(format!(
-                    "Error parsing wiki KDL code block at {}:{}: {:?}",
+                    "Error parsing wiki Lua code block at {}:{}: {:?}",
                     filename,
                     line_number,
                     miette::Report::new(error)
@@ -96,14 +101,14 @@ fn wiki_docs_parses() {
             }
         } else if must_fail {
             errors.push(format!(
-                "Expected error parsing wiki KDL code block at {filename}:{line_number}",
+                "Expected error parsing wiki Lua code block at {filename}:{line_number}",
             ));
         }
     }
 
     if !errors.is_empty() {
         panic!(
-            "Errors parsing {} wiki KDL code blocks:\n{}",
+            "Errors parsing {} wiki Lua code blocks:\n{}",
             errors.len(),
             errors.join("\n")
         );

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -15,7 +16,6 @@ use crate::input::*;
 use crate::layout::*;
 use crate::misc::*;
 use crate::output::*;
-use crate::recent_windows::*;
 use crate::utils::{Flag, Percent, RegexEq};
 use crate::window_rule::*;
 use crate::workspace::*;
@@ -76,6 +76,11 @@ impl ScriptHost {
         };
         self.event_functions.lock().unwrap().clear();
 
+        set_strict_config(matches!(
+            std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
+            Some("1") | Some("true") | Some("yes") | Some("on")
+        ));
+
         let package = self
             .lua
             .globals()
@@ -99,10 +104,22 @@ impl ScriptHost {
                 .map_err(|e| parse_err(e.to_string()))?;
         }
 
-        register_require_searcher(&self.lua, path, &includes).map_err(|e| parse_err(e))?;
+        let search_dir = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("/"))
+            .to_path_buf();
 
-        let api_data =
-            setup_neori_api(&self.lua, &self.event_functions).map_err(|e| parse_err(e))?;
+        register_require_searcher(&self.lua, search_dir.clone(), &includes)
+            .map_err(|e| parse_err(e))?;
+
+        let api_data = setup_neori_api(
+            &self.lua,
+            &self.event_functions,
+            search_dir,
+            Arc::clone(&includes),
+        )
+        .map_err(|e| parse_err(e))?;
 
         let chunk = self
             .lua
@@ -200,15 +217,10 @@ pub fn parse_lua_with_host(path: &Path, text: &str) -> Result<ParsedConfig, Pars
 /// still gets watched.
 fn register_require_searcher(
     lua: &Lua,
-    config_path: &Path,
+    search_dir: PathBuf,
     includes: &Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<(), String> {
     let err = |e: LuaError| format!("{e}");
-    let search_dir = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("/"))
-        .to_path_buf();
 
     let searchers = lua
         .globals()
@@ -262,12 +274,95 @@ fn register_require_searcher(
     Ok(())
 }
 
+/// Resolves an `neori.include` pattern into a sorted list of files to evaluate.
+///
+/// The pattern is resolved relative to `search_dir` unless absolute; a leading `~/` expands to
+/// `$HOME`. A directory yields every `*.lua` file inside it, a plain file yields itself, and a
+/// `*`/`?` glob in the final component is expanded against its parent directory.
+fn expand_include_pattern(search_dir: &Path, pattern: &str) -> Result<Vec<PathBuf>, String> {
+    let expanded = if let Some(rest) = pattern.strip_prefix("~/") {
+        let home = std::env::var_os("HOME").ok_or("HOME is not set")?;
+        PathBuf::from(home).join(rest)
+    } else {
+        PathBuf::from(pattern)
+    };
+    let abs = if expanded.is_absolute() {
+        expanded
+    } else {
+        search_dir.join(expanded)
+    };
+
+    if abs.is_file() {
+        return Ok(vec![abs]);
+    }
+    if abs.is_dir() {
+        return list_lua_files(&abs);
+    }
+
+    let dir = abs.parent().unwrap_or(Path::new("."));
+    let file_pat = abs.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if !file_pat.contains('*') && !file_pat.contains('?') {
+        return Err(format!("neori.include: {} not found", abs.display()));
+    }
+    let re = glob_to_regex(file_pat)?;
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                    if re.is_match(name) {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Returns every `*.lua` file directly inside `dir`, sorted by path.
+fn list_lua_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir)
+        .map_err(|e| format!("error reading {}: {e}", dir.display()))?
+        .flatten()
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("lua") {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Compiles a simple glob (`*`, `?`) into a regular expression matching whole file names.
+fn glob_to_regex(pattern: &str) -> Result<regex::Regex, String> {
+    let mut re = String::from("^");
+    for c in pattern.chars() {
+        match c {
+            '*' => re.push_str(".*"),
+            '?' => re.push('.'),
+            c => re.push_str(&regex::escape(&c.to_string())),
+        }
+    }
+    re.push('$');
+    regex::Regex::new(&re).map_err(|e| format!("invalid include glob '{pattern}': {e}"))
+}
+
 /// Creates the `neori` global table with the config API functions.
 ///
 /// The functions write into a separate `data` table that has the same shape as the
 /// `return { ... }` table style. After the script runs, `data` is merged with the return
 /// value (see [`merge_api_data`]) and parsed as usual. Returns the `data` table.
-fn setup_neori_api(lua: &Lua, event_functions: &EventRegistry) -> Result<LuaTable, String> {
+fn setup_neori_api(
+    lua: &Lua,
+    event_functions: &EventRegistry,
+    search_dir: PathBuf,
+    includes: Arc<Mutex<Vec<PathBuf>>>,
+) -> Result<LuaTable, String> {
     let err = |e: LuaError| format!("{e}");
     let data = lua.create_table().map_err(err)?;
     let neori = lua.create_table().map_err(err)?;
@@ -282,6 +377,63 @@ fn setup_neori_api(lua: &Lua, event_functions: &EventRegistry) -> Result<LuaTabl
             })
             .map_err(err)?;
         neori.set("set", func).map_err(err)?;
+    }
+
+    // neori.strict(on) toggles strict parsing, where unknown config keys become errors
+    // instead of warnings. Called with no argument it enables strict mode.
+    {
+        let func = lua
+            .create_function(move |_, args: mlua::Variadic<Value>| {
+                let on = match args.first() {
+                    Some(v) => value_is_truthy(v),
+                    None => true,
+                };
+                set_strict_config(on);
+                Ok(())
+            })
+            .map_err(err)?;
+        neori.set("strict", func).map_err(err)?;
+    }
+
+    // neori.include(path, ...) evaluates other Lua files in the same environment.
+    //
+    // Each path is resolved relative to the config's directory unless absolute, and `~/` is
+    // expanded. A directory loads every `*.lua` file inside it (sorted), and a `*`/`?` glob in
+    // the final path component is supported. Every loaded file is recorded for the config
+    // watcher, and files already loaded are skipped.
+    {
+        let includes = Arc::clone(&includes);
+        let search_dir = search_dir.clone();
+        let func = lua
+            .create_function(move |lua, patterns: mlua::Variadic<String>| {
+                for pattern in patterns {
+                    let files = expand_include_pattern(&search_dir, &pattern)
+                        .map_err(LuaError::external)?;
+                    if files.is_empty() {
+                        return Err(LuaError::external(format!(
+                            "neori.include: no files matched '{pattern}'"
+                        )));
+                    }
+                    for file in files {
+                        {
+                            let mut inc = includes.lock().unwrap();
+                            if inc.contains(&file) {
+                                continue;
+                            }
+                            inc.push(file.clone());
+                        }
+                        let content = std::fs::read_to_string(&file).map_err(|e| {
+                            LuaError::external(format!("error reading {}: {e}", file.display()))
+                        })?;
+                        lua.load(&content)
+                            .set_name(file.display().to_string())
+                            .exec()?;
+                    }
+                }
+                Ok(())
+            })
+            .map_err(err)?;
+        neori.set("include", func).map_err(err)?;
     }
 
     // neori.bind(key, action) with a string or table action. Binds are appended to a
@@ -384,15 +536,50 @@ fn setup_neori_api(lua: &Lua, event_functions: &EventRegistry) -> Result<LuaTabl
     }
 
     // Entry pushers: neori.window_rule { ... } appends one entry to a section.
-    for (name, section) in [
-        ("window_rule", "window_rules"),
-        ("layer_rule", "layer_rules"),
-        ("output", "outputs"),
-        ("workspace", "workspaces"),
+    //
+    // `neori.output` and `neori.workspace` also accept a leading name argument, i.e.
+    // `neori.output("eDP-1", { scale = 2.0 })`, which is sugar for `neori.output { name = "eDP-1", scale = 2.0 }`.
+    for (name, section, named) in [
+        ("window_rule", "window_rules", false),
+        ("layer_rule", "layer_rules", false),
+        ("output", "outputs", true),
+        ("workspace", "workspaces", true),
     ] {
         let data = data.clone();
         let func = lua
-            .create_function(move |lua, value: Value| {
+            .create_function(move |lua, args: mlua::Variadic<Value>| {
+                let mut args = args.into_iter();
+                let first = args
+                    .next()
+                    .ok_or_else(|| LuaError::runtime(format!("neori.{name}: expected an argument")))?;
+                let value = match (args.next(), args.next()) {
+                    (None, None) => first,
+                    (Some(rest), None) if named => {
+                        let name_val = match first {
+                            Value::String(s) => s,
+                            _ => {
+                                return Err(LuaError::runtime(format!(
+                                    "neori.{name}(name, table): name must be a string"
+                                )))
+                            }
+                        };
+                        let table = match rest {
+                            Value::Table(t) => t,
+                            _ => {
+                                return Err(LuaError::runtime(format!(
+                                    "neori.{name}(name, table): second argument must be a table"
+                                )))
+                            }
+                        };
+                        table.set("name", name_val)?;
+                        Value::Table(table)
+                    }
+                    _ => {
+                        return Err(LuaError::runtime(format!(
+                            "neori.{name}: expected a single table argument"
+                        )))
+                    }
+                };
                 push_section_entry(lua, &data, section, value)?;
                 Ok(())
             })
@@ -592,13 +779,55 @@ const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "screenshot-path",
 ];
 
+thread_local! {
+    /// Whether unknown keys should be rejected instead of warned about.
+    ///
+    /// Set from `NEORI_STRICT_CONFIG` at the start of each [`ScriptHost::run`] and toggled by
+    /// the `neori.strict()` API. Thread-local so parallel test runs don't interfere.
+    static STRICT_CONFIG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Returns whether strict config parsing is enabled in the current thread.
+fn strict_config() -> bool {
+    STRICT_CONFIG.with(|c| c.get())
+}
+
+/// Enables or disables strict config parsing in the current thread.
+fn set_strict_config(value: bool) {
+    STRICT_CONFIG.with(|c| c.set(value));
+}
+
+/// Reports an unknown key in a config section.
+///
+/// Emits a warning by default, or an error when strict config parsing is enabled.
+fn unknown_key(section: &str, key: &str) -> Result<(), String> {
+    if strict_config() {
+        Err(format!("unknown key `{key}` in {section}"))
+    } else {
+        warn!("neori-config: unknown key `{key}` in {section}");
+        Ok(())
+    }
+}
+
+/// Reports a known config key used with a value type it does not accept.
+///
+/// Emits a warning by default, or an error when strict config parsing is enabled.
+fn invalid_config(message: &str) -> Result<(), String> {
+    if strict_config() {
+        Err(message.to_string())
+    } else {
+        warn!("neori-config: {message}");
+        Ok(())
+    }
+}
+
 fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), String> {
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair.map_err(|e| format!("error reading config key: {e}"))?;
         let key_str = key_str(&key)?;
 
         if !KNOWN_TOP_LEVEL_KEYS.contains(&key_str.as_str()) {
-            warn!("neori-config: unknown top-level key `{key_str}`");
+            unknown_key("top-level config", &key_str)?;
             continue;
         }
 
@@ -635,23 +864,23 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                 "window_rules" | "window-rules" => parse_window_rules(t, config)?,
                 "layer_rules" | "layer-rules" => parse_layer_rules(t, config)?,
                 "workspaces" | "workspace" => parse_workspaces(t, config)?,
-                _ => warn!(
-                    "neori-config: key `{key_str}` does not accept a table value"
-                ),
+                _ => invalid_config(&format!(
+                    "key `{key_str}` does not accept a table value"
+                ))?,
             },
             Value::Boolean(b) => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = b,
-                _ => warn!(
-                    "neori-config: key `{key_str}` does not accept a boolean value"
-                ),
+                _ => invalid_config(&format!(
+                    "key `{key_str}` does not accept a boolean value"
+                ))?,
             },
             Value::Nil => match key_str.as_str() {
                 "screenshot_path" | "screenshot-path" => {
                     config.screenshot_path = ScreenshotPath(None);
                 }
-                _ => warn!(
-                    "neori-config: key `{key_str}` does not accept a nil value"
-                ),
+                _ => invalid_config(&format!(
+                    "key `{key_str}` does not accept a nil value"
+                ))?,
             },
             _ => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = value_is_truthy(&value),
@@ -659,10 +888,10 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                     let s = value_to_string(&value)?;
                     config.screenshot_path = ScreenshotPath(Some(s));
                 }
-                _ => warn!(
-                    "neori-config: key `{key_str}` has unsupported value type {:?}",
+                _ => invalid_config(&format!(
+                    "key `{key_str}` has unsupported value type {:?}",
                     value.type_name()
-                ),
+                ))?,
             },
         }
     }
@@ -874,7 +1103,7 @@ fn parse_input_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
                     config.input.warp_mouse_to_focus = Some(WarpMouseToFocus { mode });
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in input", ks),
+            _ => unknown_key("input", &ks)?,
         }
     }
     Ok(())
@@ -918,7 +1147,7 @@ fn parse_keyboard(table: &LuaTable, kb: &mut Keyboard) -> Result<(), String> {
                 };
             }
             "numlock" => kb.numlock = value_is_truthy(&value),
-            _ => warn!("neori-config: unknown key `{}` in input.keyboard", ks),
+            _ => unknown_key("input.keyboard", &ks)?,
         }
     }
     Ok(())
@@ -979,7 +1208,7 @@ fn parse_touchpad(table: &LuaTable, tp: &mut Touchpad) -> Result<(), String> {
             "scroll_factor" | "scroll-factor" => {
                 tp.scroll_factor = Some(parse_scroll_factor(&value)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in input.touchpad", ks),
+            _ => unknown_key("input.touchpad", &ks)?,
         }
     }
     Ok(())
@@ -1018,7 +1247,7 @@ fn parse_mouse(table: &LuaTable, mouse: &mut Mouse) -> Result<(), String> {
             "scroll_factor" | "scroll-factor" => {
                 mouse.scroll_factor = Some(parse_scroll_factor(&value)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in input.mouse", ks),
+            _ => unknown_key("input.mouse", &ks)?,
         }
     }
     Ok(())
@@ -1053,7 +1282,7 @@ fn parse_trackpoint(table: &LuaTable, tp: &mut Trackpoint) -> Result<(), String>
             "middle_emulation" | "middle-emulation" => {
                 tp.middle_emulation = value_is_truthy(&value);
             }
-            _ => warn!("neori-config: unknown key `{}` in input.trackpoint", ks),
+            _ => unknown_key("input.trackpoint", &ks)?,
         }
     }
     Ok(())
@@ -1089,7 +1318,7 @@ fn parse_trackball(table: &LuaTable, tb: &mut Trackball) -> Result<(), String> {
             "middle_emulation" | "middle-emulation" => {
                 tb.middle_emulation = value_is_truthy(&value);
             }
-            _ => warn!("neori-config: unknown key `{}` in input.trackball", ks),
+            _ => unknown_key("input.trackball", &ks)?,
         }
     }
     Ok(())
@@ -1120,7 +1349,7 @@ fn parse_tablet(table: &LuaTable, tablet: &mut Tablet) -> Result<(), String> {
                 tablet.map_to_focused_window = value_is_truthy(&value);
             }
             "left_handed" | "left-handed" => tablet.left_handed = value_is_truthy(&value),
-            _ => warn!("neori-config: unknown key `{}` in input.tablet", ks),
+            _ => unknown_key("input.tablet", &ks)?,
         }
     }
     Ok(())
@@ -1144,7 +1373,7 @@ fn parse_touch(table: &LuaTable, touch: &mut Touch) -> Result<(), String> {
             "map_to_output" | "map-to-output" => {
                 touch.map_to_output = Some(value_to_string(&value)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in input.touch", ks),
+            _ => unknown_key("input.touch", &ks)?,
         }
     }
     Ok(())
@@ -1170,6 +1399,16 @@ fn parse_scroll_factor(val: &Value) -> Result<ScrollFactor, String> {
                 vertical: None,
             })
         }
+    }
+}
+
+/// Reads `table[snake]`, falling back to `table[kebab]` when the snake_case key is absent.
+fn table_get_alias(table: &LuaTable, snake: &str, kebab: &str) -> Result<Value, String> {
+    let v: Value = table.get(snake).map_err(|e| format!("{e}"))?;
+    if matches!(v, Value::Nil) {
+        table.get(kebab).map_err(|e| format!("{e}"))
+    } else {
+        Ok(v)
     }
 }
 
@@ -1199,8 +1438,123 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
         let mode_str: Option<String> = t.get("mode").map_err(|e| format!("{e}")).ok();
         let mode = mode_str.as_deref().and_then(|s| parse_mode_string(s));
 
-        let bg_color: Option<String> = t.get("background_color").map_err(|e| format!("{e}")).ok();
-        let background_color = bg_color.as_deref().and_then(|s| parse_css_color(s).ok());
+        let position: Option<Position> = match t
+            .get::<Option<Value>>("position")
+            .map_err(|e| format!("output position error: {e}"))?
+        {
+            Some(Value::Table(pt)) => Some(Position {
+                x: pt.get("x").map_err(|e| format!("position x error: {e}"))?,
+                y: pt.get("y").map_err(|e| format!("position y error: {e}"))?,
+            }),
+            _ => None,
+        };
+
+        let max_bpc: Option<MaxBpc> = match table_get_alias(&t, "max_bpc", "max-bpc")? {
+            Value::Integer(n) => Some(MaxBpc(
+                neori_ipc::MaxBpc::try_from(n as u8).map_err(|e| format!("max-bpc: {e}"))?,
+            )),
+            Value::String(s) => Some(MaxBpc(
+                neori_ipc::MaxBpc::from_str(&s.to_str().map_err(|e| format!("{e}"))?)
+                    .map_err(|e| format!("max-bpc: {e}"))?,
+            )),
+            _ => None,
+        };
+
+        let modeline: Option<Modeline> = match t
+            .get::<Option<Value>>("modeline")
+            .map_err(|e| format!("output modeline error: {e}"))?
+        {
+            Some(Value::Table(mt)) => Some(Modeline {
+                clock: mt
+                    .get("clock")
+                    .map_err(|e| format!("modeline clock error: {e}"))?,
+                hdisplay: mt
+                    .get("hdisplay")
+                    .map_err(|e| format!("modeline hdisplay error: {e}"))?,
+                hsync_start: mt
+                    .get("hsync_start")
+                    .map_err(|e| format!("modeline hsync_start error: {e}"))?,
+                hsync_end: mt
+                    .get("hsync_end")
+                    .map_err(|e| format!("modeline hsync_end error: {e}"))?,
+                htotal: mt
+                    .get("htotal")
+                    .map_err(|e| format!("modeline htotal error: {e}"))?,
+                vdisplay: mt
+                    .get("vdisplay")
+                    .map_err(|e| format!("modeline vdisplay error: {e}"))?,
+                vsync_start: mt
+                    .get("vsync_start")
+                    .map_err(|e| format!("modeline vsync_start error: {e}"))?,
+                vsync_end: mt
+                    .get("vsync_end")
+                    .map_err(|e| format!("modeline vsync_end error: {e}"))?,
+                vtotal: mt
+                    .get("vtotal")
+                    .map_err(|e| format!("modeline vtotal error: {e}"))?,
+                hsync_polarity: {
+                    let s = value_to_string(&table_get_alias(
+                        &mt,
+                        "hsync_polarity",
+                        "hsync-polarity",
+                    )?)?;
+                    neori_ipc::HSyncPolarity::from_str(&s)
+                        .map_err(|e| format!("modeline hsync_polarity: {e}"))?
+                },
+                vsync_polarity: {
+                    let s = value_to_string(&table_get_alias(
+                        &mt,
+                        "vsync_polarity",
+                        "vsync-polarity",
+                    )?)?;
+                    neori_ipc::VSyncPolarity::from_str(&s)
+                        .map_err(|e| format!("modeline vsync_polarity: {e}"))?
+                },
+            }),
+            _ => None,
+        };
+
+        let variable_refresh_rate: Option<Vrr> =
+            match table_get_alias(&t, "variable_refresh_rate", "variable-refresh-rate")? {
+                Value::Boolean(true) => Some(Vrr { on_demand: false }),
+                Value::Table(vt) => Some(Vrr {
+                    on_demand: match table_get_alias(&vt, "on_demand", "on-demand")? {
+                        Value::Nil => false,
+                        v => value_is_truthy(&v),
+                    },
+                }),
+                _ => None,
+            };
+
+        let background_color = match table_get_alias(&t, "background_color", "background-color")? {
+            Value::String(s) => parse_css_color(&s.to_str().map_err(|e| format!("{e}"))?).ok(),
+            _ => None,
+        };
+
+        let backdrop_color = match table_get_alias(&t, "backdrop_color", "backdrop-color")? {
+            Value::String(s) => parse_css_color(&s.to_str().map_err(|e| format!("{e}"))?).ok(),
+            _ => None,
+        };
+
+        let hot_corners: Option<HotCorners> =
+            match table_get_alias(&t, "hot_corners", "hot-corners")? {
+                Value::Table(hct) => Some(HotCorners {
+                    off: hct.get("off").map_err(|e| format!("{e}")).unwrap_or(false),
+                    top_left: value_is_truthy(&table_get_alias(&hct, "top_left", "top-left")?),
+                    top_right: value_is_truthy(&table_get_alias(&hct, "top_right", "top-right")?),
+                    bottom_left: value_is_truthy(&table_get_alias(
+                        &hct,
+                        "bottom_left",
+                        "bottom-left",
+                    )?),
+                    bottom_right: value_is_truthy(&table_get_alias(
+                        &hct,
+                        "bottom_right",
+                        "bottom-right",
+                    )?),
+                }),
+                _ => None,
+            };
 
         let layout_table: Option<LuaTable> = t
             .get("layout")
@@ -1215,15 +1569,15 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
             name,
             scale: scale.map(FloatOrInt),
             transform,
-            position: None,
-            max_bpc: None,
+            position,
+            max_bpc,
             mode,
-            modeline: None,
-            variable_refresh_rate: None,
+            modeline,
+            variable_refresh_rate,
             focus_at_startup,
             background_color,
-            backdrop_color: None,
-            hot_corners: None,
+            backdrop_color,
+            hot_corners,
             layout,
         });
     }
@@ -1372,7 +1726,7 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
             "tiled_state" | "tiled-state" => {
                 rule.tiled_state = Some(value_is_truthy(&value));
             }
-            _ => warn!("neori-config: unknown key `{}` in window_rule", ks),
+            _ => unknown_key("window_rule", &ks)?,
         }
     }
     Ok(rule)
@@ -1486,7 +1840,7 @@ fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
                     _ => None,
                 };
             }
-            _ => warn!("neori-config: unknown key `{}` in layer_rule", ks),
+            _ => unknown_key("layer_rule", &ks)?,
         }
     }
     Ok(rule)
@@ -1630,7 +1984,7 @@ fn parse_layout_section(table: LuaTable, config: &mut Config) -> Result<(), Stri
                 let s = value_to_string(&value)?;
                 config.layout.background_color = parse_css_color(&s)?;
             }
-            _ => warn!("neori-config: unknown key `{}` in layout", ks),
+            _ => unknown_key("layout", &ks)?,
         }
     }
     Ok(())
@@ -1652,7 +2006,7 @@ fn parse_focus_ring(table: &LuaTable, ring: &mut FocusRing) -> Result<(), String
             "urgent_color" | "urgent-color" => {
                 ring.urgent_color = parse_css_color(&value_to_string(&value)?)?;
             }
-            _ => warn!("neori-config: unknown key `{}` in layout.focus_ring", ks),
+            _ => unknown_key("layout.focus_ring", &ks)?,
         }
     }
     Ok(())
@@ -1678,7 +2032,7 @@ fn parse_border(table: &LuaTable, border: &mut Border) -> Result<(), String> {
             "urgent_color" | "urgent-color" => {
                 border.urgent_color = parse_css_color(&value_to_string(&value)?)?;
             }
-            _ => warn!("neori-config: unknown key `{}` in layout.border", ks),
+            _ => unknown_key("layout.border", &ks)?,
         }
     }
     Ok(())
@@ -1712,7 +2066,7 @@ fn parse_shadow(table: &LuaTable, shadow: &mut Shadow) -> Result<(), String> {
                     shadow.offset.y = FloatOrInt(t.get("y").unwrap_or(0.0f64));
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in layout.shadow", ks),
+            _ => unknown_key("layout.shadow", &ks)?,
         }
     }
     Ok(())
@@ -1768,7 +2122,7 @@ fn parse_tab_indicator(table: &LuaTable, tab: &mut TabIndicator) -> Result<(), S
                     tab.length.total_proportion = Some(v);
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in layout.tab_indicator", ks),
+            _ => unknown_key("layout.tab_indicator", &ks)?,
         }
     }
     Ok(())
@@ -1781,7 +2135,7 @@ fn parse_insert_hint(table: &LuaTable, hint: &mut InsertHint) -> Result<(), Stri
         match ks.as_str() {
             "off" => hint.off = value_is_truthy(&value),
             "color" => hint.color = parse_css_color(&value_to_string(&value)?)?,
-            _ => warn!("neori-config: unknown key `{}` in layout.insert_hint", ks),
+            _ => unknown_key("layout.insert_hint", &ks)?,
         }
     }
     Ok(())
@@ -1879,7 +2233,7 @@ fn parse_layout_part(table: &LuaTable) -> Result<LayoutPart, String> {
                 let s = value_to_string(&value)?;
                 part.background_color = Some(parse_css_color(&s)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in layout part", ks),
+            _ => unknown_key("layout part", &ks)?,
         }
     }
     Ok(part)
@@ -1903,7 +2257,7 @@ fn parse_border_rule(table: &LuaTable) -> Result<BorderRule, String> {
             "urgent_color" | "urgent-color" => {
                 rule.urgent_color = Some(parse_css_color(&value_to_string(&value)?)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in border rule", ks),
+            _ => unknown_key("border rule", &ks)?,
         }
     }
     Ok(rule)
@@ -1938,7 +2292,7 @@ fn parse_shadow_rule(table: &LuaTable) -> Result<ShadowRule, String> {
             "inactive_color" | "inactive-color" => {
                 rule.inactive_color = Some(parse_css_color(&value_to_string(&value)?)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in shadow rule", ks),
+            _ => unknown_key("shadow rule", &ks)?,
         }
     }
     Ok(rule)
@@ -1999,7 +2353,7 @@ fn parse_tab_indicator_part(table: &LuaTable) -> Result<TabIndicatorPart, String
             "urgent_color" | "urgent-color" => {
                 part.urgent_color = Some(parse_css_color(&value_to_string(&value)?)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in tab_indicator rule", ks),
+            _ => unknown_key("tab_indicator rule", &ks)?,
         }
     }
     Ok(part)
@@ -2014,7 +2368,7 @@ fn parse_insert_hint_part(table: &LuaTable) -> Result<InsertHintPart, String> {
             "off" => part.off = value_is_truthy(&value),
             "on" => part.on = value_is_truthy(&value),
             "color" => part.color = Some(parse_css_color(&value_to_string(&value)?)?),
-            _ => warn!("neori-config: unknown key `{}` in insert_hint rule", ks),
+            _ => unknown_key("insert_hint rule", &ks)?,
         }
     }
     Ok(part)
@@ -2057,7 +2411,7 @@ fn parse_cursor_section(table: LuaTable, config: &mut Config) -> Result<(), Stri
             "hide_after_inactive_ms" | "hide-after-inactive-ms" => {
                 config.cursor.hide_after_inactive_ms = Some(value_to_u32(&value)?);
             }
-            _ => warn!("neori-config: unknown key `{}` in cursor", ks),
+            _ => unknown_key("cursor", &ks)?,
         }
     }
     Ok(())
@@ -2074,7 +2428,7 @@ fn parse_hotkey_overlay_section(table: LuaTable, config: &mut Config) -> Result<
             "hide_not_bound" | "hide-not-bound" => {
                 config.hotkey_overlay.hide_not_bound = value_is_truthy(&value);
             }
-            _ => warn!("neori-config: unknown key `{}` in hotkey_overlay", ks),
+            _ => unknown_key("hotkey_overlay", &ks)?,
         }
     }
     Ok(())
@@ -2088,7 +2442,7 @@ fn parse_config_notification_section(table: LuaTable, config: &mut Config) -> Re
             "disable_failed" | "disable-failed" => {
                 config.config_notification.disable_failed = value_is_truthy(&value);
             }
-            _ => warn!("neori-config: unknown key `{}` in config_notification", ks),
+            _ => unknown_key("config_notification", &ks)?,
         }
     }
     Ok(())
@@ -2102,7 +2456,7 @@ fn parse_clipboard_section(table: LuaTable, config: &mut Config) -> Result<(), S
             "disable_primary" | "disable-primary" => {
                 config.clipboard.disable_primary = value_is_truthy(&value);
             }
-            _ => warn!("neori-config: unknown key `{}` in clipboard", ks),
+            _ => unknown_key("clipboard", &ks)?,
         }
     }
     Ok(())
@@ -2122,7 +2476,7 @@ fn parse_blur_section(table: LuaTable, config: &mut Config) -> Result<(), String
             "offset" => config.blur.offset = value_to_f64(&value)?,
             "noise" => config.blur.noise = value_to_f64(&value)?,
             "saturation" => config.blur.saturation = value_to_f64(&value)?,
-            _ => warn!("neori-config: unknown key `{}` in blur", ks),
+            _ => unknown_key("blur", &ks)?,
         }
     }
     Ok(())
@@ -2188,7 +2542,7 @@ fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), St
                         .unwrap_or(false);
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in gestures", ks),
+            _ => unknown_key("gestures", &ks)?,
         }
     }
     Ok(())
@@ -2209,7 +2563,7 @@ fn parse_overview_section(table: LuaTable, config: &mut Config) -> Result<(), St
                     parse_workspace_shadow(t, &mut overview.workspace_shadow)?;
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in overview", ks),
+            _ => unknown_key("overview", &ks)?,
         }
     }
     Ok(())
@@ -2230,7 +2584,7 @@ fn parse_workspace_shadow(table: &LuaTable, ws: &mut WorkspaceShadow) -> Result<
                     ws.offset.y = FloatOrInt(t.get("y").unwrap_or(0.0f64));
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in workspaces.shadow", ks),
+            _ => unknown_key("workspaces.shadow", &ks)?,
         }
     }
     Ok(())
@@ -2243,7 +2597,7 @@ fn parse_xwayland_satellite_section(table: LuaTable, config: &mut Config) -> Res
         match ks.as_str() {
             "off" => config.xwayland_satellite.off = value_is_truthy(&value),
             "path" => config.xwayland_satellite.path = value_to_string(&value)?,
-            _ => warn!("neori-config: unknown key `{}` in xwayland_satellite", ks),
+            _ => unknown_key("xwayland_satellite", &ks)?,
         }
     }
     Ok(())
@@ -2286,7 +2640,7 @@ fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
                     debug.disable_direct_scanout = *b;
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in debug", ks),
+            _ => unknown_key("debug", &ks)?,
         }
     }
     Ok(())
@@ -2334,7 +2688,7 @@ fn parse_switch_events_section(table: LuaTable, config: &mut Config) -> Result<(
                     se.tablet_mode_off = Some(SwitchAction { spawn });
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in switch_events", ks),
+            _ => unknown_key("switch_events", &ks)?,
         }
     }
     Ok(())
@@ -2406,7 +2760,7 @@ fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<
                     rw.binds = binds;
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in recent_windows", ks),
+            _ => unknown_key("recent_windows", &ks)?,
         }
     }
     Ok(())
@@ -2499,7 +2853,10 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                             hotkey_overlay_title = None;
                         }
                     }
-                    _ => warn!("neori-config: unknown key `{}` in bind entry", aks),
+                    "skip_confirmation" | "skip-confirmation" | "write_to_disk"
+                    | "write-to-disk" | "show_pointer" | "show-pointer" | "delay_ms"
+                    | "delay-ms" | "path" => {}
+                    _ => unknown_key("bind entry", &aks)?,
                 }
             }
         }
@@ -2734,6 +3091,13 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         "switch_focus_between_floating_and_tiling" | "switch-focus-between-floating-and-tiling" => {
             Action::SwitchFocusBetweenFloatingAndTiling
         }
+        "do_screen_transition" | "do-screen-transition" => Action::DoScreenTransition(None),
+        "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => Action::ToggleWindowRuleOpacity,
+        "toggle_debug_tint" | "toggle-debug-tint" => Action::ToggleDebugTint,
+        "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
+            Action::DebugToggleOpaqueRegions
+        }
+        "debug_toggle_damage" | "debug-toggle-damage" => Action::DebugToggleDamage,
         _ if let Some(v) = s
             .strip_prefix("set-column-width ")
             .or_else(|| s.strip_prefix("set_column_width ")) =>
@@ -2832,13 +3196,58 @@ fn action_from_table_key(
         "open_overview" | "open-overview" => Some(Action::OpenOverview),
         "close_overview" | "close-overview" => Some(Action::CloseOverview),
         "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay),
-        "screenshot" => Some(Action::Screenshot(true, None)),
+        "screenshot" => {
+            let show_pointer = table
+                .get::<Option<bool>>("show_pointer")
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(true);
+            let path = table
+                .get::<Option<String>>("path")
+                .map_err(|e| format!("{e}"))?;
+            Some(Action::Screenshot(show_pointer, path))
+        }
         "screenshot_screen" | "screenshot-screen" => {
-            Some(Action::ScreenshotScreen(true, true, None))
+            let write_to_disk = table
+                .get::<Option<bool>>("write_to_disk")
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(true);
+            let show_pointer = table
+                .get::<Option<bool>>("show_pointer")
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(true);
+            let path = table
+                .get::<Option<String>>("path")
+                .map_err(|e| format!("{e}"))?;
+            Some(Action::ScreenshotScreen(write_to_disk, show_pointer, path))
         }
         "screenshot_window" | "screenshot-window" => {
-            Some(Action::ScreenshotWindow(true, false, None))
+            let write_to_disk = table
+                .get::<Option<bool>>("write_to_disk")
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(true);
+            let show_pointer = table
+                .get::<Option<bool>>("show_pointer")
+                .map_err(|e| format!("{e}"))?
+                .unwrap_or(false);
+            let path = table
+                .get::<Option<String>>("path")
+                .map_err(|e| format!("{e}"))?;
+            Some(Action::ScreenshotWindow(write_to_disk, show_pointer, path))
         }
+        "do_screen_transition" | "do-screen-transition" => {
+            let delay_ms = table
+                .get::<Option<u16>>("delay_ms")
+                .map_err(|e| format!("{e}"))?;
+            Some(Action::DoScreenTransition(delay_ms))
+        }
+        "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => {
+            Some(Action::ToggleWindowRuleOpacity)
+        }
+        "toggle_debug_tint" | "toggle-debug-tint" => Some(Action::ToggleDebugTint),
+        "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
+            Some(Action::DebugToggleOpaqueRegions)
+        }
+        "debug_toggle_damage" | "debug-toggle-damage" => Some(Action::DebugToggleDamage),
         "power_off_monitors" | "power-off-monitors" => Some(Action::PowerOffMonitors),
         "toggle_windowed_fullscreen" | "toggle-windowed-fullscreen" => {
             Some(Action::ToggleWindowedFullscreen)
@@ -2935,7 +3344,16 @@ fn action_from_table_key(
         | "allow_inhibiting"
         | "allow-inhibiting"
         | "hotkey_overlay_title"
-        | "hotkey-overlay-title" => None,
+        | "hotkey-overlay-title"
+        | "skip_confirmation"
+        | "skip-confirmation"
+        | "write_to_disk"
+        | "write-to-disk"
+        | "show_pointer"
+        | "show-pointer"
+        | "delay_ms"
+        | "delay-ms"
+        | "path" => None,
         _ => None,
     };
     Ok(action)
@@ -2978,79 +3396,121 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
                 }
             }
             "workspace_switch" | "workspace-switch" => {
-                if let Value::Table(t) = &value {
-                    anims.workspace_switch =
-                        WorkspaceSwitchAnim(parse_animation(t, anims.workspace_switch.0)?);
+                if let Some(a) = parse_animation_switch(&value, anims.workspace_switch.0)? {
+                    anims.workspace_switch = WorkspaceSwitchAnim(a);
                 }
             }
             "horizontal_view_movement" | "horizontal-view-movement" => {
-                if let Value::Table(t) = &value {
-                    anims.horizontal_view_movement = HorizontalViewMovementAnim(parse_animation(
-                        t,
-                        anims.horizontal_view_movement.0,
-                    )?);
+                if let Some(a) =
+                    parse_animation_switch(&value, anims.horizontal_view_movement.0)?
+                {
+                    anims.horizontal_view_movement = HorizontalViewMovementAnim(a);
                 }
             }
             "window_movement" | "window-movement" => {
-                if let Value::Table(t) = &value {
-                    anims.window_movement =
-                        WindowMovementAnim(parse_animation(t, anims.window_movement.0)?);
+                if let Some(a) = parse_animation_switch(&value, anims.window_movement.0)? {
+                    anims.window_movement = WindowMovementAnim(a);
                 }
             }
             "window_open" | "window-open" => {
-                if let Value::Table(t) = &value {
-                    let anim = parse_animation(t, anims.window_open.anim)?;
-                    anims.window_open.anim = anim;
+                if let Some(a) = parse_animation_switch(&value, anims.window_open.anim)? {
+                    anims.window_open.anim = a;
                 }
             }
             "window_close" | "window-close" => {
-                if let Value::Table(t) = &value {
-                    let anim = parse_animation(t, anims.window_close.anim)?;
-                    anims.window_close.anim = anim;
+                if let Some(a) = parse_animation_switch(&value, anims.window_close.anim)? {
+                    anims.window_close.anim = a;
                 }
             }
             "window_resize" | "window-resize" => {
-                if let Value::Table(t) = &value {
-                    let anim = parse_animation(t, anims.window_resize.anim)?;
-                    anims.window_resize.anim = anim;
+                if let Some(a) = parse_animation_switch(&value, anims.window_resize.anim)? {
+                    anims.window_resize.anim = a;
                 }
             }
             "config_notification_open_close" | "config-notification-open-close" => {
-                if let Value::Table(t) = &value {
-                    anims.config_notification_open_close = ConfigNotificationOpenCloseAnim(
-                        parse_animation(t, anims.config_notification_open_close.0)?,
-                    );
+                if let Some(a) =
+                    parse_animation_switch(&value, anims.config_notification_open_close.0)?
+                {
+                    anims.config_notification_open_close = ConfigNotificationOpenCloseAnim(a);
                 }
             }
             "exit_confirmation_open_close" | "exit-confirmation-open-close" => {
-                if let Value::Table(t) = &value {
-                    anims.exit_confirmation_open_close = ExitConfirmationOpenCloseAnim(
-                        parse_animation(t, anims.exit_confirmation_open_close.0)?,
-                    );
+                if let Some(a) =
+                    parse_animation_switch(&value, anims.exit_confirmation_open_close.0)?
+                {
+                    anims.exit_confirmation_open_close = ExitConfirmationOpenCloseAnim(a);
                 }
             }
             "screenshot_ui_open" | "screenshot-ui-open" => {
-                if let Value::Table(t) = &value {
-                    anims.screenshot_ui_open =
-                        ScreenshotUiOpenAnim(parse_animation(t, anims.screenshot_ui_open.0)?);
+                if let Some(a) = parse_animation_switch(&value, anims.screenshot_ui_open.0)? {
+                    anims.screenshot_ui_open = ScreenshotUiOpenAnim(a);
                 }
             }
             "overview_open_close" | "overview-open-close" => {
-                if let Value::Table(t) = &value {
-                    anims.overview_open_close =
-                        OverviewOpenCloseAnim(parse_animation(t, anims.overview_open_close.0)?);
+                if let Some(a) = parse_animation_switch(&value, anims.overview_open_close.0)? {
+                    anims.overview_open_close = OverviewOpenCloseAnim(a);
                 }
             }
             "recent_windows_close" | "recent-windows-close" => {
-                if let Value::Table(t) = &value {
-                    anims.recent_windows_close =
-                        RecentWindowsCloseAnim(parse_animation(t, anims.recent_windows_close.0)?);
+                if let Some(a) = parse_animation_switch(&value, anims.recent_windows_close.0)? {
+                    anims.recent_windows_close = RecentWindowsCloseAnim(a);
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in animations", ks),
+            _ => unknown_key("animations", &ks)?,
         }
     }
     Ok(())
+}
+
+/// Parses a single animation value, accepting either a table of animation settings or a
+/// bare boolean (`true` for on, `false` for off).
+fn parse_animation_switch(value: &Value, default: Animation) -> Result<Option<Animation>, String> {
+    match value {
+        Value::Table(t) => Ok(Some(parse_animation(t, default)?)),
+        Value::Boolean(on) => Ok(Some(Animation {
+            off: !*on,
+            kind: default.kind,
+        })),
+        Value::Nil => Ok(None),
+        _ => Ok(None),
+    }
+}
+
+fn parse_curve_value(value: &Value) -> Result<Curve, String> {
+    let curve_str = match value {
+        Value::Table(t) => {
+            let items: Vec<Value> = t
+                .clone()
+                .sequence_values::<Value>()
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("{e}"))?;
+            let name = items
+                .first()
+                .map(value_to_string)
+                .transpose()?
+                .unwrap_or_default();
+            if name == "cubic-bezier" || name == "cubic_bezier" {
+                if items.len() != 5 {
+                    return Err("cubic-bezier requires 4 numbers".to_string());
+                }
+                let a = value_to_f64(&items[1])?;
+                let b = value_to_f64(&items[2])?;
+                let c = value_to_f64(&items[3])?;
+                let d = value_to_f64(&items[4])?;
+                return Ok(Curve::CubicBezier(a, b, c, d));
+            }
+            name
+        }
+        _ => value_to_string(value)?,
+    };
+
+    Ok(match curve_str.as_str() {
+        "linear" => Curve::Linear,
+        "ease-out-quad" | "ease_out_quad" => Curve::EaseOutQuad,
+        "ease-out-cubic" | "ease_out_cubic" => Curve::EaseOutCubic,
+        "ease-out-expo" | "ease_out_expo" => Curve::EaseOutExpo,
+        _ => return Err(format!("unknown curve: {curve_str}")),
+    })
 }
 
 fn parse_animation(table: &LuaTable, default: Animation) -> Result<Animation, String> {
@@ -3096,14 +3556,7 @@ fn parse_animation(table: &LuaTable, default: Animation) -> Result<Animation, St
                 }
             }
             "curve" => {
-                let curve_str = value_to_string(&value)?;
-                let curve = match curve_str.as_str() {
-                    "linear" => Curve::Linear,
-                    "ease-out-quad" | "ease_out_quad" => Curve::EaseOutQuad,
-                    "ease-out-cubic" | "ease_out_cubic" => Curve::EaseOutCubic,
-                    "ease-out-expo" | "ease_out_expo" => Curve::EaseOutExpo,
-                    _ => return Err(format!("unknown curve: {curve_str}")),
-                };
+                let curve = parse_curve_value(&value)?;
                 if let Kind::Easing(params) = &mut kind {
                     params.curve = curve;
                 } else {
@@ -3113,7 +3566,7 @@ fn parse_animation(table: &LuaTable, default: Animation) -> Result<Animation, St
                     });
                 }
             }
-            _ => warn!("neori-config: unknown key `{}` in animation", ks),
+            _ => unknown_key("animation", &ks)?,
         }
     }
 

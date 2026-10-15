@@ -362,10 +362,22 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::output::{MaxBpc, Mode};
 
     #[test]
     fn can_create_default_config() {
         let _ = Config::load_default();
+    }
+
+    #[test]
+    fn default_config_file_parses() {
+        let text = include_str!("../../resources/default-config.lua");
+        let result = Config::parse(std::path::Path::new("default-config.lua"), text);
+        let config = match result.config {
+            Ok(config) => config,
+            Err(err) => panic!("default config failed to parse:\n{err}"),
+        };
+        assert!(!actions(&config).is_empty(), "default config has no binds");
     }
 
     #[test]
@@ -662,6 +674,60 @@ mod tests {
     }
 
     #[test]
+    fn neori_api_screenshot_and_debug_actions() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+A", { do_screen_transition = true, delay_ms = 100 })
+            neori.bind("Mod+B", "toggle-window-rule-opacity")
+            neori.bind("Mod+C", "toggle-debug-tint")
+            neori.bind("Mod+D", "debug-toggle-damage")
+            neori.bind("Mod+E", "debug-toggle-opaque-regions")
+            neori.bind("Mod+G", { quit = true, skip_confirmation = true })
+            neori.bind("Mod+H", { screenshot = true, show_pointer = false })
+            neori.bind("Mod+I", { screenshot_screen = true, write_to_disk = false, show_pointer = false })
+            neori.bind("Mod+J", { screenshot_window = true, write_to_disk = false, show_pointer = true })
+            neori.bind("Mod+K", "do-screen-transition")
+            "#,
+        )
+        .unwrap();
+
+        let actions = actions(&config);
+        assert!(actions.contains(&Action::DoScreenTransition(Some(100))));
+        assert!(actions.contains(&Action::ToggleWindowRuleOpacity));
+        assert!(actions.contains(&Action::ToggleDebugTint));
+        assert!(actions.contains(&Action::DebugToggleDamage));
+        assert!(actions.contains(&Action::DebugToggleOpaqueRegions));
+        assert!(actions.contains(&Action::Quit(true)));
+        assert!(actions.contains(&Action::Screenshot(false, None)));
+        assert!(actions.contains(&Action::ScreenshotScreen(false, false, None)));
+        assert!(actions.contains(&Action::ScreenshotWindow(false, true, None)));
+        assert!(actions.contains(&Action::DoScreenTransition(None)));
+    }
+
+    #[test]
+    fn neori_api_cubic_bezier_curve() {
+        let config = Config::parse_mem(
+            r#"
+            neori.animations {
+                window_open = {
+                    duration_ms = 250,
+                    curve = { "cubic-bezier", 0.05, 0.7, 0.1, 1 },
+                },
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.animations.window_open.anim.kind,
+            crate::animations::Kind::Easing(crate::animations::EasingParams {
+                duration_ms: 250,
+                curve: crate::animations::Curve::CubicBezier(0.05, 0.7, 0.1, 1.0),
+            })
+        );
+    }
+
+    #[test]
     fn neori_api_pushers_and_set() {
         let config = Config::parse_mem(
             r#"
@@ -690,6 +756,164 @@ mod tests {
         );
         assert_eq!(config.startup, [Action::SpawnSh("qs -c shell".to_string())]);
         assert!(config.prefer_no_csd);
+    }
+
+    #[test]
+    fn neori_api_named_output_and_workspace() {
+        let config = Config::parse_mem(
+            r#"
+            neori.output("eDP-1", { scale = 2, focus_at_startup = true })
+            neori.workspace("web", { open_on_output = "eDP-1" })
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.outputs.0.len(), 1);
+        assert_eq!(config.outputs.0[0].name, "eDP-1");
+        assert_eq!(config.outputs.0[0].scale, Some(FloatOrInt(2.0)));
+        assert!(config.outputs.0[0].focus_at_startup);
+        assert_eq!(config.workspaces.len(), 1);
+        assert_eq!(config.workspaces[0].name.0, "web");
+        assert_eq!(config.workspaces[0].open_on_output.as_deref(), Some("eDP-1"));
+
+        let err = Config::parse_mem(r#"neori.window_rule("x", {})"#).unwrap_err();
+        assert!(err.main.contains("expected a single table argument"), "{err}");
+        let err = Config::parse_mem(r#"neori.output(1, {})"#).unwrap_err();
+        assert!(err.main.contains("name must be a string"), "{err}");
+    }
+
+    #[test]
+    fn neori_api_output_fields() {
+        let config = Config::parse_mem(
+            r##"
+            neori.output {
+                name = "eDP-1",
+                position = { x = 1280, y = 0 },
+                max_bpc = 10,
+                variable_refresh_rate = { on_demand = true },
+                backdrop_color = "#001100",
+                hot_corners = { top_left = true },
+                mode = "1920x1080@120",
+                modeline = {
+                    clock = 173.0,
+                    hdisplay = 1920, hsync_start = 2048, hsync_end = 2248, htotal = 2576,
+                    vdisplay = 1080, vsync_start = 1083, vsync_end = 1088, vtotal = 1120,
+                    hsync_polarity = "-hsync", vsync_polarity = "+vsync",
+                },
+            }
+            "##,
+        )
+        .unwrap();
+
+        let out = &config.outputs.0[0];
+        assert_eq!(out.position, Some(Position { x: 1280, y: 0 }));
+        assert_eq!(out.max_bpc, Some(MaxBpc(neori_ipc::MaxBpc::_10)));
+        assert_eq!(out.variable_refresh_rate, Some(Vrr { on_demand: true }));
+        assert!(out.backdrop_color.is_some());
+        assert_eq!(out.hot_corners.unwrap().top_left, true);
+        assert_eq!(
+            out.mode,
+            Some(Mode {
+                custom: false,
+                mode: neori_ipc::ConfiguredMode {
+                    width: 1920,
+                    height: 1080,
+                    refresh: Some(120.0),
+                },
+            })
+        );
+        assert!(out.modeline.is_some());
+
+        // Bare boolean VRR means always-on.
+        let config = Config::parse_mem(
+            r#"neori.output { name = "eDP-1", variable_refresh_rate = true }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.outputs.0[0].variable_refresh_rate,
+            Some(Vrr { on_demand: false })
+        );
+    }
+
+    #[test]
+    fn neori_api_animation_boolean_sugar() {
+        let config = Config::parse_mem(
+            r#"
+            neori.animations {
+                workspace_switch = false,
+                window_open = { duration_ms = 150, curve = "ease-out-expo" },
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert!(config.animations.workspace_switch.0.off);
+        assert!(!config.animations.window_open.anim.off);
+    }
+
+    #[test]
+    fn neori_api_strict_mode() {
+        // By default unknown keys are only warned about.
+        let config = Config::parse_mem(r#"neori.layout { bogus_key = 1, gaps = 4 }"#).unwrap();
+        assert_eq!(config.layout.gaps, 4.0);
+
+        // The `neori.strict()` API turns unknown keys into errors.
+        let err = Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.layout { bogus_key = 1 }
+            "#,
+        )
+        .unwrap_err();
+        assert!(err.main.contains("unknown key `bogus_key` in layout"), "{err}");
+
+        // `neori.strict(false)` disables it again.
+        let config = Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.strict(false)
+            neori.layout { bogus_key = 1, gaps = 4 }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.layout.gaps, 4.0);
+    }
+
+    #[test]
+    fn neori_api_include_glob_and_dir() {
+        let dir = std::env::temp_dir().join(format!("neori-include-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("conf.d")).unwrap();
+
+        std::fs::write(
+            dir.join("conf.d/10-binds.lua"),
+            "neori.bind(\"Mod+Return\", \"spawn kitty\")",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("conf.d/20-layout.lua"),
+            "neori.layout { gaps = 12 }",
+        )
+        .unwrap();
+
+        let config_path = dir.join("config.lua");
+        std::fs::write(
+            &config_path,
+            "neori.include(\"conf.d/*.lua\")\nneori.include(\"conf.d\")\n",
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(&config_path).unwrap();
+        let result = Config::parse(&config_path, &content);
+        let config = result.config.expect("config should parse");
+
+        assert_eq!(config.layout.gaps, 12.0);
+        assert!(actions(&config).contains(&Action::Spawn(vec!["kitty".to_string()])));
+        // Included files are recorded once, for the config watcher.
+        assert_eq!(result.includes.len(), 3);
+        assert!(result.includes.contains(&dir.join("conf.d/10-binds.lua")));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

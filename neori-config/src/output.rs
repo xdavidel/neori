@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use neori_ipc::{ConfiguredMode, Transform};
 
 use crate::gestures::HotCorners;
