@@ -9,10 +9,8 @@ All tabs in a column have the same window size, so this is useful to get more ve
 
 Use this bind to toggle a column between normal and tabbed display:
 
-```kdl
-binds {
-   Mod+W { toggle-column-tabbed-display; }
-}
+```lua
+neori.bind("Mod+W", "toggle-column-tabbed-display")
 ```
 
 All other binds remain the same: switch tabs with `focus-window-down/up`, add or remove windows with `consume-window-into-column`/`expel-window-from-column`, and so on.

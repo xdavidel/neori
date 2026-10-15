@@ -2,7 +2,7 @@ Since neori is not a complete desktop environment, you will very likely want to 
 
 ### Notification Daemon
 
-Many apps need one. For example, [mako](https://github.com/emersion/mako) works well. Use [a systemd setup](./Example-systemd-Setup.md) or [`spawn-at-startup`](./Configuration:-Miscellaneous.md#spawn-at-startup).
+Many apps need one. For example, [mako](https://github.com/emersion/mako) works well. Use [a systemd setup](./Example-systemd-Setup.md) or [`spawning at startup`](./Configuration:-Miscellaneous.md#spawning-at-startup).
 
 ### Portals
 
@@ -31,7 +31,7 @@ If you do not want to install `nautilus` (say you use `nemo` instead), you can s
 
 ### Authentication Agent
 
-Required when apps need to ask for root permissions. Something like `plasma-polkit-agent` works fine. Start it [with systemd](./Example-systemd-Setup.md) or with [`spawn-at-startup`](./Configuration:-Miscellaneous.md#spawn-at-startup).
+Required when apps need to ask for root permissions. Something like `plasma-polkit-agent` works fine. Start it [with systemd](./Example-systemd-Setup.md) or with [`spawning at startup`](./Configuration:-Miscellaneous.md#spawning-at-startup).
 
 Note that to start `plasma-polkit-agent` with systemd on Fedora, you'll need to override its systemd service to add the correct dependency. Run:
 

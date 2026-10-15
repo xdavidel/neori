@@ -6,36 +6,55 @@ In this section you can configure the recent windows switcher (Alt-Tab).
 
 Here is an outline of the available settings and their default values:
 
-```kdl
-recent-windows {
-    // off
-    debounce-ms 750
-
-    open-delay-ms 150
-
-    highlight {
-        active-color "#999999ff"
-        urgent-color "#ff9999ff"
-        padding 30
-        corner-radius 0
-    }
-
-    previews {
-        max-height 480
-        max-scale 0.5
-    }
-
-    binds {
-        Alt+Tab         { next-window; }
-        Alt+Shift+Tab   { previous-window; }
-        Alt+grave       { next-window     filter="app-id"; }
-        Alt+Shift+grave { previous-window filter="app-id"; }
-
-        Mod+Tab         { next-window; }
-        Mod+Shift+Tab   { previous-window; }
-        Mod+grave       { next-window     filter="app-id"; }
-        Mod+Shift+grave { previous-window filter="app-id"; }
-    }
+```lua
+neori.recent_windows {
+    -- off = true
+    debounce_ms = 750,
+    open_delay_ms = 150,
+    highlight = {
+        active_color = "#999999ff",
+        urgent_color = "#ff9999ff",
+        padding = 30,
+        corner_radius = 0,
+    },
+    previews = {
+        max_height = 480,
+        max_scale = 0.5,
+    },
+    binds = {
+        ["Alt+Tab"] = {
+            next_window = true,
+        },
+        ["Alt+Shift+Tab"] = {
+            previous_window = true,
+        },
+        ["Alt+grave"] = {
+            next_window = {
+                filter = "app-id",
+            },
+        },
+        ["Alt+Shift+grave"] = {
+            previous_window = {
+                filter = "app-id",
+            },
+        },
+        ["Mod+Tab"] = {
+            next_window = true,
+        },
+        ["Mod+Shift+Tab"] = {
+            previous_window = true,
+        },
+        ["Mod+grave"] = {
+            next_window = {
+                filter = "app-id",
+            },
+        },
+        ["Mod+Shift+grave"] = {
+            previous_window = {
+                filter = "app-id",
+            },
+        },
+    },
 }
 ```
 
@@ -57,11 +76,11 @@ This way, the recent windows list stays responsive while not getting polluted to
 
 If you want windows to appear in recent windows right away, including intermediate windows, you can reduce the delay or set it to zero:
 
-```kdl
-recent-windows {
-    // Commit windows to the recent windows list as soon as they're focused,
-    // with no debounce delay.
-    debounce-ms 0
+```lua
+neori.recent_windows {
+    -- Commit windows to the recent windows list as soon as they're focused,
+    -- with no debounce delay.
+    debounce_ms = 0,
 }
 ```
 
@@ -71,10 +90,10 @@ Delay, in milliseconds, between pressing the Alt-Tab bind and the recent windows
 
 The switcher is delayed by default so that quickly tapping Alt-Tab to switch windows wouldn't cause annoying fullscreen visual changes.
 
-```kdl
-recent-windows {
-    // Make the switcher appear instantly.
-    open-delay-ms 0
+```lua
+neori.recent_windows {
+    -- Make the switcher appear instantly.
+    open_delay_ms = 0,
 }
 ```
 
@@ -87,12 +106,12 @@ Controls the highlight behind the focused window preview in the recent windows s
 - `padding`: padding of the highlight around the window preview, in logical pixels.
 - `corner-radius`: corner radius of the highlight.
 
-```kdl
-recent-windows {
-    // Round the corners on the highlight.
-    highlight {
-        corner-radius 14
-    }
+```lua
+neori.recent_windows {
+    -- Round the corners on the highlight.
+    highlight = {
+        corner_radius = 14,
+    },
 }
 ```
 
@@ -109,22 +128,22 @@ On smaller monitors, the previews will be primarily limited by `max-scale`, and 
 
 The `max-scale` limit is imposed twice: on the final window scale, and on the window height which cannot exceed `monitor height × max scale`.
 
-```kdl
-recent-windows {
-    // Make the previews smaller to fit more on screen.
-    previews {
-        max-height 320
-    }
+```lua
+neori.recent_windows {
+    -- Make the previews smaller to fit more on screen.
+    previews = {
+        max_height = 320,
+    },
 }
 ```
 
-```kdl
-recent-windows {
-    // Make the previews larger to see the window contents.
-    previews {
-        max-height 1080
-        max-scale 0.75
-    }
+```lua
+neori.recent_windows {
+    -- Make the previews larger to see the window contents.
+    previews = {
+        max_height = 1080,
+        max_scale = 0.75,
+    },
 }
 ```
 
@@ -135,14 +154,13 @@ Configure binds that open and navigate the recent windows switcher.
 The defaults are <kbd>Alt</kbd><kbd>Tab</kbd> / <kbd>Mod</kbd><kbd>Tab</kbd> to switch across all windows, and <kbd>Alt</kbd><kbd>\`</kbd> / <kbd>Mod</kbd><kbd>\`</kbd> to switch between windows of the current application.
 Adding <kbd>Shift</kbd> will switch windows backwards.
 
-Adding the recent windows `binds {}` section to your config removes all default binds.
+Adding the recent windows `binds` table to your config removes all default binds.
 You can copy the ones you need from the summary at the top of this wiki page.
 
-```kdl
-recent-windows {
-    // Even an empty binds {} section will remove all default binds.
-    binds {
-    }
+```lua
+neori.recent_windows {
+    -- Even an empty binds table will remove all default binds.
+    binds = {},
 }
 ```
 
@@ -152,15 +170,33 @@ They can optionally have the following properties:
 - `filter="app-id"`: filters the switcher to the windows of the currently selected application, as determined by the Wayland app ID.
 - `scope="all"`, `scope="output"`, `scope="workspace"`: sets the pre-selected scope when this bind is used to open the recent windows switcher.
 
-```kdl
-recent-windows {
-    // Pre-select the "Output" scope when switching windows.
-    binds {
-        Mod+Tab         { next-window     scope="output"; }
-        Mod+Shift+Tab   { previous-window scope="output"; }
-        Mod+grave       { next-window     scope="output" filter="app-id"; }
-        Mod+Shift+grave { previous-window scope="output" filter="app-id"; }
-    }
+```lua
+neori.recent_windows {
+    -- Pre-select the "Output" scope when switching windows.
+    binds = {
+        ["Mod+Tab"] = {
+            next_window = {
+                scope = "output",
+            },
+        },
+        ["Mod+Shift+Tab"] = {
+            previous_window = {
+                scope = "output",
+            },
+        },
+        ["Mod+grave"] = {
+            next_window = {
+                scope = "output",
+                filter = "app-id",
+            },
+        },
+        ["Mod+Shift+grave"] = {
+            previous_window = {
+                scope = "output",
+                filter = "app-id",
+            },
+        },
+    },
 }
 ```
 

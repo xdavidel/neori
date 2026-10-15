@@ -4,12 +4,12 @@
 
 You can declare named workspaces at the top level of the config:
 
-```kdl
-workspace "browser"
-
-workspace "chat" {
-    open-on-output "Some Company CoolMonitor 1234"
-}
+```lua
+neori.workspace("browser", {
+})
+neori.workspace("chat", {
+    open_on_output = "Some Company CoolMonitor 1234",
+})
 ```
 
 Contrary to normal dynamic workspaces, named workspaces always exist, even when they have no windows.
@@ -18,16 +18,18 @@ Otherwise, they behave like any other workspace: you can move them around, move 
 Actions like `focus-workspace` or `move-column-to-workspace` can refer to workspaces by name.
 Also, you can use an `open-on-workspace` window rule to make a window open on a specific named workspace:
 
-```kdl
-// Declare a workspace named "chat" that opens on the "DP-2" output.
-workspace "chat" {
-    open-on-output "DP-2"
-}
-
-// Open Fractal on the "chat" workspace, if it runs at neori startup.
-window-rule {
-    match at-startup=true app-id=r#"^org\.gnome\.Fractal$"#
-    open-on-workspace "chat"
+```lua
+-- Declare a workspace named "chat" that opens on the "DP-2" output.
+neori.workspace("chat", {
+    open_on_output = "DP-2",
+})
+-- Open Fractal on the "chat" workspace, if it runs at neori startup.
+neori.window_rule {
+    match = {
+        at_startup = true,
+        app_id = "^org\\.gnome\\.Fractal$",
+    },
+    open_on_workspace = "chat",
 }
 ```
 
@@ -52,27 +54,23 @@ Explicitly moving a named workspace to a different monitor will still update its
 
 You can customize layout settings for named workspaces with a `layout {}` block:
 
-```kdl
-workspace "aesthetic" {
-    // Layout config overrides just for this named workspace.
-    layout {
-        gaps 32
-
-        struts {
-            left 64
-            right 64
-            bottom 64
-            top 64
-        }
-
-        border {
-            on
-            width 4
-        }
-
-        // ...any other setting.
-    }
-}
+```lua
+neori.workspace("aesthetic", {
+    -- Layout config overrides just for this named workspace.
+    layout = {
+        gaps = 32,
+        struts = {
+            left = 64,
+            right = 64,
+            bottom = 64,
+            top = 64,
+        },
+        border = {
+            on = true,
+            width = 4,
+        },
+    },
+})
 ```
 
 It accepts all the same options as [the top-level `layout {}` block](./Configuration:-Layout.md), except:
@@ -82,16 +80,15 @@ It accepts all the same options as [the top-level `layout {}` block](./Configura
 
 In order to unset a flag, write it with `false`, e.g.:
 
-```kdl
-layout {
-    // Enabled globally.
-    always-center-single-column
+```lua
+neori.layout {
+    -- Enabled globally.
+    always_center_single_column = true,
 }
-
-workspace "uncentered" {
-    layout {
-        // Unset on this workspace.
-        always-center-single-column false
-    }
-}
+neori.workspace("uncentered", {
+    layout = {
+        -- Unset on this workspace.
+        always_center_single_column = false,
+    },
+})
 ```

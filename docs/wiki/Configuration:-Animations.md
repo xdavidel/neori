@@ -5,63 +5,82 @@ Additionally, you can disable or slow down all animations at once.
 
 Here's a quick glance at the available animations with their default values.
 
-```kdl
-animations {
-    // Uncomment to turn off all animations.
-    // You can also put "off" into each individual animation to disable it.
-    // off
-
-    // Slow down all animations by this factor. Values below 1 speed them up instead.
-    // slowdown 3.0
-
-    // Individual animations.
-
-    workspace-switch {
-        spring damping-ratio=1.0 stiffness=1000 epsilon=0.0001
-    }
-
-    window-open {
-        duration-ms 150
-        curve "ease-out-expo"
-    }
-
-    window-close {
-        duration-ms 150
-        curve "ease-out-quad"
-    }
-
-    horizontal-view-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-
-    window-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-
-    window-resize {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-
-    config-notification-open-close {
-        spring damping-ratio=0.6 stiffness=1000 epsilon=0.001
-    }
-
-    exit-confirmation-open-close {
-        spring damping-ratio=0.6 stiffness=500 epsilon=0.01
-    }
-
-    screenshot-ui-open {
-        duration-ms 200
-        curve "ease-out-quad"
-    }
-
-    overview-open-close {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
-
-    recent-windows-close {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.001
-    }
+```lua
+neori.animations {
+    -- Uncomment to turn off all animations.
+    -- You can also put "off" into each individual animation to disable it.
+    -- off = true
+    -- Slow down all animations by this factor. Values below 1 speed them up instead.
+    -- slowdown = 3.0
+    -- Individual animations.
+    workspace_switch = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 1000,
+            epsilon = 0.0001,
+        },
+    },
+    window_open = {
+        duration_ms = 150,
+        curve = "ease-out-expo",
+    },
+    window_close = {
+        duration_ms = 150,
+        curve = "ease-out-quad",
+    },
+    horizontal_view_movement = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
+    window_movement = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
+    window_resize = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
+    config_notification_open_close = {
+        spring = {
+            damping_ratio = 0.6,
+            stiffness = 1000,
+            epsilon = 0.001,
+        },
+    },
+    exit_confirmation_open_close = {
+        spring = {
+            damping_ratio = 0.6,
+            stiffness = 500,
+            epsilon = 0.01,
+        },
+    },
+    screenshot_ui_open = {
+        duration_ms = 200,
+        curve = "ease-out-quad",
+    },
+    overview_open_close = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
+    recent_windows_close = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.001,
+        },
+    },
 }
 ```
 
@@ -79,12 +98,12 @@ To use this animation, set the following parameters:
 - `duration-ms`: duration of the animation in milliseconds.
 - `curve`: the easing curve to use.
 
-```kdl
-animations {
-    window-open {
-        duration-ms 150
-        curve "ease-out-expo"
-    }
+```lua
+neori.animations {
+    window_open = {
+        duration_ms = 150,
+        curve = "ease-out-expo",
+    },
 }
 ```
 
@@ -97,13 +116,13 @@ You can get a feel for them on pages like [easings.net](https://easings.net/).
 - `linear` <sup>Since: 0.1.6</sup>
 - `cubic-bezier` <sup>Since: 25.08</sup>
     A custom [cubic Bézier curve](https://www.w3.org/TR/css-easing-1/#cubic-bezier-easing-functions). You need to set 4 numbers defining the control points of the curve, for example:
-    ```kdl
-    animations {
-        window-open {
-            // Same as CSS cubic-bezier(0.05, 0.7, 0.1, 1)
-            curve "cubic-bezier" 0.05 0.7 0.1 1
-        }
-    }
+```lua
+neori.animations {
+    window_open = {
+        -- Same as CSS cubic-bezier(0.05, 0.7, 0.1, 1)
+        curve = { "cubic-bezier", 0.05, 0.7, 0.1, 1 },
+    },
+}
     ```
     You can tweak the cubic-bezier parameters on pages like [easings.co](https://easings.co?curve=0.05,0.7,0.1,1).
 
@@ -119,11 +138,15 @@ You can use the [Elastic](https://flathub.org/apps/app.drey.Elastic) app to help
 
 A spring animation is configured like this, with three mandatory parameters:
 
-```kdl
-animations {
-    workspace-switch {
-        spring damping-ratio=1.0 stiffness=1000 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    workspace_switch = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 1000,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -156,11 +179,15 @@ Now let's go into more detail on the animations that you can configure.
 
 Animation when switching workspaces up and down, including after the vertical touchpad gesture (a spring is recommended).
 
-```kdl
-animations {
-    workspace-switch {
-        spring damping-ratio=1.0 stiffness=1000 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    workspace_switch = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 1000,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -170,12 +197,12 @@ Window opening animation.
 
 This one uses an easing type by default.
 
-```kdl
-animations {
-    window-open {
-        duration-ms 150
-        curve "ease-out-expo"
-    }
+```lua
+neori.animations {
+    window_open = {
+        duration_ms = 150,
+        curve = "ease-out-expo",
+    },
 }
 ```
 
@@ -197,13 +224,12 @@ When running neori as a systemd service, you can see the warnings in the journal
 
 Example: open will fill the current geometry with a solid gradient that gradually fades in.
 
-```kdl
-animations {
-    window-open {
-        duration-ms 250
-        curve "linear"
-
-        custom-shader r"
+```lua
+neori.animations {
+    window_open = {
+        duration_ms = 250,
+        curve = "linear",
+        custom_shader = [[
             vec4 open_color(vec3 coords_geo, vec3 size_geo) {
                 vec4 color = vec4(0.0);
 
@@ -217,8 +243,8 @@ animations {
 
                 return color * neori_clamped_progress;
             }
-        "
-    }
+        ]],
+    },
 }
 ```
 
@@ -230,12 +256,12 @@ Window closing animation.
 
 This one uses an easing type by default.
 
-```kdl
-animations {
-    window-close {
-        duration-ms 150
-        curve "ease-out-quad"
-    }
+```lua
+neori.animations {
+    window_close = {
+        duration_ms = 150,
+        curve = "ease-out-quad",
+    },
 }
 ```
 
@@ -257,10 +283,10 @@ When running neori as a systemd service, you can see the warnings in the journal
 
 Example: close will fill the current geometry with a solid gradient that gradually fades away.
 
-```kdl
-animations {
-    window-close {
-        custom-shader r"
+```lua
+neori.animations {
+    window_close = {
+        custom_shader = [[
             vec4 close_color(vec3 coords_geo, vec3 size_geo) {
                 vec4 color = vec4(0.0);
 
@@ -274,8 +300,8 @@ animations {
 
                 return color * (1.0 - neori_clamped_progress);
             }
-        "
-    }
+        ]],
+    },
 }
 ```
 
@@ -287,11 +313,15 @@ All horizontal camera view movement animations, such as:
 - When a new window appears off-screen and the camera scrolls to it.
 - After a horizontal touchpad gesture (a spring is recommended).
 
-```kdl
-animations {
-    horizontal-view-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    horizontal_view_movement = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -310,11 +340,15 @@ Includes:
 
 This animation *does not* include the camera view movement, such as scrolling the workspace left and right.
 
-```kdl
-animations {
-    window-movement {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    window_movement = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -327,11 +361,15 @@ Window resize animation.
 Only manual window resizes are animated, i.e. when you resize the window with `switch-preset-column-width` or `maximize-column`.
 Also, very small resizes (up to 10 pixels) are not animated.
 
-```kdl
-animations {
-    window-resize {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    window_resize = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -353,17 +391,17 @@ When running neori as a systemd service, you can see the warnings in the journal
 
 Example: resize will show the next (after resize) window texture right away, stretched to the current geometry.
 
-```kdl
-animations {
-    window-resize {
-        custom-shader r"
+```lua
+neori.animations {
+    window_resize = {
+        custom_shader = [[
             vec4 resize_color(vec3 coords_curr_geo, vec3 size_curr_geo) {
                 vec3 coords_tex_next = neori_geo_to_tex_next * coords_curr_geo;
                 vec4 color = texture2D(neori_tex_next, coords_tex_next.st);
                 return color;
             }
-        "
-    }
+        ]],
+    },
 }
 ```
 
@@ -373,11 +411,15 @@ The open/close animation of the config parse error and new default config notifi
 
 This one uses an underdamped spring by default (`damping-ratio=0.6`) which causes a slight oscillation in the end.
 
-```kdl
-animations {
-    config-notification-open-close {
-        spring damping-ratio=0.6 stiffness=1000 epsilon=0.001
-    }
+```lua
+neori.animations {
+    config_notification_open_close = {
+        spring = {
+            damping_ratio = 0.6,
+            stiffness = 1000,
+            epsilon = 0.001,
+        },
+    },
 }
 ```
 
@@ -389,11 +431,15 @@ The open/close animation of the exit confirmation dialog.
 
 This one uses an underdamped spring by default (`damping-ratio=0.6`) which causes a slight oscillation in the end.
 
-```kdl
-animations {
-    exit-confirmation-open-close {
-        spring damping-ratio=0.6 stiffness=500 epsilon=0.01
-    }
+```lua
+neori.animations {
+    exit_confirmation_open_close = {
+        spring = {
+            damping_ratio = 0.6,
+            stiffness = 500,
+            epsilon = 0.01,
+        },
+    },
 }
 ```
 
@@ -403,12 +449,12 @@ animations {
 
 The open (fade-in) animation of the screenshot UI.
 
-```kdl
-animations {
-    screenshot-ui-open {
-        duration-ms 200
-        curve "ease-out-quad"
-    }
+```lua
+neori.animations {
+    screenshot_ui_open = {
+        duration_ms = 200,
+        curve = "ease-out-quad",
+    },
 }
 ```
 
@@ -418,11 +464,15 @@ animations {
 
 The open/close zoom animation of the [Overview](./Overview.md).
 
-```kdl
-animations {
-    overview-open-close {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.0001
-    }
+```lua
+neori.animations {
+    overview_open_close = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.0001,
+        },
+    },
 }
 ```
 
@@ -432,11 +482,15 @@ animations {
 
 The close fade-out animation of the recent windows switcher.
 
-```kdl
-animations {
-    recent-windows-close {
-        spring damping-ratio=1.0 stiffness=800 epsilon=0.001
-    }
+```lua
+neori.animations {
+    recent_windows_close = {
+        spring = {
+            damping_ratio = 1.0,
+            stiffness = 800,
+            epsilon = 0.001,
+        },
+    },
 }
 ```
 

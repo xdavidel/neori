@@ -21,24 +21,30 @@ This can be useful for password managers or messenger windows, etc.
 
 This is controlled through the `block-out-from` window rule, for example:
 
-```kdl
-// Block out password managers from screencasts.
-window-rule {
-    match app-id=r#"^org\.keepassxc\.KeePassXC$"#
-    match app-id=r#"^org\.gnome\.World\.Secrets$"#
-
-    block-out-from "screencast"
+```lua
+-- Block out password managers from screencasts.
+neori.window_rule {
+    match = {
+        {
+            app_id = "^org\\.keepassxc\\.KeePassXC$",
+        },
+        {
+            app_id = "^org\\.gnome\\.World\\.Secrets$",
+        },
+    },
+    block_out_from = "screencast",
 }
 ```
 
 You can similarly block out layer surfaces, using a layer rule:
 
-```kdl
-// Block out mako notifications from screencasts.
-layer-rule {
-    match namespace="^notifications$"
-
-    block-out-from "screencast"
+```lua
+-- Block out mako notifications from screencasts.
+neori.layer_rule {
+    match = {
+        namespace = "^notifications$",
+    },
+    block_out_from = "screencast",
 }
 ```
 
@@ -86,28 +92,26 @@ You use it with a special border color to clearly indicate screencasted windows.
 This also works for windows targeted by dynamic screencasts.
 However, it will not work for windows that just happen to be visible in a full-monitor screencast.
 
-```kdl
-// Indicate screencasted windows with red colors.
-window-rule {
-    match is-window-cast-target=true
-
-    focus-ring {
-        active-color "#f38ba8"
-        inactive-color "#7d0d2d"
-    }
-
-    border {
-        inactive-color "#7d0d2d"
-    }
-
-    shadow {
-        color "#7d0d2d70"
-    }
-
-    tab-indicator {
-        active-color "#f38ba8"
-        inactive-color "#7d0d2d"
-    }
+```lua
+-- Indicate screencasted windows with red colors.
+neori.window_rule {
+    match = {
+        is_window_cast_target = true,
+    },
+    focus_ring = {
+        active_color = "#f38ba8",
+        inactive_color = "#7d0d2d",
+    },
+    border = {
+        inactive_color = "#7d0d2d",
+    },
+    shadow = {
+        color = "#7d0d2d70",
+    },
+    tab_indicator = {
+        active_color = "#f38ba8",
+        inactive_color = "#7d0d2d",
+    },
 }
 ```
 
@@ -125,10 +129,8 @@ This is not always convenient, for example if you have an ultrawide monitor, or 
 The `toggle-windowed-fullscreen` bind helps with this.
 It tells the app that it went fullscreen, while in reality leaving it as a normal window that you can resize and put wherever you want.
 
-```kdl
-binds {
-    Mod+Ctrl+Shift+F { toggle-windowed-fullscreen; }
-}
+```lua
+neori.bind("Mod+Ctrl+Shift+F", "toggle-windowed-fullscreen")
 ```
 
 Keep in mind that not all apps react to fullscreening, so it may sometimes look as if the bind did nothing.
@@ -142,10 +144,8 @@ Here's an example showing a windowed-fullscreen Google Slides [presentation](htt
 For presentations it can be useful to mirror an output to another.
 Currently, neori doesn't have built-in output mirroring, but you can use a third-party tool [`wl-mirror`](https://github.com/Ferdi265/wl-mirror) that mirrors an output to a window.
 Note that the command below requires [`jq`](https://jqlang.org/download/) to be installed.
-```kdl
-binds {
-    Mod+P repeat=false { spawn-sh "wl-mirror $(neori msg --json focused-output | jq -r .name)"; }
-}
+```lua
+neori.bind("Mod+P", neori.spawn_sh("wl-mirror $(neori msg --json focused-output | jq -r .name)", { ["repeat"] = false }))
 ```
 Focus the output you want to mirror, press <kbd>Mod</kbd><kbd>P</kbd> and move the `wl-mirror` window to the target output.
 Finally, fullscreen the `wl-mirror` window (by default, <kbd>Mod</kbd><kbd>Shift</kbd><kbd>F</kbd>).

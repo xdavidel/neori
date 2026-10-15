@@ -2,7 +2,7 @@ When starting neori from a display manager like GDM, or otherwise through the `n
 This provides the necessary systemd integration to run programs like `mako` and services like `xdg-desktop-portal` bound to the graphical session.
 
 Here's an example on how you might set up [`mako`](https://github.com/emersion/mako), [`waybar`](https://github.com/Alexays/Waybar), [`swaybg`](https://github.com/swaywm/swaybg) and [`swayidle`](https://github.com/swaywm/swayidle) to run as systemd services with neori.
-Unlike [`spawn-at-startup`](./Configuration:-Miscellaneous.md#spawn-at-startup), this lets you easily monitor their status and output, and restart or reload them.
+Unlike [`spawning at startup`](./Configuration:-Miscellaneous.md#spawning-at-startup), this lets you easily monitor their status and output, and restart or reload them.
 
 1. Install them, i.e. `sudo dnf install mako waybar swaybg swayidle`
 2. `mako` and `waybar` provide systemd units out of the box, so you can simply add them to the neori session:

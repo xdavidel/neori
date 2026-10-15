@@ -2,24 +2,24 @@
 
 You can find documentation for various sections of the config on these wiki pages:
 
-* [`input {}`](./Configuration:-Input.md)
-* [`output "eDP-1" {}`](./Configuration:-Outputs.md)
-* [`binds {}`](./Configuration:-Key-Bindings.md)
-* [`switch-events {}`](./Configuration:-Switch-Events.md)
-* [`layout {}`](./Configuration:-Layout.md)
+* [`neori.input`](./Configuration:-Input.md)
+* [`neori.output`](./Configuration:-Outputs.md)
+* [`neori.bind`](./Configuration:-Key-Bindings.md)
+* [`neori.switch_events`](./Configuration:-Switch-Events.md)
+* [`neori.layout`](./Configuration:-Layout.md)
 * [top-level options](./Configuration:-Miscellaneous.md)
-* [`window-rule {}`](./Configuration:-Window-Rules.md)
-* [`layer-rule {}`](./Configuration:-Layer-Rules.md)
-* [`animations {}`](./Configuration:-Animations.md)
-* [`gestures {}`](./Configuration:-Gestures.md)
-* [`recent-windows {}`](./Configuration:-Recent-Windows.md)
-* [`debug {}`](./Configuration:-Debug-Options.md)
-* [`include "other.kdl"`](./Configuration:-Include.md)
+* [`neori.window_rule`](./Configuration:-Window-Rules.md)
+* [`neori.layer_rule`](./Configuration:-Layer-Rules.md)
+* [`neori.animations`](./Configuration:-Animations.md)
+* [`neori.gestures`](./Configuration:-Gestures.md)
+* [`neori.recent_windows`](./Configuration:-Recent-Windows.md)
+* [`neori.debug`](./Configuration:-Debug-Options.md)
+* [`neori.include`](./Configuration:-Include.md)
 
 ### Loading
 
-Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.kdl` or `~/.config/neori/config.kdl`, falling back to `/etc/neori/config.kdl`.
-If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.kdl` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
+Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.lua` or `~/.config/neori/config.lua`, falling back to `/etc/neori/config.lua`.
+If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
 Please use the default configuration file as the starting point for your custom configuration.
 
 The configuration is live-reloaded.
@@ -37,103 +37,82 @@ If `$NEORI_CONFIG` is set to an empty string, it is ignored and the default conf
 
 ### Syntax
 
-The config is written in [KDL].
+The config is written in [Lua], as a script that calls the `neori` configuration API.
+Every setting is a field or a helper call on the global `neori` table, for example `neori.layout { gaps = 16 }` or `neori.bind("Mod+T", "close-window")`.
 
 #### Comments
 
-Lines starting with `//` are comments; they are ignored.
+Lines starting with `--` are comments; they are ignored.
+Use `--[[ ... ]]` for block comments:
 
-Also, you can put `/-` in front of a section to comment out the entire section:
-
-```kdl
-/-output "eDP-1" {
-    // Everything inside here is ignored.
-    // The display won't be turned off
-    // as the whole section is commented out.
-    off
-}
+```lua
+--[[
+    Everything in here is ignored.
+    The display won't be turned off
+    as the whole output is commented out.
+--]]
+neori.output("eDP-1", {
+    off = true,
+})
 ```
 
 #### Flags
 
-Toggle options in neori are commonly represented as flags.
-Writing out the flag enables it, and omitting it or commenting it out disables it.
+Toggle options in neori are commonly represented as booleans.
+Setting a field to `true` enables it; leaving it out or setting it to `false` disables it.
 For example:
 
-```kdl
-// "Focus follows mouse" is enabled.
-input {
-    focus-follows-mouse
-
-    // Other settings...
+```lua
+-- "Focus follows mouse" is enabled.
+neori.input {
+    focus_follows_mouse = true,
 }
 ```
 
-```kdl
-// "Focus follows mouse" is disabled.
-input {
-    // focus-follows-mouse
-
-    // Other settings...
+```lua
+-- "Focus follows mouse" is disabled.
+neori.input {
+    focus_follows_mouse = false,
 }
 ```
 
 #### Sections
 
-Most sections cannot be repeated. For example:
+Most sections can be set more than once; later calls merge into the same settings.
+For example:
 
-```kdl
-// This is valid: every section appears once.
-input {
-    keyboard {
-        // ...
-    }
+```lua
+-- This is valid: the two input blocks merge.
+neori.input {
+    keyboard = {},
+    -- ...
+}
 
-    touchpad {
-        // ...
-    }
+neori.input {
+    touchpad = {},
+    -- ...
 }
 ```
 
-```kdl,must-fail
-// This is NOT valid: input section appears twice.
-input {
-    keyboard {
-        // ...
-    }
-}
+This is what lets [`neori.include(...)`](./Configuration:-Include.md) work: each included file can adjust the same sections instead of overwriting them.
 
-input {
-    touchpad {
-        // ...
-    }
-}
-```
+Sections that configure different devices by name are separate, one entry each:
 
-Exceptions are, for example, sections that configure different devices by name:
+```lua
+-- This is valid: these configure different outputs.
+neori.output("eDP-1", {
+    -- ...
+})
 
-<!-- NOTE: this may break in the future -->
-```kdl
-output "eDP-1" {
-    // ...
-}
-
-// This is valid: this section configures a different output.
-output "HDMI-A-1" {
-    // ...
-}
-
-// This is NOT valid: "eDP-1" already appeared above.
-// It will either throw a config parsing error, or otherwise not work.
-output "eDP-1" {
-    // ...
-}
+neori.output("HDMI-A-1", {
+    -- ...
+})
 ```
 
 ### Defaults
 
 Omitting most of the sections of the config file will leave you with the default values for that section.
-A notable exception is [`binds {}`](./Configuration:-Key-Bindings.md): they do not get filled with defaults, so make sure you do not erase this section.
+A notable exception is [`neori.bind`](./Configuration:-Key-Bindings.md): binds do not get filled with defaults, so make sure you do not erase the binds you rely on.
 
 ### Breaking Change Policy
 
@@ -149,4 +128,4 @@ Keep in mind that the breaking change policy applies only to neori releases.
 Commits between releases can and do occasionally break the config as new features are ironed out.
 However, I do try to limit these, since several people are running git builds.
 
-[KDL]: https://kdl.dev/
+[Lua]: https://www.lua.org/

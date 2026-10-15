@@ -8,106 +8,92 @@ Currently, there's no way to configure specific devices individually (but that i
 
 All settings at a glance:
 
-```kdl
-input {
-    keyboard {
-        xkb {
-            // layout "us"
-            // variant "colemak_dh_ortho"
-            // options "compose:ralt,ctrl:nocaps"
-            // model ""
-            // rules ""
-            // file "~/.config/keymap.xkb"
-        }
-
-        // repeat-delay 600
-        // repeat-rate 25
-        // track-layout "global"
-        numlock
-    }
-
-    touchpad {
-        // off
-        tap
-        // dwt
-        // dwtp
-        // drag false
-        // drag-lock
-        natural-scroll
-        // accel-speed 0.2
-        // accel-profile "flat"
-        // scroll-factor 1.0
-        // scroll-factor vertical=1.0 horizontal=-2.0
-        // scroll-method "two-finger"
-        // scroll-button 273
-        // scroll-button-lock
-        // tap-button-map "left-middle-right"
-        // click-method "clickfinger"
-        // left-handed
-        // disabled-on-external-mouse
-        // middle-emulation
-    }
-
-    mouse {
-        // off
-        // natural-scroll
-        // accel-speed 0.2
-        // accel-profile "flat"
-        // scroll-factor 1.0
-        // scroll-factor vertical=1.0 horizontal=-2.0
-        // scroll-method "no-scroll"
-        // scroll-button 273
-        // scroll-button-lock
-        // left-handed
-        // middle-emulation
-    }
-
-    trackpoint {
-        // off
-        // natural-scroll
-        // accel-speed 0.2
-        // accel-profile "flat"
-        // scroll-method "on-button-down"
-        // scroll-button 273
-        // scroll-button-lock
-        // left-handed
-        // middle-emulation
-    }
-
-    trackball {
-        // off
-        // natural-scroll
-        // accel-speed 0.2
-        // accel-profile "flat"
-        // scroll-method "on-button-down"
-        // scroll-button 273
-        // scroll-button-lock
-        // left-handed
-        // middle-emulation
-    }
-
-    tablet {
-        // off
-        map-to-output "eDP-1"
-        // map-to-focused-output
-        // map-to-focused-window
-        // left-handed
-        // calibration-matrix 1.0 0.0 0.0 0.0 1.0 0.0
-    }
-
-    touch {
-        // off
-        map-to-output "eDP-1"
-        // calibration-matrix 1.0 0.0 0.0 0.0 1.0 0.0
-    }
-
-    // disable-power-key-handling
-    // warp-mouse-to-focus
-    // focus-follows-mouse max-scroll-amount="0%"
-    // workspace-auto-back-and-forth
-
-    // mod-key "Super"
-    // mod-key-nested "Alt"
+```lua
+neori.input {
+    keyboard = {
+        xkb = {},
+        -- layout = "us"
+        -- variant = "colemak_dh_ortho"
+        -- options = "compose:ralt,ctrl:nocaps"
+        -- model = ""
+        -- rules = ""
+        -- file = "~/.config/keymap.xkb"
+        -- repeat_delay = 600
+        -- repeat_rate = 25
+        -- track_layout = "global"
+        numlock = true,
+    },
+    touchpad = {
+        -- off = true
+        tap = true,
+        -- dwt = true
+        -- dwtp = true
+        -- drag false
+        -- drag_lock = true
+        natural_scroll = true,
+    },
+    -- accel_speed = 0.2
+    -- accel_profile = "flat"
+    -- scroll_factor = 1.0
+    -- scroll_factor = {
+    --     vertical = 1.0,
+    --     horizontal = -2.0,
+    -- }
+    -- scroll_method = "two-finger"
+    -- scroll_button = 273
+    -- scroll_button_lock = true
+    -- tap_button_map = "left-middle-right"
+    -- click_method = "clickfinger"
+    -- left_handed = true
+    -- disabled_on_external_mouse = true
+    -- middle_emulation = true
+    mouse = {},
+    -- off = true
+    -- natural_scroll = true
+    -- accel_speed = 0.2
+    -- accel_profile = "flat"
+    -- scroll_factor = 1.0
+    -- scroll_factor = {
+    --     vertical = 1.0,
+    --     horizontal = -2.0,
+    -- }
+    -- scroll_method = "no-scroll"
+    -- scroll_button = 273
+    -- scroll_button_lock = true
+    -- left_handed = true
+    -- middle_emulation = true
+    trackpoint = {},
+    -- off = true
+    -- natural_scroll = true
+    -- accel_speed = 0.2
+    -- accel_profile = "flat"
+    -- scroll_method = "on-button-down"
+    -- scroll_button = 273
+    -- scroll_button_lock = true
+    -- left_handed = true
+    -- middle_emulation = true
+    trackball = {},
+    -- off = true
+    -- natural_scroll = true
+    -- accel_speed = 0.2
+    -- accel_profile = "flat"
+    -- scroll_method = "on-button-down"
+    -- scroll_button = 273
+    -- scroll_button_lock = true
+    -- left_handed = true
+    -- middle_emulation = true
+    tablet = {
+        -- off = true
+        map_to_output = "eDP-1",
+    },
+    -- map_to_focused_output = true
+    -- map_to_focused_window = true
+    -- left_handed = true
+    -- calibration_matrix = { 1.0, 0.0, 0.0, 0.0, 1.0, 0.0 }
+    touch = {
+        -- off = true
+        map_to_output = "eDP-1",
+    },
 }
 ```
 
@@ -119,15 +105,15 @@ In the `xkb` section, you can set layout, variant, options, model and rules.
 These are passed directly to libxkbcommon, which is also used by most other Wayland compositors.
 See the `xkeyboard-config(7)` manual for more information.
 
-```kdl
-input {
-    keyboard {
-        xkb {
-            layout "us"
-            variant "colemak_dh_ortho"
-            options "compose:ralt,ctrl:nocaps"
-        }
-    }
+```lua
+neori.input {
+    keyboard = {
+        xkb = {
+            layout = "us",
+            variant = "colemak_dh_ortho",
+            options = "compose:ralt,ctrl:nocaps",
+        },
+    },
 }
 ```
 
@@ -138,13 +124,13 @@ input {
 > Alternatively, you can directly set a path to a .xkb file containing an xkb keymap.
 > This overrides all other xkb settings.
 >
-> ```kdl
-> input {
->     keyboard {
->         xkb {
->             file "~/.config/keymap.xkb"
->         }
->     }
+> ```lua
+> neori.input {
+>     keyboard = {
+>         xkb = {
+>             file = "~/.config/keymap.xkb",
+>         },
+>     },
 > }
 > ```
 
@@ -182,11 +168,11 @@ You can control this with the `track-layout` option.
 - `global`: layout change is global for all windows.
 - `window`: layout is tracked for each window individually.
 
-```kdl
-input {
-    keyboard {
-        track-layout "global"
-    }
+```lua
+neori.input {
+    keyboard = {
+        track_layout = "global",
+    },
 }
 ```
 
@@ -195,12 +181,12 @@ input {
 Delay is in milliseconds before the keyboard repeat starts.
 Rate is in characters per second.
 
-```kdl
-input {
-    keyboard {
-        repeat-delay 600
-        repeat-rate 25
-    }
+```lua
+neori.input {
+    keyboard = {
+        repeat_delay = 600,
+        repeat_rate = 25,
+    },
 }
 ```
 
@@ -212,11 +198,11 @@ Set the `numlock` flag to turn on Num Lock automatically at startup.
 
 You might want to disable (comment out) `numlock` if you're using a laptop with a keyboard that overlays Num Lock keys on top of regular keys.
 
-```kdl
-input {
-    keyboard {
-        numlock
-    }
+```lua
+neori.input {
+    keyboard = {
+        numlock = true,
+    },
 }
 ```
 
@@ -267,15 +253,14 @@ Settings specific to `tablet` and `touch`:
 
 Tablets and touchscreens are absolute pointing devices that can be mapped to a specific output like so:
 
-```kdl
-input {
-    tablet {
-        map-to-output "eDP-1"
-    }
-
-    touch {
-        map-to-output "eDP-1"
-    }
+```lua
+neori.input {
+    tablet = {
+        map_to_output = "eDP-1",
+    },
+    touch = {
+        map_to_output = "eDP-1",
+    },
 }
 ```
 
@@ -302,9 +287,9 @@ These settings are not specific to a particular input device.
 By default, neori will take over the power button to make it sleep instead of power off.
 Set this if you would like to configure the power button elsewhere (i.e. `logind.conf`).
 
-```kdl
-input {
-    disable-power-key-handling
+```lua
+neori.input {
+    disable_power_key_handling = true,
 }
 ```
 
@@ -314,9 +299,9 @@ Makes the mouse warp to newly focused windows.
 
 Does not make the cursor visible if it had been hidden.
 
-```kdl
-input {
-    warp-mouse-to-focus
+```lua
+neori.input {
+    warp_mouse_to_focus = true,
 }
 ```
 
@@ -329,9 +314,11 @@ I.e. if moving the mouse only horizontally is enough to put it inside the newly 
 So if the mouse was anywhere outside the newly focused window, it will warp to the center of the window.
 - `mode="center-xy-always"`: warps by both X and Y coordinates together, even if the mouse was already somewhere inside the newly focused window.
 
-```kdl
-input {
-    warp-mouse-to-focus mode="center-xy"
+```lua
+neori.input {
+    warp_mouse_to_focus = {
+        mode = "center-xy",
+    },
 }
 ```
 
@@ -339,9 +326,9 @@ input {
 
 Focuses windows and outputs automatically when moving the mouse over them.
 
-```kdl
-input {
-    focus-follows-mouse
+```lua
+neori.input {
+    focus_follows_mouse = true,
 }
 ```
 
@@ -349,17 +336,21 @@ input {
 Then, focus-follows-mouse won't focus a window if it will result in the view scrolling more than the set amount.
 The value is a percentage of the working area width.
 
-```kdl
-input {
-    // Allow focus-follows-mouse when it results in scrolling at most 10% of the screen.
-    focus-follows-mouse max-scroll-amount="10%"
+```lua
+neori.input {
+    -- Allow focus-follows-mouse when it results in scrolling at most 10% of the screen.
+    focus_follows_mouse = {
+        max_scroll_amount = "10%",
+    },
 }
 ```
 
-```kdl
-input {
-    // Allow focus-follows-mouse only when it will not scroll the view.
-    focus-follows-mouse max-scroll-amount="0%"
+```lua
+neori.input {
+    -- Allow focus-follows-mouse only when it will not scroll the view.
+    focus_follows_mouse = {
+        max_scroll_amount = "0%",
+    },
 }
 ```
 
@@ -370,9 +361,9 @@ If this flag is enabled, switching to the same workspace by index twice will swi
 
 Neori will correctly switch to the workspace you came from, even if workspaces were reordered in the meantime.
 
-```kdl
-input {
-    workspace-auto-back-and-forth
+```lua
+neori.input {
+    workspace_auto_back_and_forth = true,
 }
 ```
 
@@ -389,10 +380,10 @@ By default, `Mod` is equal to `Super` when running neori on a TTY, and to `Alt` 
 > There are a lot of default bindings with Mod, none of them "make it through" to the underlying window.
 > You probably don't want to set `mod-key` to Ctrl or Shift, since Ctrl is commonly used for app hotkeys, and Shift is used for, well, regular typing.
 
-```kdl
-// Switch the mod keys around: use Alt normally, and Super inside a nested window.
-input {
-    mod-key "Alt"
-    mod-key-nested "Super"
+```lua
+-- Switch the mod keys around: use Alt normally, and Super inside a nested window.
+neori.input {
+    mod_key = "Alt",
+    mod_key_nested = "Super",
 }
 ```

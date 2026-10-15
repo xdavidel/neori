@@ -37,8 +37,8 @@ If you're shipping neori and would like to make it work better for screen reader
 
 - Change the default terminal from Alacritty to one that supports screen readers. For example, [GNOME Console](https://gitlab.gnome.org/GNOME/console) or [GNOME Terminal](https://gitlab.gnome.org/GNOME/gnome-terminal) should work well.
 - Change the default application launcher and screen locker to ones that support screen readers. For example, [xfce4-appfinder](https://docs.xfce.org/xfce/xfce4-appfinder/start) is an accessible launcher. Suggestions welcome! Likely, something GTK-based will work fine.
-- Add some [`spawn-at-startup`](./Configuration:-Miscellaneous.md#spawn-at-startup) command that plays a sound which will indicate to users that neori has finished loading.
-- Add `spawn-at-startup "orca"` to run Orca automatically at neori startup.
+- Add some [`spawning at startup`](./Configuration:-Miscellaneous.md#spawning-at-startup) command that plays a sound which will indicate to users that neori has finished loading.
+- Add `neori.on("startup", neori.spawn("orca"))` to run Orca automatically at neori startup.
 
 ## Desktop zoom
 

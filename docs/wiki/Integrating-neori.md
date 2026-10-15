@@ -3,17 +3,17 @@ First, for creating a neori package, see the [Packaging](./Packaging-neori.md) p
 
 ### Configuration
 
-Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.kdl` or `~/.config/neori/config.kdl`, falling back to `/etc/neori/config.kdl`.
-If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.kdl` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
+Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.lua` or `~/.config/neori/config.lua`, falling back to `/etc/neori/config.lua`.
+If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
 
-This means that you can customize your distribution defaults by creating `/etc/neori/config.kdl`.
+This means that you can customize your distribution defaults by creating `/etc/neori/config.lua`.
 When this file is present, neori *will not* automatically create a config at `~/.config/neori/`, so you'll need to direct your users how to do it themselves.
 
-Keep in mind that we update the default config in new releases, so if you have a custom `/etc/neori/config.kdl`, you likely want to inspect and apply the relevant changes too.
+Keep in mind that we update the default config in new releases, so if you have a custom `/etc/neori/config.lua`, you likely want to inspect and apply the relevant changes too.
 
 The default configuration locations can be overridden with the `NEORI_CONFIG` environment variable.
 
-<sup>Since: 26.04</sup> You can also change the configuration path at runtime via the neori IPC or using the command `neori msg action load-config-file --path <path-to-config.kdl>`.
+<sup>Since: 26.04</sup> You can also change the configuration path at runtime via the neori IPC or using the command `neori msg action load-config-file --path <path-to-config.lua>`.
 
 <sup>Since: 25.11</sup> You can split the neori config file into multiple files using [`include`](./Configuration:-Include.md).
 
@@ -41,7 +41,7 @@ The default [neori.service](https://github.com/neori-wm/neori/blob/main/resource
 To make a program run at neori startup without editing the neori config, you can either link its .desktop to `~/.config/autostart/`, or use a .service file with `WantedBy=graphical-session.target`.
 See the [example systemd setup](./Example-systemd-Setup.md) page for some examples.
 
-If this is inconvenient, you can also add [`spawn-at-startup`](./Configuration:-Miscellaneous.md#spawn-at-startup) lines in the neori config.
+If this is inconvenient, you can also add [`spawning at startup`](./Configuration:-Miscellaneous.md#spawning-at-startup) lines in the neori config.
 
 ### Screen readers
 

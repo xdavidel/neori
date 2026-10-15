@@ -26,7 +26,7 @@ After running these commands, log out, choose Neori in your display manager, and
 Or, if not using a display manager, run `neori-session` on a TTY.
 
 The default neori config will run Waybar, so you might get two bars on screen.
-To fix this, stop Waybar with `pkill waybar` command, then open `~/.config/neori/config.kdl` and delete the `spawn-at-startup "waybar"` line.
+To fix this, stop Waybar with `pkill waybar` command, then open `~/.config/neori/config.lua` and delete the `neori.on("startup", neori.spawn("waybar"))` line.
 
 Check the DankMaterialShell's [compositor setup page](https://danklinux.com/docs/dankmaterialshell/compositors#niri-configuration) to learn how to configure DMS-specific binds and other neori integrations.
 
@@ -94,11 +94,11 @@ crw-rw-rw-@ 226,129 root 14 мая 07:07 renderD129
 
 You will likely have one `render` device and two `card` devices.
 
-Open the neori config file at `~/.config/neori/config.kdl` and put your `render` device path like this:
+Open the neori config file at `~/.config/neori/config.lua` and put your `render` device path like this:
 
-```kdl
-debug {
-    render-drm-device "/dev/dri/renderD128"
+```lua
+neori.debug {
+    render_drm_device = "/dev/dri/renderD128",
 }
 ```
 

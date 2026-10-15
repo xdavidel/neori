@@ -1,6 +1,6 @@
 ### Overview
 
-Key bindings are declared in the `binds {}` section of the config.
+Key bindings are declared with `neori.bind(...)` calls in the config.
 
 > [!NOTE]
 > This is one of the few sections that *does not* get automatically filled with defaults if you omit it, so make sure to copy it from the default config.
@@ -8,11 +8,9 @@ Key bindings are declared in the `binds {}` section of the config.
 Each bind is a hotkey followed by one action enclosed in curly brackets.
 For example:
 
-```kdl
-binds {
-    Mod+Left { focus-column-left; }
-    Super+Alt+L { spawn "swaylock"; }
-}
+```lua
+neori.bind("Mod+Left", "focus-column-left")
+neori.bind("Super+Alt+L", neori.spawn("swaylock"))
 ```
 
 The hotkey consists of modifiers separated by `+` signs, followed by an XKB key name in the end.
@@ -65,18 +63,14 @@ For this reason, most of the default keys use the `Mod` modifier.
 <sup>Since: 0.1.8</sup> Binds will repeat by default (i.e. holding down a bind will make it trigger repeatedly).
 You can disable that for specific binds with `repeat=false`:
 
-```kdl
-binds {
-    Mod+T repeat=false { spawn "alacritty"; }
-}
+```lua
+neori.bind("Mod+T", neori.spawn("alacritty", { ["repeat"] = false }))
 ```
 
 Binds can also have a cooldown, which will rate-limit the bind and prevent it from repeatedly triggering too quickly.
 
-```kdl
-binds {
-    Mod+T cooldown-ms=500 { spawn "alacritty"; }
-}
+```lua
+neori.bind("Mod+T", neori.spawn("alacritty", { cooldown_ms = 500 }))
 ```
 
 This is mostly useful for the scroll bindings.
@@ -86,13 +80,11 @@ This is mostly useful for the scroll bindings.
 You can bind mouse wheel scroll ticks using the following syntax.
 These binds will change direction based on the `natural-scroll` setting.
 
-```kdl
-binds {
-    Mod+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
-    Mod+WheelScrollUp   cooldown-ms=150 { focus-workspace-up; }
-    Mod+WheelScrollRight                { focus-column-right; }
-    Mod+WheelScrollLeft                 { focus-column-left; }
-}
+```lua
+neori.bind("Mod+WheelScrollDown", { focus_workspace_down = true, cooldown_ms = 150 })
+neori.bind("Mod+WheelScrollUp", { focus_workspace_up = true, cooldown_ms = 150 })
+neori.bind("Mod+WheelScrollRight", "focus-column-right")
+neori.bind("Mod+WheelScrollLeft", "focus-column-left")
 ```
 
 Similarly, you can bind touchpad scroll "ticks".
@@ -100,11 +92,9 @@ Touchpad scrolling is continuous, so for these binds it is split into discrete i
 
 These binds are also affected by touchpad's `natural-scroll`, so these example binds are "inverted", since neori has `natural-scroll` enabled for touchpads by default.
 
-```kdl
-binds {
-    Mod+TouchpadScrollDown { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.02+"; }
-    Mod+TouchpadScrollUp   { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.02-"; }
-}
+```lua
+neori.bind("Mod+TouchpadScrollDown", neori.spawn("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.02+"))
+neori.bind("Mod+TouchpadScrollUp", neori.spawn("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.02-"))
 ```
 
 Both mouse wheel and touchpad scroll binds will prevent applications from receiving any scroll events when their modifiers are held down.
@@ -116,14 +106,12 @@ For example, if you have a `Mod+WheelScrollDown` bind, then while holding `Mod`,
 
 You can bind mouse clicks using the following syntax.
 
-```kdl
-binds {
-    Mod+MouseLeft    { close-window; }
-    Mod+MouseRight   { close-window; }
-    Mod+MouseMiddle  { close-window; }
-    Mod+MouseForward { close-window; }
-    Mod+MouseBack    { close-window; }
-}
+```lua
+neori.bind("Mod+MouseLeft", "close-window")
+neori.bind("Mod+MouseRight", "close-window")
+neori.bind("Mod+MouseMiddle", "close-window")
+neori.bind("Mod+MouseForward", "close-window")
+neori.bind("Mod+MouseBack", "close-window")
 ```
 
 Mouse clicks operate on the window that was focused at the time of the click, not the window you're clicking.
@@ -138,19 +126,15 @@ The hotkey overlay (the Important Hotkeys dialog) shows a hardcoded list of bind
 You can customize this list using the `hotkey-overlay-title` property.
 
 To add a bind to the hotkey overlay, set the property to the title that you want to show:
-```kdl
-binds {
-    Mod+Shift+S hotkey-overlay-title="Toggle Dark/Light Style" { spawn "some-script.sh"; }
-}
+```lua
+neori.bind("Mod+Shift+S", neori.spawn("some-script.sh", { hotkey_overlay_title = "Toggle Dark/Light Style" }))
 ```
 
 Binds with custom titles are listed after the hardcoded binds and before non-customized Spawn binds.
 
 To remove a hardcoded bind from the hotkey overlay, set the property to null:
-```kdl
-binds {
-    Mod+Q hotkey-overlay-title=null { close-window; }
-}
+```lua
+neori.bind("Mod+Q", { close_window = true, hotkey_overlay_title = false })
 ```
 
 > [!TIP]
@@ -161,10 +145,8 @@ binds {
 
 Custom titles support [Pango markup](https://docs.gtk.org/Pango/pango_markup.html):
 
-```kdl
-binds {
-    Mod+Shift+S hotkey-overlay-title="<b>Toggle</b> <span foreground='red'>Dark</span>/Light Style" { spawn "some-script.sh"; }
-}
+```lua
+neori.bind("Mod+Shift+S", neori.spawn("some-script.sh", { hotkey_overlay_title = "<b>Toggle</b> <span foreground='red'>Dark</span>/Light Style" }))
 ```
 
 ![Custom markup example.](https://github.com/user-attachments/assets/2a2ba914-bfa7-4dfa-bb5e-49839034765d)
@@ -183,14 +165,11 @@ Run a program.
 `spawn` accepts a path to the program binary as the first argument, followed by arguments to the program.
 For example:
 
-```kdl
-binds {
-    // Run alacritty.
-    Mod+T { spawn "alacritty"; }
-
-    // Run `wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1+`.
-    XF86AudioRaiseVolume { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "0.1+"; }
-}
+```lua
+-- Run alacritty.
+neori.bind("Mod+T", neori.spawn("alacritty"))
+-- Run `wpctl set-volume @DEFAULT_AUDIO_SINK@ 0.1+`.
+neori.bind("XF86AudioRaiseVolume", neori.spawn("wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "0.1+"))
 ```
 
 > [!TIP]
@@ -199,55 +178,43 @@ binds {
 >
 > Spawn bindings have a special `allow-when-locked=true` property that makes them work even while the session is locked:
 >
-> ```kdl
-> binds {
->     // This mute bind will work even when the session is locked.
->     XF86AudioMute allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
-> }
+> ```lua
+> -- This mute bind will work even when the session is locked.
+> neori.bind("XF86AudioMute", neori.spawn("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle", { allow_when_locked = true }))
 > ```
 
 For `spawn`, neori *does not* use a shell to run commands, which means that you need to manually separate arguments.
 See [`spawn-sh`](#spawn-sh) below for an action that uses a shell.
 
-```kdl
-binds {
-    // Correct: every argument is in its own quotes.
-    Mod+T { spawn "alacritty" "-e" "/usr/bin/fish"; }
-
-    // Wrong: will interpret the whole `alacritty -e /usr/bin/fish` string as the binary path.
-    Mod+D { spawn "alacritty -e /usr/bin/fish"; }
-
-    // Wrong: will pass `-e /usr/bin/fish` as one argument, which alacritty won't understand.
-    Mod+Q { spawn "alacritty" "-e /usr/bin/fish"; }
-}
+```lua
+-- Correct: every argument is in its own quotes.
+neori.bind("Mod+T", neori.spawn("alacritty", "-e", "/usr/bin/fish"))
+-- Wrong: will interpret the whole `alacritty -e /usr/bin/fish` string as the binary path.
+neori.bind("Mod+D", neori.spawn("alacritty -e /usr/bin/fish"))
+-- Wrong: will pass `-e /usr/bin/fish` as one argument, which alacritty won't understand.
+neori.bind("Mod+Q", neori.spawn("alacritty", "-e /usr/bin/fish"))
 ```
 
 This also means that you cannot expand environment variables or `~`.
 If you need this, you can run the command through a shell manually.
 
-```kdl
-binds {
-    // Wrong: no shell expansion here. These strings will be passed literally to the program.
-    Mod+T { spawn "grim" "-o" "$MAIN_OUTPUT" "~/screenshot.png"; }
-
-    // Correct: run this through a shell manually so that it can expand the arguments.
-    // Note that the entire command is passed as a SINGLE argument,
-    // because shell will do its own argument splitting by whitespace.
-    Mod+D { spawn "sh" "-c" "grim -o $MAIN_OUTPUT ~/screenshot.png"; }
-
-    // You can also use a shell to run multiple commands,
-    // use pipes, process substitution, and so on.
-    Mod+Q { spawn "sh" "-c" "notify-send clipboard \"$(wl-paste)\""; }
-}
+```lua
+-- Wrong: no shell expansion here. These strings will be passed literally to the program.
+neori.bind("Mod+T", neori.spawn("grim", "-o", "$MAIN_OUTPUT", "~/screenshot.png"))
+-- Correct: run this through a shell manually so that it can expand the arguments.
+-- Note that the entire command is passed as a SINGLE argument,
+-- because shell will do its own argument splitting by whitespace.
+neori.bind("Mod+D", neori.spawn("sh", "-c", "grim -o $MAIN_OUTPUT ~/screenshot.png"))
+-- You can also use a shell to run multiple commands,
+-- use pipes, process substitution, and so on.
+neori.bind("Mod+Q", neori.spawn("sh", "-c", "notify-send clipboard \"$(wl-paste)\""))
 ```
 
 As a special case, neori will expand `~` to the home directory *only* at the beginning of the program name.
 
-```kdl
-binds {
-    // This will work: one ~ at the very beginning.
-    Mod+T { spawn "~/scripts/do-something.sh"; }
-}
+```lua
+-- This will work: one ~ at the very beginning.
+neori.bind("Mod+T", neori.spawn("~/scripts/do-something.sh"))
 ```
 
 #### `spawn-sh`
@@ -259,20 +226,15 @@ Run a command through the shell.
 The argument is a single string that is passed verbatim to `sh`.
 You can use shell variables, pipelines, `~` expansion, and everything else as expected.
 
-```kdl
-binds {
-    // Works with spawn-sh: all arguments in the same string.
-    Mod+D { spawn-sh "alacritty -e /usr/bin/fish"; }
-
-    // Works with spawn-sh: shell variable ($MAIN_OUTPUT), ~ expansion.
-    Mod+T { spawn-sh "grim -o $MAIN_OUTPUT ~/screenshot.png"; }
-
-    // Works with spawn-sh: process substitution.
-    Mod+Q { spawn-sh "notify-send clipboard \"$(wl-paste)\""; }
-
-    // Works with spawn-sh: multiple commands.
-    Super+Alt+S { spawn-sh "pkill orca || exec orca"; }
-}
+```lua
+-- Works with spawn-sh: all arguments in the same string.
+neori.bind("Mod+D", neori.spawn_sh("alacritty -e /usr/bin/fish"))
+-- Works with spawn-sh: shell variable ($MAIN_OUTPUT), ~ expansion.
+neori.bind("Mod+T", neori.spawn_sh("grim -o $MAIN_OUTPUT ~/screenshot.png"))
+-- Works with spawn-sh: process substitution.
+neori.bind("Mod+Q", neori.spawn_sh("notify-send clipboard \"$(wl-paste)\""))
+-- Works with spawn-sh: multiple commands.
+neori.bind("Super+Alt+S", neori.spawn_sh("pkill orca || exec orca"))
 ```
 
 `spawn-sh "some command"` is equivalent to `spawn "sh" "-c" "some command"`—it's just a less confusing shorthand.
@@ -285,18 +247,14 @@ If you want a different shell, write it out using `spawn`, e.g. `spawn "fish" "-
 
 Exit neori after showing a confirmation dialog to avoid accidentally triggering it.
 
-```kdl
-binds {
-    Mod+Shift+E { quit; }
-}
+```lua
+neori.bind("Mod+Shift+E", "quit")
 ```
 
 If you want to skip the confirmation dialog, set the flag like so:
 
-```kdl
-binds {
-    Mod+Shift+E { quit skip-confirmation=true; }
-}
+```lua
+neori.bind("Mod+Shift+E", { quit = true, skip_confirmation = true })
 ```
 
 #### `do-screen-transition`
@@ -305,10 +263,8 @@ binds {
 
 Freeze the screen for a brief moment then crossfade to the new contents.
 
-```kdl
-binds {
-    Mod+Return { do-screen-transition; }
-}
+```lua
+neori.bind("Mod+Return", "do-screen-transition")
 ```
 
 This action is mainly useful to trigger from scripts changing the system theme or style (between light and dark for example).
@@ -324,10 +280,8 @@ dconf write /org/gnome/desktop/interface/color-scheme "\"prefer-dark\""
 By default, the screen is frozen for 250 ms to give windows time to redraw, before the crossfade.
 You can set this delay like this:
 
-```kdl
-binds {
-    Mod+Return { do-screen-transition delay-ms=100; }
-}
+```lua
+neori.bind("Mod+Return", { do_screen_transition = true, delay_ms = 100 })
 ```
 
 Or, in scripts:
@@ -343,10 +297,8 @@ neori msg action do-screen-transition --delay-ms 100
 Toggle the opacity window rule of the focused window.
 This only has an effect if the window's opacity window rule is already set to semitransparent.
 
-```kdl
-binds {
-    Mod+O { toggle-window-rule-opacity; }
-}
+```lua
+neori.bind("Mod+O", "toggle-window-rule-opacity")
 ```
 
 #### `screenshot`, `screenshot-screen`, `screenshot-window`
@@ -360,37 +312,30 @@ The screenshot is both stored to the clipboard and saved to disk, according to t
 
 <sup>Since: 25.02</sup> You can disable saving to disk for a specific bind with the `write-to-disk=false` property:
 
-```kdl
-binds {
-    Ctrl+Print { screenshot-screen write-to-disk=false; }
-    Alt+Print { screenshot-window write-to-disk=false; }
-}
+```lua
+neori.bind("Ctrl+Print", { screenshot_screen = true, write_to_disk = false })
+neori.bind("Alt+Print", { screenshot_window = true, write_to_disk = false })
 ```
 
 In the interactive screenshot UI, pressing <kbd>Ctrl</kbd><kbd>C</kbd> will copy the screenshot to the clipboard without writing it to disk.
 
 <sup>Since: 25.05</sup> You can hide the mouse pointer in screenshots with the `show-pointer=false` property:
 
-```kdl
-binds {
-    // The pointer will be hidden by default
-    // (you can still show it by pressing P).
-    Print { screenshot show-pointer=false; }
-
-    // The pointer will be hidden on the screenshot.
-    Ctrl+Print { screenshot-screen show-pointer=false; }
-}
+```lua
+-- The pointer will be hidden by default
+-- (you can still show it by pressing P).
+neori.bind("Print", { screenshot = true, show_pointer = false })
+-- The pointer will be hidden on the screenshot.
+neori.bind("Ctrl+Print", { screenshot_screen = true, show_pointer = false })
 ```
 
 <sup>Since: 26.04</sup> You can show the mouse pointer on window screenshots with the `show-pointer=true` property.
 The pointer will be included only if the window is currently receiving pointer input (usually this means the pointer is on top of the window).
 
-```kdl
-binds {
-    // The pointer will be visible on the screenshot
-    // if it's on top of the window.
-    Alt+Print { screenshot-window show-pointer=true; }
-}
+```lua
+-- The pointer will be visible on the screenshot
+-- if it's on top of the window.
+neori.bind("Alt+Print", { screenshot_window = true, show_pointer = true })
 ```
 
 #### `toggle-keyboard-shortcuts-inhibit`
@@ -401,18 +346,14 @@ Applications such as remote-desktop clients and software KVM switches may reques
 `toggle-keyboard-shortcuts-inhibit` is an escape hatch that toggles the inhibitor.
 It's a good idea to bind it, so a buggy application can't hold your session hostage.
 
-```kdl
-binds {
-    Mod+Escape { toggle-keyboard-shortcuts-inhibit; }
-}
+```lua
+neori.bind("Mod+Escape", "toggle-keyboard-shortcuts-inhibit")
 ```
 
 You can also make certain binds ignore inhibiting with the `allow-inhibiting=false` property.
 They will always be handled by neori and never passed to the window.
 
-```kdl
-binds {
-    // This bind will always work, even when using a virtual machine.
-    Super+Alt+L allow-inhibiting=false { spawn "swaylock"; }
-}
+```lua
+-- This bind will always work, even when using a virtual machine.
+neori.bind("Super+Alt+L", neori.spawn("swaylock", { allow_inhibiting = false }))
 ```

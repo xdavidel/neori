@@ -18,23 +18,24 @@ In this case, the application will usually offer some "background blur" setting 
 
 You can also enable blur on the neori side with the `blur true` background effect window rule:
 
-```kdl
-// Enable blur behind the Alacritty terminal.
-window-rule {
-    match app-id="^Alacritty$"
-
-    background-effect {
-        blur true
-    }
+```lua
+-- Enable blur behind the Alacritty terminal.
+neori.window_rule {
+    match = {
+        app_id = "^Alacritty$",
+    },
+    background_effect = {
+        blur = true,
+    },
 }
-
-// Enable blur behind the fuzzel launcher.
-layer-rule {
-    match namespace="^launcher$"
-
-    background-effect {
-        blur true
-    }
+-- Enable blur behind the fuzzel launcher.
+neori.layer_rule {
+    match = {
+        namespace = "^launcher$",
+    },
+    background_effect = {
+        blur = true,
+    },
 }
 ```
 

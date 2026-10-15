@@ -78,8 +78,11 @@ https://github.com/user-attachments/assets/379a5d1f-acdb-4c11-b36c-e85fd91f0995
 
 Configuration and code snippets in general should be annotated with a language.
 
-If the language used in the snippet is KDL, open the code block like this:
+Configuration snippets use Lua, so open the code block with a `lua` fence:
 
-```md
-```kdl
-```
+    ```lua
+    neori.layout { gaps = 16 }
+    ```
+
+These `lua` blocks are validated by the `wiki-parses` test in the `neori-config` crate, so they must parse as real config.
+Use `lua,must-fail` for a snippet that is deliberately invalid.

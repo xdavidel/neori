@@ -1,300 +1,178 @@
 <sup>Since: 25.11</sup>
 
-You can include other files at the top level of the config.
+You can split your config across multiple files by including them.
 
-```kdl,must-fail
-// Some settings...
+```lua
+-- Some settings...
 
-include "colors.kdl"
+neori.include("colors.lua")
 
-// Some more settings...
+-- Some more settings...
 ```
 
-Included files have the same structure as the main config file.
-Settings from included files will be merged with the settings from the main config file.
+An included file is an ordinary Lua config file: it can set any sections, add binds, and so on.
+Settings from included files are merged with the settings of the file that included them.
 
-Included config files can in turn include more files.
+An included file can in turn include or require more files.
 All included files are watched for changes, and the config live-reloads when any of them change.
 
-You can include by filename or path.
+### `neori.include(path, ...)`
 
-* Relative to the current file: `other.kdl` or `./other.kdl`
-* By absolute path: `/path/to/file.kdl`
-* <sup>Since: 26.04</sup> Home dir paths: `~/file.kdl` expands to `/home/user/file.kdl`
+`neori.include` takes one or more paths and runs each one immediately, in order.
 
-Includes work only at the top level of the config:
+Paths resolve as follows:
 
-```kdl,must-fail
-// All good: include at the top level.
-include "something.kdl"
+* Relative to the directory of the current config file: `colors.lua` or `./colors.lua`
+* By absolute path: `/path/to/colors.lua`
+* Home directory paths: `~/colors.lua` expands to your home directory
 
-layout {
-    // NOT allowed: include inside some other section.
-    include "other.kdl"
-}
+`neori.include` also accepts:
+
+* **Directories**: `neori.include("d.d")` runs every `*.lua` file inside `d.d/`, in sorted order
+* **Globs**: `neori.include("conf.d/*.lua")` runs every matching file, in sorted order
+
+```lua
+neori.include("~/dotfiles/neori/common.lua")
+neori.include("/etc/neori/overrides.lua")
+neori.include("conf.d/*.lua")
 ```
 
-### Positionality
+The expanded files are recorded so that they are all watched for changes; editing any of them triggers a config live-reload.
 
-Includes are *positional*.
-They will override options set *prior* to them.
-Window rules from included files will be inserted at the position of the `include` line.
-For example:
+### `require`
 
-```kdl
-// colors.kdl
-layout {
-    border {
-        active-color "green"
-    }
-}
+Because included files are normal Lua, you can also load them with the standard `require`.
+A module searcher looks for `<name>.lua` (or `<name>/init.lua`) relative to the main config's directory:
 
-overview {
-    backdrop-color "green"
-}
+```lua
+require("colors")
 ```
 
-```kdl,must-fail
-// config.kdl
-layout {
-    border {
-        active-color "red"
-    }
-}
-
-// This overrides the border color and the backdrop color to green.
-include "colors.kdl"
-
-// This sets the overview backdrop color to red again.
-overview {
-    backdrop-color "red"
-}
-```
-
-The end result:
-
-- the border color is green (from `colors.kdl`),
-- the overview backdrop color is red (it was set *after* `colors.kdl`).
-
-Another example:
-
-```kdl
-// rules.kdl
-window-rule {
-    match app-id="Alacritty"
-    open-maximized false
-}
-```
-
-```kdl,must-fail
-// config.kdl
-window-rule {
-    open-maximized true
-}
-
-// Window rules get inserted at this position.
-include "rules.kdl"
-
-window-rule {
-    match app-id="firefox$"
-    open-maximized true
-}
-```
-
-This is equivalent to the following config file:
-
-```kdl
-window-rule {
-    open-maximized true
-}
-
-// Included from rules.kdl.
-window-rule {
-    match app-id="Alacritty"
-    open-maximized false
-}
-
-window-rule {
-    match app-id="firefox$"
-    open-maximized true
-}
-```
-
-### Optional includes
-
-<sup>Since: 26.04</sup>
-
-By default, including a nonexistent file will cause an error.
-You can allow nonexistent includes by setting `optional=true`:
-
-```kdl,must-fail
-// Won't fail if this file doesn't exist.
-include optional=true "optional-config.kdl"
-
-// Regular include, will fail if the file doesn't exist.
-include "required-config.kdl"
-```
-
-When an optional include file is missing, neori will emit a warning in the logs on every config reload.
-This reminds you that the file is missing while still loading the config successfully.
-
-The optional file is still watched for changes, so if you create it later, the config will automatically reload and apply the new settings.
-
-Note that `optional` only affects whether a missing file causes an error.
-If the file exists but contains invalid syntax or other errors, those errors will still cause a parsing failure.
-
+This runs `colors.lua` the same way `neori.include("colors.lua")` would.
 
 ### Merging
 
-Most config sections are merged between includes, meaning that you can set only a few properties, and only those properties will change.
+Most config sections are *merged*, meaning you can set only a few properties and only those change.
+Later calls win over earlier ones for the properties they set.
 
-```kdl
-// colors.kdl
-layout {
-    // Does not affect gaps, border width, etc.
-    // Only changes colors as written.
-    focus-ring {
-        active-color "blue"
-    }
-
-    border {
-        active-color "green"
-    }
+```lua
+-- colors.lua
+neori.layout {
+    focus_ring = {
+        active_color = "blue",
+    },
+    border = {
+        active_color = "green",
+    },
 }
 ```
 
-```kdl,must-fail
-// config.kdl
-include "colors.kdl"
+```lua
+-- config.lua
+neori.include("colors.lua")
 
-layout {
-    // Does not set border and focus-ring colors,
-    // so colors from colors.kdl are used.
-    gaps 8
+neori.layout {
+    -- Does not set border or focus-ring colors,
+    -- so colors from colors.lua are used.
+    gaps = 8,
 
-    border {
-        width 8
-    }
+    border = {
+        width = 8,
+    },
 }
 ```
 
-#### Multipart sections
-
-Multipart sections like `window-rule`, `output`, or `workspace` are inserted as is without merging:
-
-```kdl
-// laptop.kdl
-output "eDP-1" {
-    // ...
-}
-```
-
-```kdl,must-fail
-// config.kdl
-output "DP-2" {
-    // ...
-}
-
-include "laptop.kdl"
-
-// End result: both DP-2 and eDP-1 settings.
-```
+Sections that address different things by name are kept separate, one entry each.
+`neori.output`, `neori.workspace`, `neori.window_rule`, and `neori.layer_rule` all behave this way, so several files can contribute different outputs and rules.
 
 #### Binds
 
-`binds` will override previously-defined conflicting keys:
+`neori.bind` records every bind, and the *first* bind wins for a given key.
+So if an included file already binds a key, a later `neori.bind` for that same key is rejected as a duplicate.
 
-```kdl
-// binds.kdl
-binds {
-    Mod+T { spawn "alacritty"; }
-}
+```lua
+-- binds.lua
+neori.bind("Mod+T", neori.spawn("alacritty"))
 ```
 
-```kdl,must-fail
-// config.kdl
-include "binds.kdl"
+```lua
+-- config.lua
+neori.include("binds.lua")
 
-binds {
-    // Overrides Mod+T from binds.kdl.
-    Mod+T { spawn "foot"; }
-}
+-- This errors: Mod+T is already bound in binds.lua.
+neori.bind("Mod+T", neori.spawn("foot"))
 ```
+
+To override a bind, include the file that defines it *after* you bind the key, or edit the file directly.
 
 #### Flags
 
-Most flags can be disabled with `false`:
+Flags are plain booleans, so they can always be set to `false` to disable them.
 
-```kdl
-// csd.kdl
+```lua
+-- csd.lua
 
-// Write "false" to explicitly disable.
-prefer-no-csd false
+-- Write false to explicitly disable.
+neori.prefer_no_csd = false
 ```
 
-```kdl,must-fail
-// config.kdl
+```lua
+-- config.lua
 
-// Enable prefer-no-csd in the main config.
-prefer-no-csd
+-- Enable prefer_no_csd in the main config.
+neori.prefer_no_csd = true
 
-// Including csd.kdl will disable it again.
-include "csd.kdl"
+-- Including csd.lua disables it again.
+neori.include("csd.lua")
 ```
 
 #### Non-merging sections
 
-Some sections where the contents represent a combined structure are not merged.
-Examples are `struts`, `preset-column-widths`, individual subsections in `animations`, pointing device sections in `input`.
+Some settings represent a single combined structure rather than independently mergeable properties.
+Examples are `struts`, the preset width/height lists, individual `animations` subsections, and the pointing device sections in `input`.
 
-```kdl
-// struts.kdl
-layout {
-    struts {
-        left 64
-        right 64
-    }
+```lua
+-- struts.lua
+neori.layout {
+    struts = {
+        left = 64,
+        right = 64,
+    },
 }
 ```
 
-```kdl,must-fail
-// config.kdl
-layout {
-    struts {
-        top 64
-        bottom 64
-    }
+```lua
+-- config.lua
+neori.layout {
+    struts = {
+        top = 64,
+        bottom = 64,
+    },
 }
 
-include "struts.kdl"
+neori.include("struts.lua")
 
-// Struts are not merged.
-// End result is only left and right struts.
+-- Struts are not merged.
+-- End result is only left and right struts.
 ```
 
-### Border special case
+### Border and other enable flags
 
-There's one special case that differs between the main config and included configs.
+Some subsections have an `off` / `on` style flag.
+Because empty tables carry no flag, remember to set the flag explicitly when a section is meant to enable something:
 
-Writing `layout { border {} }` in an included config does nothing (since no properties are changed).
-However, writing the same in the main config will *enable* the border, i.e. it's equivalent to `layout { border { on; } }`.
+```lua
+-- separate.lua
+neori.layout {
+    border = {
+        -- Add this line to enable the border:
+        on = true,
 
-So, if you want to move your layout configuration from the main config to a separate file, remember to add `on` to the border section, for example:
-
-```kdl
-// separate.kdl
-layout {
-    border {
-        // Add this line:
-        on
-
-        width 4
-        active-color "#ffc87f"
-        inactive-color "#505050"
-    }
+        width = 4,
+        active_color = "#ffc87f",
+        inactive_color = "#505050",
+    },
 }
 ```
 
-The reason for this special case is that this is how it historically worked: back when I added borders, we didn't have any `on` flags, so I made writing the `border {}` section enable the border, with an explicit `off` to disable it.
-It wouldn't be too problematic to change it, however the default config always had a pre-filled `layout { border { off; } }` section with a note saying that commenting out the `off` is enough to enable the border.
-Many people likely have this part of the default config embedded in their configs now, so changing how it works would just cause a lot of confusion.
+If you leave out `on = true`, the border subsection has no effect and neori falls back to its default (border disabled).

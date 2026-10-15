@@ -72,11 +72,9 @@ For textual data you can do it manually using [wl-clipboard](https://github.com/
 
 You can also bind these to hotkeys if you want:
 
-```
-binds {
-    Mod+Shift+C { spawn "sh" "-c" "env DISPLAY=:0 xsel -ob | wl-copy"; }
-    Mod+Shift+V { spawn "sh" "-c" "wl-paste -n | env DISPLAY=:0 xsel -ib"; }
-}
+```lua
+neori.bind("Mod+Shift+C", neori.spawn_sh("env DISPLAY=:0 xsel -ob | wl-copy"))
+neori.bind("Mod+Shift+V", neori.spawn_sh("wl-paste -n | env DISPLAY=:0 xsel -ib"))
 ```
 
 ## Using xwayland-run to run Xwayland

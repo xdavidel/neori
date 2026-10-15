@@ -44,12 +44,12 @@ The fix shipped in the driver at the time of writing uses a value of 0, while th
 
 <sup>Until: 25.08</sup>
 
-If you have screencast glitches or flickering on NVIDIA, set this in the neori config:
+If you have screencast glitches or flickering on NVIDIA, you can set this debug flag:
 
-```kdl,must-fail
-debug {
-    wait-for-frame-completion-in-pipewire
+```lua
+neori.debug {
+    wait_for_frame_completion_in_pipewire = true,
 }
 ```
 
-This debug flag has since been removed because the problem was properly fixed in neori.
+This debug flag has since been removed because the problem was properly fixed in neori, so newer versions ignore it.

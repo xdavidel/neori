@@ -4,96 +4,135 @@ In the `layout {}` section you can change various settings that influence how wi
 
 Here are the contents of this section at a glance:
 
-```kdl
-layout {
-    gaps 16
-    center-focused-column "never"
-    always-center-single-column
-    empty-workspace-above-first
-    default-column-display "tabbed"
-    background-color "#003300"
-
-    preset-column-widths {
-        proportion 0.33333
-        proportion 0.5
-        proportion 0.66667
-    }
-
-    default-column-width { proportion 0.5; }
-
-    preset-window-heights {
-        proportion 0.33333
-        proportion 0.5
-        proportion 0.66667
-    }
-
-    focus-ring {
-        // off
-        on
-        width 4
-        active-color "#7fc8ff"
-        inactive-color "#505050"
-        urgent-color "#9b0000"
-        // active-gradient from="#80c8ff" to="#bbddff" angle=45
-        // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
-        // urgent-gradient from="#800" to="#a33" angle=45
-    }
-
-    border {
-        off
-        // on
-        width 4
-        active-color "#ffc87f"
-        inactive-color "#505050"
-        urgent-color "#9b0000"
-        // active-gradient from="#ffbb66" to="#ffc880" angle=45 relative-to="workspace-view"
-        // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view" in="srgb-linear"
-        // urgent-gradient from="#800" to="#a33" angle=45
-    }
-
-    shadow {
-        off
-        // on
-        softness 30
-        spread 5
-        offset x=0 y=5
-        draw-behind-window true
-        color "#00000070"
-        // inactive-color "#00000054"
-    }
-
-    tab-indicator {
-        // off
-        on
-        hide-when-single-tab
-        place-within-column
-        gap 5
-        width 4
-        length total-proportion=1.0
-        position "right"
-        gaps-between-tabs 2
-        corner-radius 8
-        active-color "red"
-        inactive-color "gray"
-        urgent-color "blue"
-        // active-gradient from="#80c8ff" to="#bbddff" angle=45
-        // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
-        // urgent-gradient from="#800" to="#a33" angle=45
-    }
-
-    insert-hint {
-        // off
-        on
-        color "#ffc87f80"
-        // gradient from="#ffbb6680" to="#ffc88080" angle=45 relative-to="workspace-view"
-    }
-
-    struts {
-        // left 64
-        // right 64
-        // top 64
-        // bottom 64
-    }
+```lua
+neori.layout {
+    gaps = 16,
+    center_focused_column = "never",
+    always_center_single_column = true,
+    empty_workspace_above_first = true,
+    default_column_display = "tabbed",
+    background_color = "#003300",
+    preset_column_widths = {
+        { proportion = 0.33333 },
+        { proportion = 0.5 },
+        { proportion = 0.66667 },
+    },
+    default_column_width = {
+        proportion = 0.5,
+    },
+    preset_window_heights = {
+        { proportion = 0.33333 },
+        { proportion = 0.5 },
+        { proportion = 0.66667 },
+    },
+    focus_ring = {
+        -- off = true
+        on = true,
+        width = 4,
+        active_color = "#7fc8ff",
+        inactive_color = "#505050",
+        urgent_color = "#9b0000",
+    },
+    -- active_gradient = {
+    --     from = "#80c8ff",
+    --     to = "#bbddff",
+    --     angle = 45,
+    -- }
+    -- inactive_gradient = {
+    --     from = "#505050",
+    --     to = "#808080",
+    --     angle = 45,
+    --     relative_to = "workspace-view",
+    -- }
+    -- urgent_gradient = {
+    --     from = "#800",
+    --     to = "#a33",
+    --     angle = 45,
+    -- }
+    border = {
+        off = true,
+        -- on = true
+        width = 4,
+        active_color = "#ffc87f",
+        inactive_color = "#505050",
+        urgent_color = "#9b0000",
+    },
+    -- active_gradient = {
+    --     from = "#ffbb66",
+    --     to = "#ffc880",
+    --     angle = 45,
+    --     relative_to = "workspace-view",
+    -- }
+    -- inactive_gradient = {
+    --     from = "#505050",
+    --     to = "#808080",
+    --     angle = 45,
+    --     relative_to = "workspace-view",
+    --     ["in"] = "srgb-linear",
+    -- }
+    -- urgent_gradient = {
+    --     from = "#800",
+    --     to = "#a33",
+    --     angle = 45,
+    -- }
+    shadow = {
+        off = true,
+        -- on = true
+        softness = 30,
+        spread = 5,
+        offset = {
+            x = 0,
+            y = 5,
+        },
+        draw_behind_window = true,
+        color = "#00000070",
+    },
+    -- inactive_color = "#00000054"
+    tab_indicator = {
+        -- off = true
+        on = true,
+        hide_when_single_tab = true,
+        place_within_column = true,
+        gap = 5,
+        width = 4,
+        length = {
+            total_proportion = 1.0,
+        },
+        position = "right",
+        gaps_between_tabs = 2,
+        corner_radius = 8,
+        active_color = "red",
+        inactive_color = "gray",
+        urgent_color = "blue",
+    },
+    -- active_gradient = {
+    --     from = "#80c8ff",
+    --     to = "#bbddff",
+    --     angle = 45,
+    -- }
+    -- inactive_gradient = {
+    --     from = "#505050",
+    --     to = "#808080",
+    --     angle = 45,
+    --     relative_to = "workspace-view",
+    -- }
+    -- urgent_gradient = {
+    --     from = "#800",
+    --     to = "#a33",
+    --     angle = 45,
+    -- }
+    insert_hint = {
+        -- off = true
+        on = true,
+        color = "#ffc87f80",
+    },
+    -- gradient = {
+    --     from = "#ffbb6680",
+    --     to = "#ffc88080",
+    --     angle = 45,
+    --     relative_to = "workspace-view",
+    -- }
+    struts = {},
 }
 ```
 
@@ -109,9 +148,9 @@ For example, `gaps 0.5` on an output with `scale 2` will result in one physical-
 
 <sup>Since: 0.1.8</sup> You can emulate "inner" vs. "outer" gaps with negative `struts` values (see the struts section below).
 
-```kdl
-layout {
-    gaps 16
+```lua
+neori.layout {
+    gaps = 16,
 }
 ```
 
@@ -124,9 +163,9 @@ This can be set to:
 - `"always"`, the focused column will always be centered.
 - `"on-overflow"`, focusing a column will center it if it doesn't fit on screen together with the previously focused column.
 
-```kdl
-layout {
-    center-focused-column "always"
+```lua
+neori.layout {
+    center_focused_column = "always",
 }
 ```
 
@@ -136,9 +175,9 @@ layout {
 
 If set, neori will always center a single column on a workspace, regardless of the `center-focused-column` option.
 
-```kdl
-layout {
-    always-center-single-column
+```lua
+neori.layout {
+    always_center_single_column = true,
 }
 ```
 
@@ -148,9 +187,9 @@ layout {
 
 If set, neori will always add an empty workspace at the very start, in addition to the empty workspace at the very end.
 
-```kdl
-layout {
-    empty-workspace-above-first
+```lua
+neori.layout {
+    empty_workspace_above_first = true,
 }
 ```
 
@@ -161,16 +200,15 @@ layout {
 Sets the default display mode for new columns.
 Can be `normal` or `tabbed`.
 
-```kdl
-// Make all new columns tabbed by default.
-layout {
-    default-column-display "tabbed"
-
-    // You may also want to hide the tab indicator
-    // when there's only a single window in a column.
-    tab-indicator {
-        hide-when-single-tab
-    }
+```lua
+-- Make all new columns tabbed by default.
+neori.layout {
+    default_column_display = "tabbed",
+    -- You may also want to hide the tab indicator
+    -- when there's only a single window in a column.
+    tab_indicator = {
+        hide_when_single_tab = true,
+    },
 }
 ```
 
@@ -185,15 +223,15 @@ The default preset widths are <sup>1</sup>&frasl;<sub>3</sub>, <sup>1</sup>&fras
 
 `fixed` sets the window width in logical pixels exactly.
 
-```kdl
-layout {
-    // Cycle between 1/3, 1/2, 2/3 of the output, and a fixed 1280 logical pixels.
-    preset-column-widths {
-        proportion 0.33333
-        proportion 0.5
-        proportion 0.66667
-        fixed 1280
-    }
+```lua
+neori.layout {
+    -- Cycle between 1/3, 1/2, 2/3 of the output, and a fixed 1280 logical pixels.
+    preset_column_widths = {
+        { proportion = 0.33333 },
+        { proportion = 0.5 },
+        { proportion = 0.66667 },
+        { fixed = 1280 },
+    },
 }
 ```
 
@@ -203,19 +241,21 @@ Set the default width of the new windows.
 
 The syntax is the same as in `preset-column-widths` above.
 
-```kdl
-layout {
-    // Open new windows sized 1/3 of the output.
-    default-column-width { proportion 0.33333; }
+```lua
+neori.layout {
+    -- Open new windows sized 1/3 of the output.
+    default_column_width = {
+        proportion = 0.33333,
+    },
 }
 ```
 
 You can also leave the brackets empty, then the windows themselves will decide their initial width.
 
-```kdl
-layout {
-    // New windows decide their initial width themselves.
-    default-column-width {}
+```lua
+neori.layout {
+    -- New windows decide their initial width themselves.
+    default_column_width = {},
 }
 ```
 
@@ -237,15 +277,15 @@ The default preset heights are <sup>1</sup>&frasl;<sub>3</sub>, <sup>1</sup>&fra
 
 `fixed` sets the height in logical pixels exactly.
 
-```kdl
-layout {
-    // Cycle between 1/3, 1/2, 2/3 of the output, and a fixed 720 logical pixels.
-    preset-window-heights {
-        proportion 0.33333
-        proportion 0.5
-        proportion 0.66667
-        fixed 720
-    }
+```lua
+neori.layout {
+    -- Cycle between 1/3, 1/2, 2/3 of the output, and a fixed 720 logical pixels.
+    preset_window_heights = {
+        { proportion = 0.33333 },
+        { proportion = 0.5 },
+        { proportion = 0.66667 },
+        { fixed = 720 },
+    },
 }
 ```
 
@@ -272,25 +312,19 @@ The difference is that the focus ring is drawn only around the active window, wh
 
 Focus ring and border have the following options.
 
-```kdl
-layout {
-    // focus-ring has the same options.
-    border {
-        // Uncomment this line to disable the border.
-        // off
-
-        // Width of the border in logical pixels.
-        width 4
-
-        active-color "#ffc87f"
-        inactive-color "#505050"
-
-        // Color of the border around windows that request your attention.
-        urgent-color "#9b0000"
-
-        // active-gradient from="#ffbb66" to="#ffc880" angle=45 relative-to="workspace-view"
-        // inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view" in="srgb-linear"
-    }
+```lua
+neori.layout {
+    -- focus-ring has the same options.
+    border = {
+        -- Uncomment this line to disable the border.
+        -- off = true
+        -- Width of the border in logical pixels.
+        width = 4,
+        active_color = "#ffc87f",
+        inactive_color = "#505050",
+        -- Color of the border around windows that request your attention.
+        urgent_color = "#9b0000",
+    },
 }
 ```
 
@@ -302,11 +336,11 @@ Set the thickness of the border in logical pixels.
 The value will be rounded to physical pixels according to the scale factor of every output.
 For example, `width 0.5` on an output with `scale 2` will result in one physical-pixel thick borders.
 
-```kdl
-layout {
-    border {
-        width 2
-    }
+```lua
+neori.layout {
+    border = {
+        width = 2,
+    },
 }
 ```
 
@@ -333,11 +367,15 @@ Gradients are rendered the same as CSS [`linear-gradient(angle, from, to)`](http
 The angle works the same as in `linear-gradient`, and is optional, defaulting to `180` (top-to-bottom gradient).
 You can use any CSS linear-gradient tool on the web to set these up, like [css-gradient.com](https://www.css-gradient.com/).
 
-```kdl
-layout {
-    focus-ring {
-        active-gradient from="#80c8ff" to="#bbddff" angle=45
-    }
+```lua
+neori.layout {
+    focus_ring = {
+        active_gradient = {
+            from = "#80c8ff",
+            to = "#bbddff",
+            angle = 45,
+        },
+    },
 }
 ```
 
@@ -349,12 +387,22 @@ Here's a visual example:
 | -------------------------------- | --------------------------------------------------- |
 | ![Screenshot displaying 4 windows, each with individual gradient borders](./img/gradients-default.png) | ![Screenshot displaying 4 windows, with a shared gradient across their borders](./img/gradients-relative-to-workspace-view.png) |
 
-```kdl
-layout {
-    border {
-        active-gradient from="#ffbb66" to="#ffc880" angle=45 relative-to="workspace-view"
-        inactive-gradient from="#505050" to="#808080" angle=45 relative-to="workspace-view"
-    }
+```lua
+neori.layout {
+    border = {
+        active_gradient = {
+            from = "#ffbb66",
+            to = "#ffc880",
+            angle = 45,
+            relative_to = "workspace-view",
+        },
+        inactive_gradient = {
+            from = "#505050",
+            to = "#808080",
+            angle = 45,
+            relative_to = "workspace-view",
+        },
+    },
 }
 ```
 
@@ -371,11 +419,16 @@ For example, `active-gradient from="#f00f" to="#0f05" angle=45 in="oklch longer 
 
 ![Screenshot showing a window with a border using a gradient in the oklch color space](./img/gradients-oklch.png)
 
-```kdl
-layout {
-    border {
-        active-gradient from="#f00f" to="#0f05" angle=45 in="oklch longer hue"
-    }
+```lua
+neori.layout {
+    border = {
+        active_gradient = {
+            from = "#f00f",
+            to = "#0f05",
+            angle = 45,
+            ["in"] = "oklch longer hue",
+        },
+    },
 }
 ```
 
@@ -414,17 +467,16 @@ Shadow drawing will follow the window corner radius set with the [`geometry-corn
 > [!NOTE]
 > Currently, shadow drawing only supports matching radius for all corners. If you set `geometry-corner-radius` to four values instead of one, the first (top-left) corner radius will be used for shadows.
 
-```kdl
-// Enable shadows.
-layout {
-    shadow {
-        on
-    }
+```lua
+-- Enable shadows.
+neori.layout {
+    shadow = {
+        on = true,
+    },
 }
-
-// Also ask windows to omit client-side decorations, so that
-// they don't draw their own window shadows.
-prefer-no-csd
+-- Also ask windows to omit client-side decorations, so that
+-- they don't draw their own window shadows.
+neori.prefer_no_csd = true
 ```
 
 [CSS box-shadow]: https://developer.mozilla.org/en-US/docs/Web/CSS/box-shadow
@@ -468,17 +520,19 @@ Tab colors are picked in this order:
 1. Colors from the `tab-indicator` layout options, if set (you're here).
 1. If neither are set, neori picks the color matching the window border or focus ring, whichever one is active.
 
-```kdl
-// Make the tab indicator wider and match the window height,
-// also put it at the top and within the column.
-layout {
-    tab-indicator {
-        width 8
-        gap 8
-        length total-proportion=1.0
-        position "top"
-        place-within-column
-    }
+```lua
+-- Make the tab indicator wider and match the window height,
+-- also put it at the top and within the column.
+neori.layout {
+    tab_indicator = {
+        width = 8,
+        gap = 8,
+        length = {
+            total_proportion = 1.0,
+        },
+        position = "top",
+        place_within_column = true,
+    },
 }
 ```
 
@@ -492,13 +546,18 @@ Settings for the window insert position hint during an interactive window move.
 
 `color` and `gradient` let you change the color of the hint and have the same syntax as colors and gradients in border and focus ring.
 
-```kdl
-layout {
-    insert-hint {
-        // off
-        color "#ffc87f80"
-        gradient from="#ffbb6680" to="#ffc88080" angle=45 relative-to="workspace-view"
-    }
+```lua
+neori.layout {
+    insert_hint = {
+        -- off = true
+        color = "#ffc87f80",
+        gradient = {
+            from = "#ffbb6680",
+            to = "#ffc88080",
+            angle = 45,
+            relative_to = "workspace-view",
+        },
+    },
 }
 ```
 
@@ -515,14 +574,14 @@ Top and bottom struts will simply add outer gaps in addition to the area occupie
 The value will be rounded to physical pixels according to the scale factor of every output.
 For example, `top 0.5` on an output with `scale 2` will result in one physical-pixel wide top strut.
 
-```kdl
-layout {
-    struts {
-        left 64
-        right 64
-        top 64
-        bottom 64
-    }
+```lua
+neori.layout {
+    struts = {
+        left = 64,
+        right = 64,
+        top = 64,
+        bottom = 64,
+    },
 }
 ```
 
@@ -534,16 +593,15 @@ They will push the windows outwards, even outside the edges of the screen.
 You can use negative struts with matching gaps value to emulate "inner" vs. "outer" gaps.
 For example, use this for inner gaps without outer gaps:
 
-```kdl
-layout {
-    gaps 16
-
-    struts {
-        left -16
-        right -16
-        top -16
-        bottom -16
-    }
+```lua
+neori.layout {
+    gaps = 16,
+    struts = {
+        left = -16,
+        right = -16,
+        top = -16,
+        bottom = -16,
+    },
 }
 ```
 
@@ -554,9 +612,9 @@ layout {
 Set the default background color that neori draws for workspaces.
 This is visible when you're not using any background tools like swaybg.
 
-```kdl
-layout {
-    background-color "#003300"
+```lua
+neori.layout {
+    background_color = "#003300",
 }
 ```
 

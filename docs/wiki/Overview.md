@@ -47,30 +47,30 @@ See the full documentation for the `overview {}` section [here](./Configuration:
 
 You can set the zoom-out level like this:
 
-```kdl
-// Make workspaces four times smaller than normal in the overview.
-overview {
-    zoom 0.25
+```lua
+-- Make workspaces four times smaller than normal in the overview.
+neori.overview {
+    zoom = 0.25,
 }
 ```
 
 To change the color behind the workspaces, use the `backdrop-color` setting:
 
-```kdl
-// Make the backdrop light.
-overview {
-    backdrop-color "#777777"
+```lua
+-- Make the backdrop light.
+neori.overview {
+    backdrop_color = "#777777",
 }
 ```
 
 You can also disable the hot corner:
 
-```kdl
-// Disable the hot corners.
-gestures {
-    hot-corners {
-        off
-    }
+```lua
+-- Disable the hot corners.
+neori.gestures {
+    hot_corners = {
+        off = true,
+    },
 }
 ```
 
@@ -78,11 +78,13 @@ gestures {
 
 Apart from setting a custom backdrop color like described above, you can also put a layer-shell wallpaper into the backdrop with a [layer rule](./Configuration:-Layer-Rules.md#place-within-backdrop), for example:
 
-```kdl
-// Put swaybg inside the overview backdrop.
-layer-rule {
-    match namespace="^wallpaper$"
-    place-within-backdrop true
+```lua
+-- Put swaybg inside the overview backdrop.
+neori.layer_rule {
+    match = {
+        namespace = "^wallpaper$",
+    },
+    place_within_backdrop = true,
 }
 ```
 
@@ -93,24 +95,24 @@ This way you could set the backdrop one to a blurred version of the wallpaper fo
 
 You can also combine this with a transparent background color if you don't like the wallpaper moving together with workspaces:
 
-```kdl
-// Make the wallpaper stationary, rather than moving with workspaces.
-layer-rule {
-    // This is for swaybg; change for other wallpaper tools.
-    // Find the right namespace by running neori msg layers.
-    match namespace="^wallpaper$"
-    place-within-backdrop true
+```lua
+-- Make the wallpaper stationary, rather than moving with workspaces.
+neori.layer_rule {
+    -- This is for swaybg; change for other wallpaper tools.
+    -- Find the right namespace by running neori msg layers.
+    match = {
+        namespace = "^wallpaper$",
+    },
+    place_within_backdrop = true,
 }
-
-// Set transparent workspace background color.
-layout {
-    background-color "transparent"
+-- Set transparent workspace background color.
+neori.layout {
+    background_color = "transparent",
 }
-
-// Optionally, disable the workspace shadows in the overview.
-overview {
-    workspace-shadow {
-        off
-    }
+-- Optionally, disable the workspace shadows in the overview.
+neori.overview {
+    workspace_shadow = {
+        off = true,
+    },
 }
 ```

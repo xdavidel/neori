@@ -10,50 +10,55 @@ Please read the [window rules wiki page](./Configuration:-Window-Rules.md) to le
 
 Here are all matchers and properties that a layer rule could have:
 
-```kdl
-layer-rule {
-    match namespace="waybar"
-    match at-startup=true
-    match layer="top"
-
-    // Properties that apply continuously.
-    opacity 0.5
-    block-out-from "screencast"
-    // block-out-from "screen-capture"
-
-    shadow {
-        on
-        // off
-        softness 40
-        spread 5
-        offset x=0 y=5
-        draw-behind-window true
-        color "#00000064"
-        // inactive-color "#00000064"
-    }
-
-    geometry-corner-radius 12
-    place-within-backdrop true
-    baba-is-float true
-
-    background-effect {
-        xray true
-        blur true
-        noise 0.05
-        saturation 3
-    }
-
-    popups {
-        opacity 0.5
-        geometry-corner-radius 6
-
-        background-effect {
-            xray true
-            blur true
-            noise 0.05
-            saturation 3
-        }
-    }
+```lua
+neori.layer_rule {
+    match = {
+        {
+            namespace = "waybar",
+        },
+        {
+            at_startup = true,
+        },
+        {
+            layer = "top",
+        },
+    },
+    -- Properties that apply continuously.
+    opacity = 0.5,
+    block_out_from = "screencast",
+    -- block_out_from = "screen-capture"
+    shadow = {
+        on = true,
+        -- off = true
+        softness = 40,
+        spread = 5,
+        offset = {
+            x = 0,
+            y = 5,
+        },
+        draw_behind_window = true,
+        color = "#00000064",
+    },
+    -- inactive_color = "#00000064"
+    geometry_corner_radius = 12,
+    place_within_backdrop = true,
+    baba_is_float = true,
+    background_effect = {
+        xray = true,
+        blur = true,
+        noise = 0.05,
+        saturation = 3,
+    },
+    popups = {
+        opacity = 0.5,
+        geometry_corner_radius = 6,
+        background_effect = {
+            xray = true,
+            blur = true,
+            noise = 0.05,
+            saturation = 3,
+        },
+    },
 }
 ```
 
@@ -66,10 +71,12 @@ Let's look at the matchers in more detail.
 This is a regular expression that should match anywhere in the surface namespace.
 You can read about the supported regular expression syntax [here](https://docs.rs/regex/latest/regex/#syntax).
 
-```kdl
-// Match surfaces with namespace containing "waybar",
-layer-rule {
-    match namespace="waybar"
+```lua
+-- Match surfaces with namespace containing "waybar",
+neori.layer_rule {
+    match = {
+        namespace = "waybar",
+    },
 }
 ```
 
@@ -80,12 +87,13 @@ You can find the namespaces of all open layer-shell surfaces by running `neori m
 Can be `true` or `false`.
 Matches during the first 60 seconds after starting neori.
 
-```kdl
-// Show layer-shell surfaces with 0.5 opacity at neori startup, but not afterwards.
-layer-rule {
-    match at-startup=true
-
-    opacity 0.5
+```lua
+-- Show layer-shell surfaces with 0.5 opacity at neori startup, but not afterwards.
+neori.layer_rule {
+    match = {
+        at_startup = true,
+    },
+    opacity = 0.5,
 }
 ```
 
@@ -96,12 +104,13 @@ layer-rule {
 Matches surfaces on this layer-shell layer.
 Can be `"background"`, `"bottom"`, `"top"`, or `"overlay"`.
 
-```kdl
-// Make all overlay-layer surfaces FLOAT.
-layer-rule {
-    match layer="overlay"
-
-    baba-is-float true
+```lua
+-- Make all overlay-layer surfaces FLOAT.
+neori.layer_rule {
+    match = {
+        layer = "overlay",
+    },
+    baba_is_float = true,
 }
 ```
 
@@ -120,12 +129,13 @@ The same caveats and instructions apply as for the [`block-out-from` window rule
 
 ![Screenshot showing a notification visible normally, but blocked out on OBS.](./img/layer-block-out-from-screencast.png)
 
-```kdl
-// Block out mako notifications from screencasts.
-layer-rule {
-    match namespace="^notifications$"
-
-    block-out-from "screencast"
+```lua
+-- Block out mako notifications from screencasts.
+neori.layer_rule {
+    match = {
+        namespace = "^notifications$",
+    },
+    block_out_from = "screencast",
 }
 ```
 
@@ -137,12 +147,13 @@ This is applied on top of the surface's own opacity, so semitransparent surfaces
 
 Opacity is applied to every child of the layer-shell surface individually, so subsurfaces and pop-up menus will show window content behind them.
 
-```kdl
-// Make fuzzel semitransparent.
-layer-rule {
-    match namespace="^launcher$"
-
-    opacity 0.95
+```lua
+-- Make fuzzel semitransparent.
+neori.layer_rule {
+    match = {
+        namespace = "^launcher$",
+    },
+    opacity = 0.95,
 }
 ```
 
@@ -163,17 +174,17 @@ That is, enabling shadows in the layout config section won't automatically enabl
 >
 > So to use neori shadows, you'll need to configure layer-shell clients to remove their own margins or shadows.
 
-```kdl
-// Add a shadow for fuzzel.
-layer-rule {
-    match namespace="^launcher$"
-
-    shadow {
-        on
-    }
-
-    // Fuzzel defaults to 10 px rounded corners.
-    geometry-corner-radius 10
+```lua
+-- Add a shadow for fuzzel.
+neori.layer_rule {
+    match = {
+        namespace = "^launcher$",
+    },
+    shadow = {
+        on = true,
+    },
+    -- Fuzzel defaults to 10 px rounded corners.
+    geometry_corner_radius = 10,
 }
 ```
 
@@ -185,11 +196,12 @@ Set the corner radius of the surface.
 
 This setting will only affect the shadow—it will round its corners to match the geometry corner radius.
 
-```kdl
-layer-rule {
-    match namespace="^launcher$"
-
-    geometry-corner-radius 12
+```lua
+neori.layer_rule {
+    match = {
+        namespace = "^launcher$",
+    },
+    geometry_corner_radius = 12,
 }
 ```
 
@@ -202,12 +214,13 @@ Set to `true` to place the surface into the backdrop visible in the [Overview](.
 This will only work for *background* layer surfaces that ignore exclusive zones (typical for wallpaper tools).
 Layers within the backdrop will ignore all input.
 
-```kdl
-// Put swaybg inside the overview backdrop.
-layer-rule {
-    match namespace="^wallpaper$"
-
-    place-within-backdrop true
+```lua
+-- Put swaybg inside the overview backdrop.
+neori.layer_rule {
+    match = {
+        namespace = "^wallpaper$",
+    },
+    place_within_backdrop = true,
 }
 ```
 
@@ -219,12 +232,13 @@ Make your layer surfaces FLOAT up and down.
 
 This is a natural extension of the [April Fools' 2025 feature](./Configuration:-Window-Rules.md#baba-is-float).
 
-```kdl
-// Make fuzzel FLOAT.
-layer-rule {
-    match namespace="^launcher$"
-
-    baba-is-float true
+```lua
+-- Make fuzzel FLOAT.
+neori.layer_rule {
+    match = {
+        namespace = "^launcher$",
+    },
+    baba_is_float = true,
 }
 ```
 
@@ -241,16 +255,21 @@ Override the background effect options for this surface.
 
 See the [window effects page](./Window-Effects.md) for an overview of background effects.
 
-```kdl
-// Make top and overlay layers use the regular blur (if enabled),
-// while bottom and background layers keep using the efficient xray blur.
-layer-rule {
-    match layer="top"
-    match layer="overlay"
-
-    background-effect {
-        xray false
-    }
+```lua
+-- Make top and overlay layers use the regular blur (if enabled),
+-- while bottom and background layers keep using the efficient xray blur.
+neori.layer_rule {
+    match = {
+        {
+            layer = "top",
+        },
+        {
+            layer = "overlay",
+        },
+    },
+    background_effect = {
+        xray = false,
+    },
 }
 ```
 
@@ -273,20 +292,20 @@ Other properties apply independently.
 >
 > This block also does not affect input-method pop-ups, such as Fcitx.
 
-```kdl
-// Blur the background behind Waybar popup menus.
-layer-rule {
-    match namespace="^waybar$"
-
-    popups {
-        // Match the default GTK 3 popup corner radius.
-        geometry-corner-radius 6
-        opacity 0.85
-
-        background-effect {
-            blur true
-        }
-    }
+```lua
+-- Blur the background behind Waybar popup menus.
+neori.layer_rule {
+    match = {
+        namespace = "^waybar$",
+    },
+    popups = {
+        -- Match the default GTK 3 popup corner radius.
+        geometry_corner_radius = 6,
+        opacity = 0.85,
+        background_effect = {
+            blur = true,
+        },
+    },
 }
 ```
 

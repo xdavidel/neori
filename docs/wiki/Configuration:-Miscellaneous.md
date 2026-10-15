@@ -2,85 +2,76 @@ This page documents all top-level options that don't otherwise have dedicated pa
 
 Here are all of these options at a glance:
 
-```kdl
-spawn-at-startup "waybar"
-spawn-at-startup "alacritty"
-spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
-
-prefer-no-csd
-
-screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
-
-environment {
-    QT_QPA_PLATFORM "wayland"
-    DISPLAY null
+```lua
+neori.on("startup", neori.spawn("waybar"))
+neori.on("startup", neori.spawn("alacritty"))
+neori.on("startup", neori.spawn_sh("qs -c ~/source/qs/MyAwesomeShell"))
+neori.prefer_no_csd = true
+neori.screenshot_path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+neori.environment {
+    QT_QPA_PLATFORM = "wayland",
+    DISPLAY = nil,
 }
-
-cursor {
-    xcursor-theme "breeze_cursors"
-    xcursor-size 48
-
-    hide-when-typing
-    hide-after-inactive-ms 1000
+neori.cursor {
+    xcursor_theme = "breeze_cursors",
+    xcursor_size = 48,
+    hide_when_typing = true,
+    hide_after_inactive_ms = 1000,
 }
-
-overview {
-    zoom 0.5
-    backdrop-color "#262626"
-
-    workspace-shadow {
-        // off
-        softness 40
-        spread 10
-        offset x=0 y=10
-        color "#00000050"
-    }
+neori.overview {
+    zoom = 0.5,
+    backdrop_color = "#262626",
+    workspace_shadow = {
+        -- off = true
+        softness = 40,
+        spread = 10,
+        offset = {
+            x = 0,
+            y = 10,
+        },
+        color = "#00000050",
+    },
 }
-
-xwayland-satellite {
-    // off
-    path "xwayland-satellite"
+neori.xwayland_satellite {
+    -- off = true
+    path = "xwayland-satellite",
 }
-
-clipboard {
-    disable-primary
+neori.clipboard {
+    disable_primary = true,
 }
-
-hotkey-overlay {
-    skip-at-startup
-    hide-not-bound
+neori.hotkey_overlay {
+    skip_at_startup = true,
+    hide_not_bound = true,
 }
-
-config-notification {
-    disable-failed
+neori.config_notification {
+    disable_failed = true,
 }
-
-blur {
-    // off
-    passes 3
-    offset 3.0
-    noise 0.02
-    saturation 1.5
+neori.blur {
+    -- off = true
+    passes = 3,
+    offset = 3.0,
+    noise = 0.02,
+    saturation = 1.5,
 }
 ```
 
-### `spawn-at-startup`
+### Spawning at startup
 
 Add lines like this to spawn processes at neori startup.
 
-`spawn-at-startup` accepts a path to the program binary as the first argument, followed by arguments to the program.
+`neori.spawn(...)` accepts a path to the program binary as the first argument, followed by arguments to the program.
 
 This option works the same way as the [`spawn` key binding action](./Configuration:-Key-Bindings.md#spawn), so please read about all its subtleties there.
 
-```kdl
-spawn-at-startup "waybar"
-spawn-at-startup "alacritty"
+```lua
+neori.on("startup", neori.spawn("waybar"))
+neori.on("startup", neori.spawn("alacritty"))
 ```
 
 Note that running neori as a systemd session supports xdg-desktop-autostart out of the box, which may be more convenient to use.
-Thanks to this, apps that you configured to autostart in GNOME will also "just work" in neori, without any manual `spawn-at-startup` configuration.
+Thanks to this, apps that you configured to autostart in GNOME will also "just work" in neori, without any manual startup configuration.
 
-### `spawn-sh-at-startup`
+### Spawning shell commands at startup
 
 <sup>Since: 25.08</sup>
 
@@ -91,9 +82,9 @@ You can use shell variables, pipelines, `~` expansion and everything else as exp
 
 See detailed description in the docs for the [`spawn-sh` key binding action](./Configuration:-Key-Bindings.md#spawn-sh).
 
-```kdl
-// Pass all arguments in the same string.
-spawn-sh-at-startup "qs -c ~/source/qs/MyAwesomeShell"
+```lua
+-- Pass all arguments in the same string.
+neori.on("startup", neori.spawn_sh("qs -c ~/source/qs/MyAwesomeShell"))
 ```
 
 ### `prefer-no-csd`
@@ -112,8 +103,8 @@ With `prefer-no-csd` set, applications that negotiate server-side decorations th
 >
 > Restart applications after changing `prefer-no-csd` in the config to fully apply it.
 
-```kdl
-prefer-no-csd
+```lua
+neori.prefer_no_csd = true
 ```
 
 ### `screenshot-path`
@@ -125,28 +116,22 @@ The path is formatted with `strftime(3)` to give you the screenshot date and tim
 
 Neori will create the last folder of the path if it doesn't exist.
 
-```kdl
-screenshot-path "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+```lua
+neori.screenshot_path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
 ```
 
 You can also set this option to `null` to disable saving screenshots to disk.
 
-```kdl
-screenshot-path null
+```lua
+neori.screenshot_path = nil
 ```
 
 ### `environment`
 
 Override environment variables for processes spawned by neori.
 
-```kdl
-environment {
-    // Set a variable like this:
-    // QT_QPA_PLATFORM "wayland"
-
-    // Remove a variable by using null as the value:
-    // DISPLAY null
-}
+```lua
+neori.environment = true
 ```
 
 Note that these variables do not propagate to the systemd global environment, so tools and applications started by systemd do not see them.
@@ -160,10 +145,10 @@ Keep in mind that all compositors will see variables set in the login shell, not
 
 Change the theme and size of the cursor as well as set the `XCURSOR_THEME` and `XCURSOR_SIZE` environment variables.
 
-```kdl
-cursor {
-    xcursor-theme "breeze_cursors"
-    xcursor-size 48
+```lua
+neori.cursor {
+    xcursor_theme = "breeze_cursors",
+    xcursor_size = 48,
 }
 ```
 
@@ -177,9 +162,9 @@ If set, hides the cursor when pressing a key on the keyboard.
 > This setting might interfere with games running in Wine in native Wayland mode that use mouselook, such as first-person games.
 > If your character's point of view jumps down when you press a key and move the mouse simultaneously, try disabling this setting.
 
-```kdl
-cursor {
-    hide-when-typing
+```lua
+neori.cursor {
+    hide_when_typing = true,
 }
 ```
 
@@ -189,10 +174,10 @@ cursor {
 
 If set, the cursor will automatically hide once this number of milliseconds passes since the last cursor movement.
 
-```kdl
-cursor {
-    // Hide the cursor after one second of inactivity.
-    hide-after-inactive-ms 1000
+```lua
+neori.cursor {
+    -- Hide the cursor after one second of inactivity.
+    hide_after_inactive_ms = 1000,
 }
 ```
 
@@ -207,10 +192,10 @@ Settings for the [Overview](./Overview.md).
 Control how much the workspaces zoom out in the overview.
 `zoom` ranges from 0 to 0.75 where lower values make everything smaller.
 
-```kdl
-// Make workspaces four times smaller than normal in the overview.
-overview {
-    zoom 0.25
+```lua
+-- Make workspaces four times smaller than normal in the overview.
+neori.overview {
+    zoom = 0.25,
 }
 ```
 
@@ -221,10 +206,10 @@ The backdrop is also visible between workspaces when switching.
 
 The alpha channel for this color will be ignored.
 
-```kdl
-// Make the backdrop light.
-overview {
-    backdrop-color "#777777"
+```lua
+-- Make the backdrop light.
+neori.overview {
+    backdrop_color = "#777777",
 }
 ```
 
@@ -239,12 +224,12 @@ Settings here mirror the normal [`shadow` config in the layout section](./Config
 Workspace shadows are configured for a workspace size normalized to 1080 pixels tall, then zoomed out together with the workspace.
 Practically, this means that you'll want bigger spread, offset, and softness compared to window shadows.
 
-```kdl
-// Disable workspace shadows in the overview.
-overview {
-    workspace-shadow {
-        off
-    }
+```lua
+-- Disable workspace shadows in the overview.
+neori.overview {
+    workspace_shadow = {
+        off = true,
+    },
 }
 ```
 
@@ -263,10 +248,10 @@ This is very similar to how built-in Xwayland works in other compositors.
 `path` sets the path to the `xwayland-satellite` binary.
 By default, it's just `xwayland-satellite`, so it's looked up like any other non-absolute program name.
 
-```kdl
-// Use a custom build of xwayland-satellite.
-xwayland-satellite {
-    path "~/source/rs/xwayland-satellite/target/release/xwayland-satellite"
+```lua
+-- Use a custom build of xwayland-satellite.
+neori.xwayland_satellite {
+    path = "~/source/rs/xwayland-satellite/target/release/xwayland-satellite",
 }
 ```
 
@@ -279,9 +264,9 @@ Clipboard settings.
 Set the `disable-primary` flag to disable the primary clipboard (middle-click paste).
 Toggling this flag will only apply to applications started afterward.
 
-```kdl
-clipboard {
-    disable-primary
+```lua
+neori.clipboard {
+    disable_primary = true,
 }
 ```
 
@@ -293,9 +278,9 @@ Settings for the "Important Hotkeys" overlay.
 
 Set the `skip-at-startup` flag if you don't want to see the hotkey help at neori startup.
 
-```kdl
-hotkey-overlay {
-    skip-at-startup
+```lua
+neori.hotkey_overlay {
+    skip_at_startup = true,
 }
 ```
 
@@ -306,9 +291,9 @@ hotkey-overlay {
 By default, neori will show the most important actions even if they aren't bound to any key, to prevent confusion.
 Set the `hide-not-bound` flag if you want to hide all actions not bound to any key.
 
-```kdl
-hotkey-overlay {
-    hide-not-bound
+```lua
+neori.hotkey_overlay {
+    hide_not_bound = true,
 }
 ```
 
@@ -323,9 +308,9 @@ Settings for the config created/failed notification.
 Set the `disable-failed` flag to disable the "Failed to parse the config file" notification.
 For example, if you have a custom one.
 
-```kdl
-config-notification {
-    disable-failed
+```lua
+neori.config_notification {
+    disable_failed = true,
 }
 ```
 
@@ -337,14 +322,14 @@ Blur configuration that affects all background blur.
 
 See the [window effects page](./Window-Effects.md) for an overview of background effects.
 
-```kdl
-// These are the default values:
-blur {
-    // off
-    passes 3
-    offset 3
-    noise 0.02
-    saturation 1.5
+```lua
+-- These are the default values:
+neori.blur {
+    -- off = true
+    passes = 3,
+    offset = 3,
+    noise = 0.02,
+    saturation = 1.5,
 }
 ```
 
@@ -355,9 +340,9 @@ You can also enable it manually with the `blur true` background effect [window](
 
 Setting the `off` flag will disable all blur, both requested by the window, and configured in window rules.
 
-```kdl
-blur {
-    off
+```lua
+neori.blur {
+    off = true,
 }
 ```
 
@@ -377,10 +362,10 @@ When configuring blur, try increasing `offset` first (since it doesn't cause any
 Then, if you still need smoother blur, increase `passes` by 1.
 Keep doing this until you get the desired visuals. 
 
-```kdl
-blur {
-    passes 3
-    offset 3.0
+```lua
+neori.blur {
+    passes = 3,
+    offset = 3.0,
 }
 ```
 
@@ -390,9 +375,9 @@ Amount of noise to add on top of the blur.
 
 This is helpful to reduce color banding artifacts.
 
-```kdl
-blur {
-    noise 0.02
+```lua
+neori.blur {
+    noise = 0.02,
 }
 ```
 
@@ -402,8 +387,8 @@ Color saturation applied to the blurred background.
 
 Values above `1` increase saturation; values below `1` reduce it.
 
-```kdl
-blur {
-    saturation 1.5
+```lua
+neori.blur {
+    saturation = 1.5,
 }
 ```
