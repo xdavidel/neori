@@ -2011,17 +2011,19 @@ fn focusing_a_workspace_number_does_not_create_intermediate_workspaces() {
 }
 
 #[test]
-fn switch_workspace_up_down_skips_missing_numbers() {
+fn switch_workspace_up_down_skips_empty_workspaces() {
+    // Workspace 1 has a window; jump to workspace 6, which starts out empty.
     let mut layout = check_ops([
         Op::AddOutput(1),
         Op::AddWindow {
             params: TestWindowParams::new(0),
         },
-        // Create workspace 6, leaving a gap at 2..=5.
         Op::FocusWorkspace(5),
+        Op::CompleteAnimations,
     ]);
 
-    // Up from 6 jumps to the next existing number below it (1), not 5.
+    // Up from the empty workspace 6 lands on the workspace with a window (1),
+    // not on some empty workspace in between.
     layout.switch_workspace_up();
     assert_eq!(layout.active_workspace_number(), Some(1));
 
@@ -2029,7 +2031,43 @@ fn switch_workspace_up_down_skips_missing_numbers() {
     layout.switch_workspace_up();
     assert_eq!(layout.active_workspace_number(), Some(1));
 
-    // Down from 1 jumps to the next existing number (6), not 2.
+    // Down skips the empty workspace 6 and creates a fresh one at 2.
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace_number(), Some(2));
+
+    // Already on the empty workspace, so down is a no-op: we never accumulate a
+    // second empty workspace or inflate the workspace numbers.
+    layout.switch_workspace_down();
+    assert_eq!(layout.active_workspace_number(), Some(2));
+
+    layout.verify_invariants();
+}
+
+#[test]
+fn switch_workspace_up_down_skips_missing_numbers() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        // Create workspace 6 with a window, leaving a gap at 2..=5.
+        Op::FocusWorkspace(5),
+        Op::CompleteAnimations,
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::CompleteAnimations,
+    ]);
+
+    // Up from 6 jumps to the next existing non-empty number below it (1), not 5.
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    // Nothing exists below 1, so up is a no-op.
+    layout.switch_workspace_up();
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    // Down from 1 jumps to the next existing non-empty number (6), not 2.
     layout.switch_workspace_down();
     assert_eq!(layout.active_workspace_number(), Some(6));
 
@@ -2063,7 +2101,7 @@ fn removing_output_must_keep_empty_focus_on_primary() {
 }
 
 #[test]
-fn move_to_workspace_by_idx_keeps_source_workspace() {
+fn move_to_workspace_by_idx_cleans_up_emptied_source_workspace() {
     let ops = [
         Op::AddOutput(1),
         Op::AddWindow {
@@ -2077,7 +2115,7 @@ fn move_to_workspace_by_idx_keeps_source_workspace() {
         Op::RemoveOutput(1),
         Op::MoveWindowToWorkspace {
             window_id: Some(0),
-            workspace_idx: 2,
+            workspace_idx: 1,
         },
     ];
 
@@ -2087,10 +2125,11 @@ fn move_to_workspace_by_idx_keeps_source_workspace() {
         unreachable!()
     };
 
-    // Global workspace model: empty workspaces are kept, and the monitor's active
-    // workspace is still #2 (index 1) after moving the window without focusing.
-    assert_eq!(monitors[0].active_workspace_idx, 1);
-    assert!(monitors[0].workspaces[0].index() < monitors[0].workspaces[1].index());
+    // Moving the only window off the source workspace leaves it empty, so it is
+    // cleaned up rather than lingering: the monitor keeps a single workspace.
+    assert_eq!(monitors[0].workspaces.len(), 1);
+    assert_eq!(monitors[0].active_workspace_idx, 0);
+    assert!(monitors[0].workspaces[0].has_windows());
 }
 
 #[test]
@@ -2331,7 +2370,9 @@ fn move_workspace_to_output() {
     assert_eq!(monitors[0].workspaces.len(), 1);
     assert!(!monitors[0].workspaces[0].has_windows());
     assert_eq!(monitors[1].active_workspace_idx, 0);
-    assert_eq!(monitors[1].workspaces.len(), 2);
+    // The destination's previously-empty workspace is cleaned up once the moved
+    // (non-empty) workspace becomes active, so only the moved workspace remains.
+    assert_eq!(monitors[1].workspaces.len(), 1);
     assert!(monitors[1].workspaces[0].has_windows());
 }
 

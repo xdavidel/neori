@@ -368,9 +368,9 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn into_workspaces(mut self) -> Vec<Workspace<W>> {
-        // In the global workspace model, empty workspaces are kept with their number
-        // and monitor assignment, so nothing is removed here. The workspaces are
-        // simply unbound from this output.
+        // Workspaces keep their globally-unique number when unbound from this
+        // output; empty ones are removed later by `clean_up_workspaces` once they
+        // are no longer active.
         for ws in &mut self.workspaces {
             ws.set_output(None);
         }
@@ -444,8 +444,9 @@ impl<W: LayoutElement> Monitor<W> {
     /// Creates an empty workspace with the given global number.
     ///
     /// The workspace is inserted in its ordered position by number, keeping each
-    /// monitor's workspace list sorted, and keeping the last workspace of the
-    /// monitor empty.
+    /// monitor's workspace list sorted. It is empty until a window is added to
+    /// it, and is removed by [`Self::clean_up_workspaces`] once it stops being
+    /// the active workspace.
     pub fn add_workspace_with_number(&mut self, index: u32) -> usize {
         let ws = Workspace::new_with_number(
             index,
@@ -661,13 +662,28 @@ impl<W: LayoutElement> Monitor<W> {
     }
 
     pub fn clean_up_workspaces(&mut self) {
-        // In the global workspace model, empty workspaces keep their number and
-        // monitor assignment (Hyprland-style), so there is nothing to clean up.
-        //
-        // This is deliberately a no-op: workspaces are never removed automatically.
-        // Keeping the name avoids touching every call site that used to rely on
-        // the old dynamic-stack clean-up behavior.
         assert!(self.workspace_switch.is_none());
+
+        // Remove every empty, unnamed workspace that isn't currently active, so
+        // that at most one empty workspace (the active one) remains on this
+        // monitor. This keeps navigation from passing through leftover empty
+        // workspaces; workspace numbers are stable, so the remaining workspaces
+        // do not need renumbering.
+        //
+        // `empty_workspace_above_first` is force-disabled in the global workspace
+        // model, so there is no "keep an empty workspace at the start" case.
+        for idx in (0..self.workspaces.len()).rev() {
+            if self.active_workspace_idx == idx {
+                continue;
+            }
+
+            if !self.workspaces[idx].has_windows_or_name() {
+                self.workspaces.remove(idx);
+                if self.active_workspace_idx > idx {
+                    self.active_workspace_idx -= 1;
+                }
+            }
+        }
     }
 
     pub fn unname_workspace(&mut self, id: WorkspaceId) -> bool {
@@ -2103,8 +2119,8 @@ impl<W: LayoutElement> Monitor<W> {
             assert!(after_idx < self.workspaces.len());
         }
 
-        // In the global workspace model, empty and unnamed workspaces are kept
-        // indefinitely, so there is no "empty workspace in the end" invariant.
+        // Empty and unnamed workspaces are cleaned up unless they are the active
+        // workspace, so there is no "empty workspace at the end" invariant.
         // Each monitor's workspace list is kept sorted by workspace number, and
         // numbers are globally unique.
         for pair in self.workspaces.windows(2) {

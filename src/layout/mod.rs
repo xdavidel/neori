@@ -2302,8 +2302,10 @@ impl<W: LayoutElement> Layout<W> {
         };
         // Numbers can be sparse, so jump to the previous existing workspace
         // rather than blindly decrementing the number (which would create gaps).
+        // Empty workspaces are skipped: navigation never lands on one.
         let previous = self
             .workspaces()
+            .filter(|(_, _, ws)| ws.has_windows_or_name())
             .map(|(_, _, ws)| ws.index())
             .filter(|&n| n < number)
             .max();
@@ -2316,16 +2318,24 @@ impl<W: LayoutElement> Layout<W> {
         let Some(number) = self.active_workspace_number() else {
             return;
         };
-        // Jump to the next existing workspace; only create a new one when
-        // there is nothing higher to move to.
+        // Jump to the next existing workspace with windows or a name; empty
+        // workspaces are skipped, so navigation never lands on one. When there is
+        // nothing higher, a new empty workspace is created only if the current one
+        // is in use; moving down while already on the empty workspace is a no-op,
+        // so no more than one empty workspace ever exists.
         let next = self
             .workspaces()
+            .filter(|(_, _, ws)| ws.has_windows_or_name())
             .map(|(_, _, ws)| ws.index())
             .filter(|&n| n > number)
             .min();
-        match next {
-            Some(next) => self.switch_workspace(next),
-            None => self.switch_workspace(number + 1),
+        if let Some(next) = next {
+            self.switch_workspace(next);
+        } else if self
+            .workspaces()
+            .any(|(_, _, ws)| ws.index() == number && ws.has_windows_or_name())
+        {
+            self.switch_workspace(number + 1);
         }
     }
 

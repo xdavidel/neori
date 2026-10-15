@@ -137,8 +137,8 @@ static WORKSPACE_ID_COUNTER: IdCounter = IdCounter::new();
 //
 // Every workspace gets a unique number from this counter on creation, so that no
 // two workspaces across all monitors ever share the same number. Workspaces keep
-// their number for their entire lifetime (empty workspaces are not removed), so
-// the sequence 1, 2, 3, ... never needs to be renumbered.
+// their number for their entire lifetime, even as empty ones are removed, so the
+// sequence 1, 2, 3, ... is never reused and never needs renumbering.
 //
 // The counter is thread-local because a compositor creates and mutates all of its
 // workspaces on a single thread; keeping it local also gives each test its own
