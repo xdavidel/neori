@@ -17,7 +17,7 @@ use crate::animation::{Animation, Clock};
 use crate::neori_render_elements;
 use crate::render_helpers::memory::MemoryBuffer;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::utils::{output_size, to_physical_precise_round};
@@ -146,7 +146,7 @@ impl ExitConfirmDialog {
         matches!(self.state, State::Showing(_) | State::Hiding(_))
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         output: &Output,

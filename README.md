@@ -16,7 +16,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 - **Sparse on-demand workspace numbering** — focusing a workspace doesn't auto-create intermediate gaps
 - **Config validation and API** — full `neori.*` Lua API with `startup`/`monitor-added`/`monitor-removed` hooks
 
-### Niri features (inherited)
+### Neori features (inherited)
 
 - Scrollable-tiling layout
 - Dynamic workspaces (per-monitor)
@@ -39,7 +39,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 
 ### Getting started
 
-Follow the [niri getting started guide](https://niri-wm.github.io/niri/Getting-Started.html) for build/runtime details. The main difference is configuration: use `~/.config/neori/config.lua` (or `/etc/neori/config.lua`, or `NEORI_CONFIG`). See `resources/default-config.lua` for a reference.
+Follow the [neori getting started guide](https://neori-wm.github.io/neori/Getting-Started.html) for build/runtime details. The main difference is configuration: use `~/.config/neori/config.lua` (or `/etc/neori/config.lua`, or `NEORI_CONFIG`). See `resources/default-config.lua` for a reference.
 
 ### Upstream
 

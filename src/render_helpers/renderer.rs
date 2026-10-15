@@ -7,33 +7,33 @@ use smithay::backend::renderer::{
 use crate::backend::tty::{TtyFrame, TtyRenderer};
 
 /// Trait with our main renderer requirements to save on the typing.
-pub trait NiriRenderer:
+pub trait NeoriRenderer:
     ImportAll
     + ImportMem
     + ExportMem
     + Bind<Dmabuf>
     + Offscreen<GlesTexture>
-    + Renderer<TextureId = Self::NiriTextureId, Error = Self::NiriError>
+    + Renderer<TextureId = Self::NeoriTextureId, Error = Self::NeoriError>
     + AsGlesRenderer
 {
     // Associated types to work around the instability of associated type bounds.
-    type NiriTextureId: Texture + Clone + Send + 'static;
-    type NiriError: std::error::Error
+    type NeoriTextureId: Texture + Clone + Send + 'static;
+    type NeoriError: std::error::Error
         + Send
         + Sync
         + From<<GlesRenderer as RendererSuper>::Error>
         + 'static;
 }
 
-impl<R> NiriRenderer for R
+impl<R> NeoriRenderer for R
 where
     R: ImportAll + ImportMem + ExportMem + Bind<Dmabuf> + Offscreen<GlesTexture> + AsGlesRenderer,
     R::TextureId: Texture + Clone + Send + 'static,
     R::Error:
         std::error::Error + Send + Sync + From<<GlesRenderer as RendererSuper>::Error> + 'static,
 {
-    type NiriTextureId = R::TextureId;
-    type NiriError = R::Error;
+    type NeoriTextureId = R::TextureId;
+    type NeoriError = R::Error;
 }
 
 /// Trait for getting the underlying `GlesRenderer`.

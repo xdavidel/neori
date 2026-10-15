@@ -4,11 +4,11 @@ use smithay::backend::renderer::utils::CommitCounter;
 use smithay::backend::renderer::Color32F;
 use smithay::utils::Scale;
 
-use super::renderer::NiriRenderer;
+use super::renderer::NeoriRenderer;
 use super::solid_color::SolidColorRenderElement;
 use crate::neori::OutputRenderElements;
 
-pub fn push_opaque_regions<R: NiriRenderer>(
+pub fn push_opaque_regions<R: NeoriRenderer>(
     elem: &OutputRenderElements<R>,
     scale: Scale<f64>,
     push: &mut dyn FnMut(OutputRenderElements<R>),
@@ -50,7 +50,7 @@ pub fn push_opaque_regions<R: NiriRenderer>(
     }
 }
 
-pub fn draw_damage<R: NiriRenderer>(
+pub fn draw_damage<R: NeoriRenderer>(
     damage_tracker: &mut OutputDamageTracker,
     elements: &mut Vec<OutputRenderElements<R>>,
 ) {

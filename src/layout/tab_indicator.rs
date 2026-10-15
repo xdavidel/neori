@@ -9,7 +9,7 @@ use super::LayoutElement;
 use crate::animation::{Animation, Clock};
 use crate::neori_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::utils::{
     floor_logical_in_physical_max1, round_logical_in_physical, round_logical_in_physical_max1,
 };
@@ -292,7 +292,7 @@ impl TabIndicator {
 
     pub fn render(
         &self,
-        renderer: &mut impl NiriRenderer,
+        renderer: &mut impl NeoriRenderer,
         pos: Point<f64, Logical>,
         push: &mut dyn FnMut(TabIndicatorRenderElement),
     ) {

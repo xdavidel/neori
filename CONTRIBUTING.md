@@ -13,7 +13,7 @@ This is a good way to help many new and existing users without programming knowl
 
 - Answer and help people in GitHub issues and discussions.
 - Check and point out duplicate issues.
-- Check for issues that are likely application bugs (and not niri bugs).
+- Check for issues that are likely application bugs (and not neori bugs).
     - Ask or try to reproduce on another non-Smithay-based compositor (sway, KDE/KWin, GNOME/Mutter). If the issue reproduces, it's likely an application bug.
     - Ask or try to reproduce on another *Smithay-based* compositor ([cosmic-comp], [anvil]). If the issue reproduces only on Smithay compositors, it may be a Smithay bug.
     - Make sure you're testing the Wayland version of the app on all compositors. Apps may silently use X11 when an X11 `$DISPLAY` is available.
@@ -23,7 +23,7 @@ This is a good way to help many new and existing users without programming knowl
 - Upvote issues with a thumbs up reaction as you like.
 - Ideas and feature requests from new users should go to Discussions.
 
-If your issue is a duplicate, or not a niri issue (application bug, hardware problem, configuration problem), then please close it.
+If your issue is a duplicate, or not a neori issue (application bug, hardware problem, configuration problem), then please close it.
 
 ## Reviewing and testing pull requests
 
@@ -33,10 +33,10 @@ I would really appreciate help with testing and reviewing them.
 ### Testing
 
 Pick a pull request you like, then build it and give it a go.
-The [Developing niri wiki page](https://niri-wm.github.io/niri/Development:-Developing-niri) has guidance on running niri test builds.
+The [Developing neori wiki page](https://neori-wm.github.io/neori/Development:-Developing-neori) has guidance on running neori test builds.
 
 Be really thorough with your testing.
-We're striving for polished features in niri, so point out any issues and bugs, even small ones like animation jank.
+We're striving for polished features in neori, so point out any issues and bugs, even small ones like animation jank.
 
 - Think of weird edge cases or unexpected interactions and try them to see that they work reasonably.
 - Try to break the feature and check that it behaves well.
@@ -54,13 +54,13 @@ Don't hesitate to test even if someone else already did; very frequently differe
 ### Reviewing
 
 Reviewing pull requests is something I need the most help with since there are a lot of them, and it's quite time-consuming.
-Anyone with code accepted into niri is welcome, but this is not a requirement; even if you aren't familiar with Rust you may find some logic problems.
+Anyone with code accepted into neori is welcome, but this is not a requirement; even if you aren't familiar with Rust you may find some logic problems.
 
 Pick a pull request, then review its code.
 
 - Check that everything looks good, check various conditions for edge cases.
 - See if there are any scenarios the author forgot to handle.
-- Check that the code fits well into the rest of niri, follows its design and code style.
+- Check that the code fits well into the rest of neori, follows its design and code style.
     - I understand this is vague. The idea is: look at the surrounding code and at similar modules (e.g. when implementing a new protocol, check other protocol implementations), and try to follow the style and structure.
 - Check for unrelated changes that may be better split into their own pull request.
 - Check that the wiki had been updated if necessary (for example, new config options were documented with examples, and have a correct Since annotation).
@@ -77,7 +77,7 @@ Extra pairs of eyes catch more problems.
 
 When creating pull requests, please keep the following in mind.
 
-- Make sure new features align with niri's design directions. Ideally, there should be an existing issue or discussion where we settled on that solution.
+- Make sure new features align with neori's design directions. Ideally, there should be an existing issue or discussion where we settled on that solution.
 - Keep pull requests focused on a single feature or bug fix with no unrelated changes.
 - Try to split your changes into small, self-contained commits. Every commit should build and pass tests. This makes it much easier to review your PR, and bisect for regressions in the future.
     - When addressing PR comments, try to squash the changes straight into the relevant commits.
@@ -86,7 +86,7 @@ When creating pull requests, please keep the following in mind.
     - When working on bigger features, I usually start with a big messy commit, then gradually split out smaller self-contained changes from it as the code gets into shape.
     - [git-rebase.io](https://git-rebase.io/) is a helpful guide for splitting commits and cleaning up history in git.
 - When you address a review comment, mark it as resolved.
-- Remember to [run tests](https://niri-wm.github.io/niri/Development:-Developing-niri#tests) and format the code with `cargo +nightly fmt --all`.
+- Remember to [run tests](https://neori-wm.github.io/neori/Development:-Developing-neori#tests) and format the code with `cargo +nightly fmt --all`.
 - For new layout actions, remember to add them to the randomized tests. For weird Wayland handling, adding client-server tests in `src/tests/` could be very useful.
 - Test your changes by hand thoroughly, including for edge cases and weird interactions. See the Testing section above for some tips.
 - Remember to document new config options on the wiki.

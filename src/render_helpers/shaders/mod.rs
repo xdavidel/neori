@@ -6,7 +6,7 @@ use smithay::backend::renderer::gles::{
     UniformValue,
 };
 
-use super::renderer::NiriRenderer;
+use super::renderer::NeoriRenderer;
 use super::shader_element::ShaderProgram;
 use crate::render_helpers::blur::BlurProgram;
 
@@ -168,7 +168,7 @@ impl Shaders {
             .expect("shaders::init() must be called when creating the renderer")
     }
 
-    pub fn get(renderer: &mut impl NiriRenderer) -> &Self {
+    pub fn get(renderer: &mut impl NeoriRenderer) -> &Self {
         let renderer = renderer.as_gles_renderer();
         let data = renderer.egl_context().user_data();
         data.get()

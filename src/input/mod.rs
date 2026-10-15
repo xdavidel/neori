@@ -66,7 +66,7 @@ pub mod swipe_tracker;
 pub mod touch_overview_grab;
 pub mod touch_resize_grab;
 
-use backend_ext::{NiriInputBackend as InputBackend, NiriInputDevice as _};
+use backend_ext::{NeoriInputBackend as InputBackend, NeoriInputDevice as _};
 
 pub const DOUBLE_CLICK_TIME: Duration = Duration::from_millis(400);
 

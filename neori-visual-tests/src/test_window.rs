@@ -7,7 +7,7 @@ use neori::layout::{
     LayoutElementRenderSnapshot, SizingMode,
 };
 use neori::render_helpers::offscreen::OffscreenData;
-use neori::render_helpers::renderer::NiriRenderer;
+use neori::render_helpers::renderer::NeoriRenderer;
 use neori::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use neori::render_helpers::RenderCtx;
 use neori::utils::transaction::Transaction;
@@ -149,7 +149,7 @@ impl LayoutElement for TestWindow {
         false
     }
 
-    fn render_normal<R: NiriRenderer>(
+    fn render_normal<R: NeoriRenderer>(
         &self,
         _ctx: RenderCtx<R>,
         location: Point<f64, Logical>,

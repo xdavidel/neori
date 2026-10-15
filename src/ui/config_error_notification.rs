@@ -16,7 +16,7 @@ use smithay::utils::{Point, Transform};
 
 use crate::animation::{Animation, Clock};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::utils::{output_size, to_physical_precise_round};
 
@@ -130,7 +130,7 @@ impl ConfigErrorNotification {
         !matches!(self.state, State::Hidden)
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         output: &Output,

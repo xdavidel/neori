@@ -10,7 +10,7 @@ use smithay::gpu_span_location;
 use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform};
 
-use super::renderer::NiriRenderer;
+use super::renderer::NeoriRenderer;
 use super::shader_element::ShaderRenderElement;
 use super::shaders::{mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
@@ -184,7 +184,7 @@ impl ShadowRenderElement {
         self
     }
 
-    pub fn has_shader(renderer: &mut impl NiriRenderer) -> bool {
+    pub fn has_shader(renderer: &mut impl NeoriRenderer) -> bool {
         Shaders::get(renderer)
             .program(ProgramType::Shadow)
             .is_some()

@@ -33,7 +33,7 @@ use crate::render_helpers::clipped_surface::ClippedSurfaceRenderElement;
 use crate::render_helpers::gradient_fade_texture::GradientFadeTextureRenderElement;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::render_helpers::RenderCtx;
@@ -336,7 +336,7 @@ impl Thumbnail {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render<R: NiriRenderer>(
+    fn render<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         config: &neori_config::RecentWindows,
@@ -1093,7 +1093,7 @@ impl WindowMruUi {
         }
     }
 
-    pub fn render_output<R: NiriRenderer>(
+    pub fn render_output<R: NeoriRenderer>(
         &self,
         neori: &Neori,
         output: &Output,
@@ -1550,7 +1550,7 @@ impl Inner {
         })
     }
 
-    fn render<R: NiriRenderer>(
+    fn render<R: NeoriRenderer>(
         &self,
         neori: &Neori,
         mut ctx: RenderCtx<R>,

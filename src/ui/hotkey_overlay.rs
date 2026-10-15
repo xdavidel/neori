@@ -16,7 +16,7 @@ use smithay::reexports::gbm::Format as Fourcc;
 use smithay::utils::{Scale, Transform};
 
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::texture::{TextureBuffer, TextureRenderElement};
 use crate::utils::{output_size, to_physical_precise_round};
 
@@ -75,7 +75,7 @@ impl HotkeyOverlay {
         self.buffers.borrow_mut().clear();
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         output: &Output,

@@ -23,7 +23,7 @@ use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::clipped_surface::{ClippedSurfaceRenderElement, RoundedCornerDamage};
 use crate::render_helpers::damage::ExtraDamage;
 use crate::render_helpers::offscreen::{OffscreenBuffer, OffscreenRenderElement};
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::resize::ResizeRenderElement;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::snapshot::RenderSnapshot;
@@ -1021,7 +1021,7 @@ impl<W: LayoutElement> Tile<W> {
         Point::from((0., y))
     }
 
-    fn render_inner<R: NiriRenderer>(
+    fn render_inner<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
@@ -1314,7 +1314,7 @@ impl<W: LayoutElement> Tile<W> {
         );
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         location: Point<f64, Logical>,

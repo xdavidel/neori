@@ -31,7 +31,7 @@ use crate::neori_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::border::BorderRenderElement;
 use crate::render_helpers::offscreen::OffscreenData;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::{
@@ -495,7 +495,7 @@ impl Mapped {
         &self.last_interactive_resize_start
     }
 
-    pub fn render_for_screen_cast<R: NiriRenderer>(
+    pub fn render_for_screen_cast<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         scale: Scale<f64>,
@@ -643,7 +643,7 @@ impl LayoutElement for Mapped {
         self.window.is_in_input_region(&surface_local)
     }
 
-    fn render_normal<R: NiriRenderer>(
+    fn render_normal<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
@@ -673,7 +673,7 @@ impl LayoutElement for Mapped {
         }
     }
 
-    fn render_popups<R: NiriRenderer>(
+    fn render_popups<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         location: Point<f64, Logical>,

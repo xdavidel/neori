@@ -6,31 +6,31 @@ use smithay::output::Output;
 use crate::neori::State;
 use crate::protocols::virtual_pointer::VirtualPointer;
 
-pub trait NiriInputBackend: input::InputBackend<Device = Self::NiriDevice> {
-    type NiriDevice: NiriInputDevice;
+pub trait NeoriInputBackend: input::InputBackend<Device = Self::NeoriDevice> {
+    type NeoriDevice: NeoriInputDevice;
 }
-impl<T: input::InputBackend> NiriInputBackend for T
+impl<T: input::InputBackend> NeoriInputBackend for T
 where
-    Self::Device: NiriInputDevice,
+    Self::Device: NeoriInputDevice,
 {
-    type NiriDevice = Self::Device;
+    type NeoriDevice = Self::Device;
 }
 
-pub trait NiriInputDevice: input::Device {
+pub trait NeoriInputDevice: input::Device {
     // FIXME: this should maybe be per-event, not per-device,
     // but it's not clear that this matters in practice?
     // it might be more obvious once we implement it for libinput
     fn output(&self, state: &State) -> Option<Output>;
 }
 
-impl NiriInputDevice for libinput::Device {
+impl NeoriInputDevice for libinput::Device {
     fn output(&self, _state: &State) -> Option<Output> {
         // FIXME: Allow specifying the output per-device?
         None
     }
 }
 
-impl NiriInputDevice for WinitVirtualDevice {
+impl NeoriInputDevice for WinitVirtualDevice {
     fn output(&self, _state: &State) -> Option<Output> {
         // FIXME: we should be returning the single output that the winit backend creates,
         // but for now, that will cause issues because the output is normally upside down,
@@ -44,7 +44,7 @@ impl NiriInputDevice for WinitVirtualDevice {
     }
 }
 
-impl NiriInputDevice for VirtualPointer {
+impl NeoriInputDevice for VirtualPointer {
     fn output(&self, _: &State) -> Option<Output> {
         self.output().cloned()
     }

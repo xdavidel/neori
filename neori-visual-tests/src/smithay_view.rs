@@ -44,7 +44,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for SmithayView {
-        const NAME: &'static str = "NiriSmithayView";
+        const NAME: &'static str = "NeoriSmithayView";
         type Type = super::SmithayView;
         type ParentType = gtk::Widget;
 

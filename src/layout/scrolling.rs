@@ -20,7 +20,7 @@ use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::layout::SizingMode;
 use crate::neori_render_elements;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::xray::XrayPos;
 use crate::render_helpers::RenderCtx;
 use crate::utils::transaction::{Transaction, TransactionBlocker};
@@ -2898,7 +2898,7 @@ impl<W: LayoutElement> ScrollingSpace<W> {
             .is_fullscreen()
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         xray_pos: XrayPos,

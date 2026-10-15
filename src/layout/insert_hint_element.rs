@@ -2,7 +2,7 @@ use neori_config::CornerRadius;
 use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use super::focus_ring::{FocusRing, FocusRingRenderElement};
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 
 #[derive(Debug)]
 pub struct InsertHintElement {
@@ -57,7 +57,7 @@ impl InsertHintElement {
 
     pub fn render(
         &self,
-        renderer: &mut impl NiriRenderer,
+        renderer: &mut impl NeoriRenderer,
         location: Point<f64, Logical>,
         push: &mut dyn FnMut(FocusRingRenderElement),
     ) {

@@ -61,7 +61,7 @@ use crate::layout::scrolling::ScrollDirection;
 use crate::neori_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
 use crate::render_helpers::offscreen::OffscreenData;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::texture::TextureBuffer;
@@ -160,7 +160,7 @@ pub trait LayoutElement {
     ///
     /// The element should be rendered in such a way that its visual geometry ends up at the given
     /// location.
-    fn render<R: NiriRenderer>(
+    fn render<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
@@ -174,7 +174,7 @@ pub trait LayoutElement {
     }
 
     /// Renders the non-popup parts of the element.
-    fn render_normal<R: NiriRenderer>(
+    fn render_normal<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
@@ -186,7 +186,7 @@ pub trait LayoutElement {
     }
 
     /// Renders the popups of the element.
-    fn render_popups<R: NiriRenderer>(
+    fn render_popups<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         location: Point<f64, Logical>,
@@ -5147,7 +5147,7 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
-    pub fn render_interactive_move_for_output<R: NiriRenderer>(
+    pub fn render_interactive_move_for_output<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         output: &Output,

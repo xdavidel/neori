@@ -155,7 +155,7 @@ use crate::protocols::virtual_pointer::VirtualPointerManagerState;
 use crate::render_helpers::blur::BlurOptions;
 use crate::render_helpers::debug::push_opaque_regions;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::push_elements_from_surface_tree;
 use crate::render_helpers::texture::TextureBuffer;
@@ -3760,7 +3760,7 @@ impl Neori {
         }
     }
 
-    pub fn render_pointer<R: NiriRenderer>(
+    pub fn render_pointer<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         output: &Output,
@@ -4223,7 +4223,7 @@ impl Neori {
         }
     }
 
-    pub fn render_to_vec<R: NiriRenderer>(
+    pub fn render_to_vec<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         output: &Output,
@@ -4236,7 +4236,7 @@ impl Neori {
         elements
     }
 
-    pub fn render<R: NiriRenderer>(
+    pub fn render<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         output: &Output,
@@ -4266,7 +4266,7 @@ impl Neori {
         self.clear_xray_elements(output);
     }
 
-    fn render_inner<R: NiriRenderer>(
+    fn render_inner<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         output: &Output,
@@ -4617,7 +4617,7 @@ impl Neori {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_layer_normal<R: NiriRenderer>(
+    fn render_layer_normal<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         ns: Option<usize>,
@@ -4635,7 +4635,7 @@ impl Neori {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_layer_popups<R: NiriRenderer>(
+    fn render_layer_popups<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         ns: Option<usize>,

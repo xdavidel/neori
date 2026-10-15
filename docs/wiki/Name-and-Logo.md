@@ -9,8 +9,7 @@ The simple versions are single-color and suitable for smaller sizes.
 | normal | ![](./logo/neori-logo.svg)      | ![](./logo/neori-icon.svg)      |
 | simple | ![](./logo/neori-logo-smol.svg) | ![](./logo/neori-icon-smol.svg) |
 
-The logo is intentionally recolorable.
-In fact, there's [a webpage](https://nirilogo.raurutuchr.ink) that lets you quickly adjust the color and download an SVG.
+The logo is intentionally recolorable: the full-sized logo uses two accent colors over a muted baseline, while the simple versions are single-color and suitable for small sizes.
+The mark shows three rounded columns of differing heights resting on a horizontal strip, evoking neori's scrollable-tiling layout.
 
-All versions of the logo are licensed under [CC BY-SA](https://creativecommons.org/licenses/by-sa/4.0/).
-The full-sized logo is based on the [Cherry Bomb One](https://github.com/satsuyako/CherryBomb) font, licensed under the [SIL Open Font License 1.1](https://openfontlicense.org/).
+All versions of the logo are licensed under [CC BY-SA](https://creativecommons.org/licenses/by-sa/4.0/).

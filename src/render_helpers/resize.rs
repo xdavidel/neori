@@ -11,7 +11,7 @@ use smithay::gpu_span_location;
 use smithay::utils::user_data::UserDataMap;
 use smithay::utils::{Buffer, Logical, Physical, Rectangle, Scale, Size, Transform};
 
-use super::renderer::{AsGlesFrame, NiriRenderer};
+use super::renderer::{AsGlesFrame, NeoriRenderer};
 use super::shader_element::ShaderRenderElement;
 use super::shaders::{mat3_uniform, ProgramType, Shaders};
 use crate::backend::tty::{TtyFrame, TtyRenderer, TtyRendererError};
@@ -115,7 +115,7 @@ impl ResizeRenderElement {
         )
     }
 
-    pub fn has_shader(renderer: &mut impl NiriRenderer) -> bool {
+    pub fn has_shader(renderer: &mut impl NeoriRenderer) -> bool {
         Shaders::get(renderer)
             .program(ProgramType::Resize)
             .is_some()

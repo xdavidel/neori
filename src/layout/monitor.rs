@@ -21,7 +21,7 @@ use super::{compute_overview_zoom, ActivateWindow, HitType, LayoutElement, Optio
 use crate::animation::{Animation, Clock};
 use crate::input::swipe_tracker::SwipeTracker;
 use crate::neori_render_elements;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::SolidColorRenderElement;
 use crate::render_helpers::xray::XrayPos;
@@ -1659,7 +1659,7 @@ impl<W: LayoutElement> Monitor<W> {
         ws.render_above_top_layer()
     }
 
-    pub fn render_insert_hint_between_workspaces<R: NiriRenderer>(
+    pub fn render_insert_hint_between_workspaces<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         push: &mut dyn FnMut(MonitorRenderElement<R>),
@@ -1684,7 +1684,7 @@ impl<W: LayoutElement> Monitor<W> {
             });
     }
 
-    pub fn render_workspaces<R: NiriRenderer>(
+    pub fn render_workspaces<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         focus_ring: bool,
@@ -1765,7 +1765,7 @@ impl<W: LayoutElement> Monitor<W> {
         }
     }
 
-    pub fn render_workspace_shadows<R: NiriRenderer>(
+    pub fn render_workspace_shadows<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         push: &mut dyn FnMut(MonitorRenderElement<R>),

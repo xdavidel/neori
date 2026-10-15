@@ -12,7 +12,7 @@ use crate::animation::Clock;
 use crate::layout::shadow::Shadow;
 use crate::neori_render_elements;
 use crate::render_helpers::background_effect::BackgroundEffectElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::surface::push_elements_from_surface_tree;
@@ -184,7 +184,7 @@ impl MappedLayer {
         Point::from((0., y))
     }
 
-    pub fn render_normal<R: NiriRenderer>(
+    pub fn render_normal<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         ns: Option<usize>,
@@ -255,7 +255,7 @@ impl MappedLayer {
         );
     }
 
-    pub fn render_popups<R: NiriRenderer>(
+    pub fn render_popups<R: NeoriRenderer>(
         &self,
         mut ctx: RenderCtx<R>,
         ns: Option<usize>,

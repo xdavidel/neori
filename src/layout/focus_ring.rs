@@ -6,7 +6,7 @@ use smithay::utils::{Logical, Point, Rectangle, Size};
 
 use crate::neori_render_elements;
 use crate::render_helpers::border::BorderRenderElement;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 
 #[derive(Debug)]
@@ -217,7 +217,7 @@ impl FocusRing {
 
     pub fn render(
         &self,
-        renderer: &mut impl NiriRenderer,
+        renderer: &mut impl NeoriRenderer,
         location: Point<f64, Logical>,
         push: &mut dyn FnMut(FocusRingRenderElement),
     ) {

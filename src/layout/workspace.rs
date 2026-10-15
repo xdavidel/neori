@@ -30,7 +30,7 @@ use super::{
 };
 use crate::animation::Clock;
 use crate::neori_render_elements;
-use crate::render_helpers::renderer::NiriRenderer;
+use crate::render_helpers::renderer::NeoriRenderer;
 use crate::render_helpers::shadow::ShadowRenderElement;
 use crate::render_helpers::solid_color::{SolidColorBuffer, SolidColorRenderElement};
 use crate::render_helpers::xray::{Xray, XrayPos};
@@ -1693,7 +1693,7 @@ impl<W: LayoutElement> Workspace<W> {
         }
     }
 
-    pub fn render_scrolling<R: NiriRenderer>(
+    pub fn render_scrolling<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         xray_pos: XrayPos,
@@ -1707,7 +1707,7 @@ impl<W: LayoutElement> Workspace<W> {
             });
     }
 
-    pub fn render_floating<R: NiriRenderer>(
+    pub fn render_floating<R: NeoriRenderer>(
         &self,
         ctx: RenderCtx<R>,
         xray_pos: XrayPos,
@@ -1726,7 +1726,7 @@ impl<W: LayoutElement> Workspace<W> {
             });
     }
 
-    pub fn render_shadow<R: NiriRenderer>(
+    pub fn render_shadow<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
         push: &mut dyn FnMut(ShadowRenderElement),

@@ -7,7 +7,7 @@ macro_rules! neori_render_elements {
     ($name:ident<R> => { $($variant:ident = $type:ty),+ $(,)? }) => {
         $crate::neori_render_elements!(@impl $name () ($name<R>) => { $($variant = $type),+ });
 
-        $(impl<R: $crate::render_helpers::renderer::NiriRenderer> From<$type> for $name<R> {
+        $(impl<R: $crate::render_helpers::renderer::NeoriRenderer> From<$type> for $name<R> {
             fn from(x: $type) -> Self {
                 Self::$variant(x)
             }
@@ -31,11 +31,11 @@ macro_rules! neori_render_elements {
     (@impl $name:ident ($($name_no_R:ident)?) ($($name_R:ident<$R:ident>)?) => { $($variant:ident = $type:ty),+ }) => {
         #[allow(clippy::large_enum_variant)]
         #[derive(Debug)]
-        pub enum $name$(<$R: $crate::render_helpers::renderer::NiriRenderer>)? {
+        pub enum $name$(<$R: $crate::render_helpers::renderer::NeoriRenderer>)? {
             $($variant($type)),+
         }
 
-        impl$(<$R: $crate::render_helpers::renderer::NiriRenderer>)? smithay::backend::renderer::element::Element for $name$(<$R>)? {
+        impl$(<$R: $crate::render_helpers::renderer::NeoriRenderer>)? smithay::backend::renderer::element::Element for $name$(<$R>)? {
             fn id(&self) -> &smithay::backend::renderer::element::Id {
                 match self {
                     $($name::$variant(elem) => elem.id()),+
