@@ -1356,6 +1356,13 @@ pub struct Window {
     ///
     /// If the window isn't floating then it is in the tiling layout.
     pub is_floating: bool,
+    /// Whether this window is an X11 window, as opposed to a native Wayland window.
+    ///
+    /// X11 windows are run through xwayland-satellite, which neori starts on demand. This is
+    /// `true` for windows belonging to the xwayland-satellite process; it is `false` when the
+    /// xwayland-satellite integration is disabled, not running, or when the window is a native
+    /// Wayland window.
+    pub is_xwayland: bool,
     /// Whether this window requests your attention.
     pub is_urgent: bool,
     /// Position- and size-related properties of the window.

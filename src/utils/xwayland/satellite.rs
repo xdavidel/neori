@@ -19,15 +19,25 @@ pub struct Satellite {
     abstract_token: Option<RegistrationToken>,
     unix_token: Option<RegistrationToken>,
     to_main: Sender<ToMain>,
+    pid: Option<i32>,
 }
 
 enum ToMain {
     SetupWatch,
+    Spawned(i32),
 }
 
 impl Satellite {
     pub fn display_name(&self) -> &str {
         &self.x11.display_name
+    }
+
+    /// PID of the xwayland-satellite process, if it is currently running.
+    ///
+    /// All X11 windows are created by this process as a Wayland client, so a window whose client
+    /// PID matches this value is an X11 (Xwayland) window.
+    pub fn pid(&self) -> Option<i32> {
+        self.pid
     }
 }
 
@@ -61,6 +71,11 @@ pub fn setup(state: &mut State) {
         .insert_source(rx, move |event, _, state| match event {
             calloop::channel::Event::Msg(msg) => match msg {
                 ToMain::SetupWatch => setup_watch(state),
+                ToMain::Spawned(pid) => {
+                    if let Some(satellite) = &mut state.neori.satellite {
+                        satellite.pid = Some(pid);
+                    }
+                }
             },
             calloop::channel::Event::Closed => (),
         })
@@ -71,6 +86,7 @@ pub fn setup(state: &mut State) {
         abstract_token: None,
         unix_token: None,
         to_main,
+        pid: None,
     });
 
     setup_watch(state);
@@ -250,7 +266,7 @@ fn spawn(path: String, xwl: &Satellite) {
     let res = thread::Builder::new()
         .name("Xwl-s Spawner".to_owned())
         .spawn(move || {
-            spawn_and_wait(&path, process, abstract_fd, unix_fd);
+            spawn_and_wait(&path, process, abstract_fd, unix_fd, to_main.clone());
 
             // Once xwayland-satellite crashes or fails to spawn, re-establish our X11 socket watch
             // to try again next time.
@@ -268,6 +284,7 @@ fn spawn_and_wait(
     mut process: Command,
     abstract_fd: Option<OwnedFd>,
     unix_fd: OwnedFd,
+    to_main: Sender<ToMain>,
 ) {
     let abstract_raw = abstract_fd.as_ref().map(|fd| fd.as_raw_fd());
     let unix_raw = unix_fd.as_raw_fd();
@@ -306,6 +323,10 @@ fn spawn_and_wait(
             }
         }
     };
+
+    // Report the PID to the main thread so that X11 windows can be told apart from Wayland ones.
+    let pid = i32::try_from(child.id()).unwrap_or(i32::MAX);
+    let _ = to_main.send(ToMain::Spawned(pid));
 
     // The process spawned, we can drop our fds.
     drop(abstract_fd);

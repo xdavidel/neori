@@ -516,6 +516,7 @@ fn make_ipc_window(
     mapped: &Mapped,
     workspace_id: Option<WorkspaceId>,
     layout: WindowLayout,
+    is_xwayland: bool,
 ) -> neori_ipc::Window {
     with_toplevel_role(mapped.toplevel(), |role| neori_ipc::Window {
         id: mapped.id().get(),
@@ -525,6 +526,7 @@ fn make_ipc_window(
         workspace_id: workspace_id.map(|id| id.get()),
         is_focused: mapped.is_focused(),
         is_floating: mapped.is_floating(),
+        is_xwayland,
         is_urgent: mapped.is_urgent(),
         layout,
         focus_timestamp: mapped.get_focus_timestamp().map(Timestamp::from),
@@ -698,6 +700,10 @@ impl State {
         let mut events = Vec::new();
         let layout = &self.neori.layout;
 
+        // PID of the xwayland-satellite process, if it is running. X11 windows belong to this
+        // process as a Wayland client.
+        let xwayland_pid = self.neori.satellite.as_ref().and_then(|s| s.pid());
+
         let mut batch_change_layouts: Vec<(u64, WindowLayout)> = Vec::new();
 
         // Check for window changes.
@@ -711,22 +717,26 @@ impl State {
                 focused_id = Some(id);
             }
 
+            let is_xwayland = xwayland_pid
+                .is_some_and(|pid| mapped.credentials().is_some_and(|c| c.pid == pid));
+
             let Some(ipc_win) = state.windows.get(&id) else {
-                let window = make_ipc_window(mapped, ws_id, window_layout);
+                let window = make_ipc_window(mapped, ws_id, window_layout, is_xwayland);
                 events.push(Event::WindowOpenedOrChanged { window });
                 return;
             };
 
             let workspace_id = ws_id.map(|id| id.get());
-            let mut changed =
-                ipc_win.workspace_id != workspace_id || ipc_win.is_floating != mapped.is_floating();
+            let mut changed = ipc_win.workspace_id != workspace_id
+                || ipc_win.is_floating != mapped.is_floating()
+                || ipc_win.is_xwayland != is_xwayland;
 
             changed |= with_toplevel_role(mapped.toplevel(), |role| {
                 ipc_win.title != role.title || ipc_win.app_id != role.app_id
             });
 
             if changed {
-                let window = make_ipc_window(mapped, ws_id, window_layout);
+                let window = make_ipc_window(mapped, ws_id, window_layout, is_xwayland);
                 events.push(Event::WindowOpenedOrChanged { window });
                 return;
             }
