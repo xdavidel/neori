@@ -1,5 +1,5 @@
 use glam::{Mat3, Vec2};
-use niri_config::CornerRadius;
+use neori_config::CornerRadius;
 use smithay::backend::renderer::buffer_y_inverted;
 use smithay::backend::renderer::element::surface::WaylandSurfaceRenderElement;
 use smithay::backend::renderer::element::{Element, Id, Kind, RenderElement, UnderlyingStorage};
@@ -92,7 +92,7 @@ impl<R: NiriRenderer> ClippedSurfaceRenderElement<R> {
         let geo_size = (self.geometry.size.w as f32, self.geometry.size.h as f32);
 
         vec![
-            Uniform::new("niri_scale", self.scale),
+            Uniform::new("neori_scale", self.scale),
             Uniform::new("geo_size", geo_size),
             Uniform::new("corner_radius", <[f32; 4]>::from(self.corner_radius)),
             mat3_uniform("input_to_geo", input_to_geo),

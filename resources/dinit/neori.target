@@ -1,0 +1,6 @@
+type           = internal
+restart        = false
+depends-on:    neori
+waits-for.d:   $XDG_CONFIG_HOME/dinit.d/neori.d/
+waits-for.d:   $HOME/.config/dinit.d/neori.d/
+waits-for.d:   /etc/dinit.d/user/neori.d/

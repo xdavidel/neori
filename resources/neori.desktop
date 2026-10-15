@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Neori
+Comment=A scrollable-tiling Wayland compositor with extended features
+Exec=neori-session
+Type=Application
+DesktopNames=neori

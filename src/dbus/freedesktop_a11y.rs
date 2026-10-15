@@ -18,7 +18,7 @@ use zbus::object_server::SignalEmitter;
 use zbus::zvariant::{NoneValue, OwnedObjectPath, SerializeDict, Type, Value};
 use zbus::{interface, DBusError};
 
-use crate::niri::{PointContents, State};
+use crate::neori::{PointContents, State};
 use crate::utils::get_credentials_for_surface;
 
 pub struct Manager {
@@ -26,11 +26,11 @@ pub struct Manager {
     pub pointer_locator: PointerLocator,
 }
 
-pub enum A11yManagerToNiri {
+pub enum A11yManagerToNeori {
     QueryPointer,
 }
 
-pub enum NiriToA11yManager {
+pub enum NeoriToA11yManager {
     PointerContents(Option<(PointerAppData, f64, f64)>),
 }
 
@@ -87,8 +87,8 @@ pub struct PointerAppData {
 pub struct PointerLocator {
     data: Arc<Mutex<PointerData>>,
     iface: Arc<OnceLock<InterfaceRef<Self>>>,
-    to_niri: calloop::channel::Sender<A11yManagerToNiri>,
-    from_niri: async_channel::Receiver<NiriToA11yManager>,
+    to_neori: calloop::channel::Sender<A11yManagerToNeori>,
+    from_neori: async_channel::Receiver<NeoriToA11yManager>,
 }
 
 #[derive(DBusError, Debug)]
@@ -442,16 +442,16 @@ impl PointerLocator {
         };
         let sender = OwnedUniqueName::from(sender.to_owned());
 
-        if let Err(err) = self.to_niri.send(A11yManagerToNiri::QueryPointer) {
-            warn!("error sending message to niri: {err:?}");
+        if let Err(err) = self.to_neori.send(A11yManagerToNeori::QueryPointer) {
+            warn!("error sending message to neori: {err:?}");
             return Err(A11yError::Failed("internal error".to_owned()));
         }
 
-        let rv = match self.from_niri.recv().await {
-            Ok(NiriToA11yManager::PointerContents(Some((data, x, y)))) => Ok((data, x, y)),
-            Ok(NiriToA11yManager::PointerContents(None)) => Err(A11yError::UnknownToplevel),
+        let rv = match self.from_neori.recv().await {
+            Ok(NeoriToA11yManager::PointerContents(Some((data, x, y)))) => Ok((data, x, y)),
+            Ok(NeoriToA11yManager::PointerContents(None)) => Err(A11yError::UnknownToplevel),
             Err(err) => {
-                warn!("error receiving message from niri: {err:?}");
+                warn!("error receiving message from neori: {err:?}");
                 Err(A11yError::Failed("internal error".to_owned()))
             }
         };
@@ -549,16 +549,16 @@ async fn monitor_disappeared_clients(
 
 impl Manager {
     pub fn new(
-        to_niri: calloop::channel::Sender<A11yManagerToNiri>,
-        from_niri: async_channel::Receiver<NiriToA11yManager>,
+        to_neori: calloop::channel::Sender<A11yManagerToNeori>,
+        from_neori: async_channel::Receiver<NeoriToA11yManager>,
     ) -> Self {
         Self {
             keyboard_monitor: KeyboardMonitor::default(),
             pointer_locator: PointerLocator {
                 data: Default::default(),
                 iface: Default::default(),
-                to_niri,
-                from_niri,
+                to_neori,
+                from_neori,
             },
         }
     }
@@ -633,11 +633,11 @@ impl State {
         keycode: Keycode,
         state: KeyState,
     ) -> KbMonBlock {
-        if self.niri.a11y_manager.is_none() {
+        if self.neori.a11y_manager.is_none() {
             return KbMonBlock::Pass;
         }
 
-        let keyboard = self.niri.seat.get_keyboard().unwrap();
+        let keyboard = self.neori.seat.get_keyboard().unwrap();
 
         let (mods, keysym, unichar) = keyboard.with_xkb_state(self, |context| {
             let xkb = context.xkb().lock().unwrap();
@@ -651,11 +651,11 @@ impl State {
             (mods, keysym, unichar)
         });
 
-        let config = self.niri.config.borrow();
+        let config = self.neori.config.borrow();
         let repeat_delay = Duration::from_millis(u64::from(config.input.keyboard.repeat_delay));
         let released = state == KeyState::Released;
 
-        let Some(manager) = &self.niri.a11y_manager else {
+        let Some(manager) = &self.neori.a11y_manager else {
             return KbMonBlock::Pass;
         };
         let monitor = &manager.keyboard_monitor;
@@ -663,7 +663,7 @@ impl State {
     }
 
     pub fn a11y_notify_pointer_motion(&mut self) {
-        let Some(manager) = &self.niri.a11y_manager else {
+        let Some(manager) = &self.neori.a11y_manager else {
             return;
         };
 
@@ -672,18 +672,18 @@ impl State {
 
     pub fn on_a11y_manager_msg(
         &mut self,
-        to_a11y: &async_channel::Sender<NiriToA11yManager>,
-        msg: A11yManagerToNiri,
+        to_a11y: &async_channel::Sender<NeoriToA11yManager>,
+        msg: A11yManagerToNeori,
     ) {
-        let A11yManagerToNiri::QueryPointer = msg;
+        let A11yManagerToNeori::QueryPointer = msg;
         let _span = tracy_client::span!("QueryPointer");
 
-        let pointer = &self.niri.seat.get_pointer().unwrap();
+        let pointer = &self.neori.seat.get_pointer().unwrap();
         let pointer_pos = pointer.current_location();
 
         // Grabs can modify pointer focus, but here let's ignore them. I'm not entirely sure what's
         // expected by a11y users though.
-        let contents = match &self.niri.pointer_contents {
+        let contents = match &self.neori.pointer_contents {
             PointContents {
                 surface: Some((surface, surface_pos)),
                 ..
@@ -709,12 +709,12 @@ impl State {
                 }
             }
             _ => {
-                // The focused client is niri itself.
+                // The focused client is neori itself.
                 Some((PointerAppData::default(), pointer_pos.x, pointer_pos.y))
             }
         };
 
-        let msg = NiriToA11yManager::PointerContents(contents);
+        let msg = NeoriToA11yManager::PointerContents(contents);
         if let Err(err) = to_a11y.send_blocking(msg) {
             warn!("error sending pointer contents to a11y manager: {err:?}");
         }

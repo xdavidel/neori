@@ -1,0 +1,7 @@
+type               = process
+command            = neori --session
+restart            = false
+working-dir        = $HOME
+ready-notification = pipevar:NOTIFY_FD
+logfile            = $HOME/.local/share/neori/neori.log
+depends-on:        dbus

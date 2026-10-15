@@ -3,7 +3,7 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 use glam::{Mat3, Vec2};
-use niri_config::BlockOutFrom;
+use neori_config::BlockOutFrom;
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::renderer::element::utils::{
     Relocate, RelocateRenderElement, RescaleRenderElement,
@@ -15,7 +15,7 @@ use smithay::utils::{Logical, Point, Rectangle, Scale, Size, Transform};
 use smithay::wayland::compositor::{Blocker, BlockerState};
 
 use crate::animation::Animation;
-use crate::niri_render_elements;
+use crate::neori_render_elements;
 use crate::render_helpers::primary_gpu_texture::PrimaryGpuTextureRenderElement;
 use crate::render_helpers::shader_element::ShaderRenderElement;
 use crate::render_helpers::shaders::{mat3_uniform, ProgramType, Shaders};
@@ -63,7 +63,7 @@ pub struct ClosingWindow {
     random_seed: f32,
 }
 
-niri_render_elements! {
+neori_render_elements! {
     ClosingWindowRenderElement => {
         Texture = RelocateRenderElement<RescaleRenderElement<PrimaryGpuTextureRenderElement>>,
         Shader = ShaderRenderElement,
@@ -257,14 +257,14 @@ impl ClosingWindow {
                 scale.x as f32,
                 1.,
                 Rc::new([
-                    mat3_uniform("niri_input_to_geo", input_to_geo),
-                    Uniform::new("niri_geo_size", geo_size.to_array()),
-                    mat3_uniform("niri_geo_to_tex", geo_to_tex),
-                    Uniform::new("niri_progress", progress as f32),
-                    Uniform::new("niri_clamped_progress", clamped_progress as f32),
-                    Uniform::new("niri_random_seed", self.random_seed),
+                    mat3_uniform("neori_input_to_geo", input_to_geo),
+                    Uniform::new("neori_geo_size", geo_size.to_array()),
+                    mat3_uniform("neori_geo_to_tex", geo_to_tex),
+                    Uniform::new("neori_progress", progress as f32),
+                    Uniform::new("neori_clamped_progress", clamped_progress as f32),
+                    Uniform::new("neori_random_seed", self.random_seed),
                 ]),
-                HashMap::from([(String::from("niri_tex"), buffer.texture().clone())]),
+                HashMap::from([(String::from("neori_tex"), buffer.texture().clone())]),
                 Kind::Unspecified,
             )
             .with_location(Point::from((0., 0.)))

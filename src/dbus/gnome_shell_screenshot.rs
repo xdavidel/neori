@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use niri_ipc::PickedColor;
+use neori_ipc::PickedColor;
 use zbus::fdo::{self, RequestNameFlags};
 use zbus::zvariant::OwnedValue;
 use zbus::{interface, zvariant};
@@ -9,16 +9,16 @@ use zbus::{interface, zvariant};
 use super::Start;
 
 pub struct Screenshot {
-    to_niri: calloop::channel::Sender<ScreenshotToNiri>,
-    from_niri: async_channel::Receiver<NiriToScreenshot>,
+    to_neori: calloop::channel::Sender<ScreenshotToNeori>,
+    from_neori: async_channel::Receiver<NeoriToScreenshot>,
 }
 
-pub enum ScreenshotToNiri {
+pub enum ScreenshotToNeori {
     TakeScreenshot { include_cursor: bool },
     PickColor(async_channel::Sender<Option<PickedColor>>),
 }
 
-pub enum NiriToScreenshot {
+pub enum NeoriToScreenshot {
     ScreenshotResult(Option<PathBuf>),
 }
 
@@ -31,20 +31,20 @@ impl Screenshot {
         _filename: PathBuf,
     ) -> fdo::Result<(bool, PathBuf)> {
         if let Err(err) = self
-            .to_niri
-            .send(ScreenshotToNiri::TakeScreenshot { include_cursor })
+            .to_neori
+            .send(ScreenshotToNeori::TakeScreenshot { include_cursor })
         {
-            warn!("error sending message to niri: {err:?}");
+            warn!("error sending message to neori: {err:?}");
             return Err(fdo::Error::Failed("internal error".to_owned()));
         }
 
-        let filename = match self.from_niri.recv().await {
-            Ok(NiriToScreenshot::ScreenshotResult(Some(filename))) => filename,
-            Ok(NiriToScreenshot::ScreenshotResult(None)) => {
+        let filename = match self.from_neori.recv().await {
+            Ok(NeoriToScreenshot::ScreenshotResult(Some(filename))) => filename,
+            Ok(NeoriToScreenshot::ScreenshotResult(None)) => {
                 return Err(fdo::Error::Failed("internal error".to_owned()));
             }
             Err(err) => {
-                warn!("error receiving message from niri: {err:?}");
+                warn!("error receiving message from neori: {err:?}");
                 return Err(fdo::Error::Failed("internal error".to_owned()));
             }
         };
@@ -54,8 +54,8 @@ impl Screenshot {
 
     async fn pick_color(&self) -> fdo::Result<HashMap<String, OwnedValue>> {
         let (tx, rx) = async_channel::bounded(1);
-        if let Err(err) = self.to_niri.send(ScreenshotToNiri::PickColor(tx)) {
-            warn!("error sending pick color message to niri: {err:?}");
+        if let Err(err) = self.to_neori.send(ScreenshotToNeori::PickColor(tx)) {
+            warn!("error sending pick color message to neori: {err:?}");
             return Err(fdo::Error::Failed("internal error".to_owned()));
         }
 
@@ -65,7 +65,7 @@ impl Screenshot {
                 return Err(fdo::Error::Failed("no color picked".to_owned()));
             }
             Err(err) => {
-                warn!("error receiving message from niri: {err:?}");
+                warn!("error receiving message from neori: {err:?}");
                 return Err(fdo::Error::Failed("internal error".to_owned()));
             }
         };
@@ -83,10 +83,10 @@ impl Screenshot {
 
 impl Screenshot {
     pub fn new(
-        to_niri: calloop::channel::Sender<ScreenshotToNiri>,
-        from_niri: async_channel::Receiver<NiriToScreenshot>,
+        to_neori: calloop::channel::Sender<ScreenshotToNeori>,
+        from_neori: async_channel::Receiver<NeoriToScreenshot>,
     ) -> Self {
-        Self { to_niri, from_niri }
+        Self { to_neori, from_neori }
     }
 }
 

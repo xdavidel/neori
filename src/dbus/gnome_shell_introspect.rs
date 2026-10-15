@@ -8,15 +8,15 @@ use zbus::zvariant::{SerializeDict, Type, Value};
 use super::Start;
 
 pub struct Introspect {
-    to_niri: calloop::channel::Sender<IntrospectToNiri>,
-    from_niri: async_channel::Receiver<NiriToIntrospect>,
+    to_neori: calloop::channel::Sender<IntrospectToNeori>,
+    from_neori: async_channel::Receiver<NeoriToIntrospect>,
 }
 
-pub enum IntrospectToNiri {
+pub enum IntrospectToNeori {
     GetWindows,
 }
 
-pub enum NiriToIntrospect {
+pub enum NeoriToIntrospect {
     Windows(HashMap<u64, WindowProperties>),
 }
 
@@ -37,15 +37,15 @@ pub struct WindowProperties {
 #[interface(name = "org.gnome.Shell.Introspect")]
 impl Introspect {
     async fn get_windows(&self) -> fdo::Result<HashMap<u64, WindowProperties>> {
-        if let Err(err) = self.to_niri.send(IntrospectToNiri::GetWindows) {
-            warn!("error sending message to niri: {err:?}");
+        if let Err(err) = self.to_neori.send(IntrospectToNeori::GetWindows) {
+            warn!("error sending message to neori: {err:?}");
             return Err(fdo::Error::Failed("internal error".to_owned()));
         }
 
-        match self.from_niri.recv().await {
-            Ok(NiriToIntrospect::Windows(windows)) => Ok(windows),
+        match self.from_neori.recv().await {
+            Ok(NeoriToIntrospect::Windows(windows)) => Ok(windows),
             Err(err) => {
-                warn!("error receiving message from niri: {err:?}");
+                warn!("error receiving message from neori: {err:?}");
                 Err(fdo::Error::Failed("internal error".to_owned()))
             }
         }
@@ -59,10 +59,10 @@ impl Introspect {
 
 impl Introspect {
     pub fn new(
-        to_niri: calloop::channel::Sender<IntrospectToNiri>,
-        from_niri: async_channel::Receiver<NiriToIntrospect>,
+        to_neori: calloop::channel::Sender<IntrospectToNeori>,
+        from_neori: async_channel::Receiver<NeoriToIntrospect>,
     ) -> Self {
-        Self { to_niri, from_niri }
+        Self { to_neori, from_neori }
     }
 }
 

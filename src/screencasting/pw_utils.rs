@@ -51,7 +51,7 @@ use smithay::utils::{Logical, Physical, Point, Scale, Size, Transform};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::mutter_screen_cast::{self, CursorMode};
-use crate::niri::{CastTarget, State};
+use crate::neori::{CastTarget, State};
 use crate::render_helpers::{
     clear_dmabuf, encompassing_geo, render_and_download, render_to_dmabuf,
 };
@@ -76,10 +76,10 @@ pub struct PipeWire {
     pub core: CoreRc,
     pub token: RegistrationToken,
     event_loop: LoopHandle<'static, State>,
-    to_niri: calloop::channel::Sender<PwToNiri>,
+    to_neori: calloop::channel::Sender<PwToNeori>,
 }
 
-pub enum PwToNiri {
+pub enum PwToNeori {
     StopCast { session_id: CastSessionId },
     Redraw { stream_id: CastStreamId },
     FatalError,
@@ -229,13 +229,13 @@ macro_rules! make_params {
 impl PipeWire {
     pub fn new(
         event_loop: LoopHandle<'static, State>,
-        to_niri: calloop::channel::Sender<PwToNiri>,
+        to_neori: calloop::channel::Sender<PwToNeori>,
     ) -> anyhow::Result<Self> {
         let main_loop = MainLoopRc::new(None).context("error creating MainLoop")?;
         let context = ContextRc::new(&main_loop, None).context("error creating Context")?;
         let core = context.connect_rc(None).context("error creating Core")?;
 
-        let to_niri_ = to_niri.clone();
+        let to_neori_ = to_neori.clone();
         let listener = core
             .add_listener_local()
             .error(move |id, seq, res, message| {
@@ -243,8 +243,8 @@ impl PipeWire {
 
                 // Reset PipeWire on connection errors.
                 if id == PW_ID_CORE && res == -32 {
-                    if let Err(err) = to_niri_.send(PwToNiri::FatalError) {
-                        warn!("error sending FatalError to niri: {err:?}");
+                    if let Err(err) = to_neori_.send(PwToNeori::FatalError) {
+                        warn!("error sending FatalError to neori: {err:?}");
                     }
                 }
             })
@@ -271,7 +271,7 @@ impl PipeWire {
             core,
             token,
             event_loop,
-            to_niri,
+            to_neori,
         })
     }
 
@@ -291,23 +291,23 @@ impl PipeWire {
     ) -> anyhow::Result<Cast> {
         let _span = tracy_client::span!("PipeWire::start_cast");
 
-        let to_niri_ = self.to_niri.clone();
+        let to_neori_ = self.to_neori.clone();
         let stop_cast = move || {
-            if let Err(err) = to_niri_.send(PwToNiri::StopCast { session_id }) {
-                warn!(%session_id, "error sending StopCast to niri: {err:?}");
+            if let Err(err) = to_neori_.send(PwToNeori::StopCast { session_id }) {
+                warn!(%session_id, "error sending StopCast to neori: {err:?}");
             }
         };
-        let to_niri_ = self.to_niri.clone();
+        let to_neori_ = self.to_neori.clone();
         let redraw = move || {
-            if let Err(err) = to_niri_.send(PwToNiri::Redraw { stream_id }) {
-                warn!(%stream_id, "error sending Redraw to niri: {err:?}");
+            if let Err(err) = to_neori_.send(PwToNeori::Redraw { stream_id }) {
+                warn!(%stream_id, "error sending Redraw to neori: {err:?}");
             }
         };
         let redraw_ = redraw.clone();
 
         let stream = StreamRc::new(
             self.core.clone(),
-            "niri-screen-cast-src",
+            "neori-screen-cast-src",
             PropertiesBox::new(),
         )
         .context("error creating Stream")?;
@@ -942,8 +942,8 @@ impl Cast {
             .event_loop
             .insert_source(timer, move |_, _, state| {
                 // Guard against output disconnecting before the timer has a chance to run.
-                if state.niri.output_state.contains_key(&output) {
-                    state.niri.queue_redraw(&output);
+                if state.neori.output_state.contains_key(&output) {
+                    state.neori.queue_redraw(&output);
                 }
 
                 TimeoutAction::Drop
@@ -1046,7 +1046,7 @@ impl Cast {
                 let source = Generic::new(sync_fd, Interest::READ, Mode::OneShot);
                 self.event_loop
                     .insert_source(source, move |_, _, state| {
-                        for cast in &mut state.niri.casting.casts {
+                        for cast in &mut state.neori.casting.casts {
                             if cast.stream_id == stream_id {
                                 cast.queue_completed_buffers();
                             }

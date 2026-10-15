@@ -93,7 +93,7 @@ impl Shaders {
                     "\nvec4 postprocess(vec4 color) { return color; }",
                 ),
                 &[
-                    UniformName::new("niri_scale", UniformType::_1f),
+                    UniformName::new("neori_scale", UniformType::_1f),
                     UniformName::new("geo_size", UniformType::_2f),
                     UniformName::new("corner_radius", UniformType::_4f),
                     UniformName::new("input_to_geo", UniformType::Matrix3x3),
@@ -112,7 +112,7 @@ impl Shaders {
                     include_str!("postprocess.frag"),
                 ),
                 &[
-                    UniformName::new("niri_scale", UniformType::_1f),
+                    UniformName::new("neori_scale", UniformType::_1f),
                     UniformName::new("geo_size", UniformType::_2f),
                     UniformName::new("corner_radius", UniformType::_4f),
                     UniformName::new("input_to_geo", UniformType::Matrix3x3),
@@ -232,18 +232,18 @@ fn compile_resize_program(
         renderer,
         &program,
         &[
-            UniformName::new("niri_input_to_curr_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_prev_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_to_next_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_curr_geo_size", UniformType::_2f),
-            UniformName::new("niri_geo_to_tex_prev", UniformType::Matrix3x3),
-            UniformName::new("niri_geo_to_tex_next", UniformType::Matrix3x3),
-            UniformName::new("niri_progress", UniformType::_1f),
-            UniformName::new("niri_clamped_progress", UniformType::_1f),
-            UniformName::new("niri_corner_radius", UniformType::_4f),
-            UniformName::new("niri_clip_to_geometry", UniformType::_1f),
+            UniformName::new("neori_input_to_curr_geo", UniformType::Matrix3x3),
+            UniformName::new("neori_curr_geo_to_prev_geo", UniformType::Matrix3x3),
+            UniformName::new("neori_curr_geo_to_next_geo", UniformType::Matrix3x3),
+            UniformName::new("neori_curr_geo_size", UniformType::_2f),
+            UniformName::new("neori_geo_to_tex_prev", UniformType::Matrix3x3),
+            UniformName::new("neori_geo_to_tex_next", UniformType::Matrix3x3),
+            UniformName::new("neori_progress", UniformType::_1f),
+            UniformName::new("neori_clamped_progress", UniformType::_1f),
+            UniformName::new("neori_corner_radius", UniformType::_4f),
+            UniformName::new("neori_clip_to_geometry", UniformType::_1f),
         ],
-        &["niri_tex_prev", "niri_tex_next"],
+        &["neori_tex_prev", "neori_tex_next"],
     )
 }
 
@@ -279,14 +279,14 @@ fn compile_close_program(
         renderer,
         &program,
         &[
-            UniformName::new("niri_input_to_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_geo_size", UniformType::_2f),
-            UniformName::new("niri_geo_to_tex", UniformType::Matrix3x3),
-            UniformName::new("niri_progress", UniformType::_1f),
-            UniformName::new("niri_clamped_progress", UniformType::_1f),
-            UniformName::new("niri_random_seed", UniformType::_1f),
+            UniformName::new("neori_input_to_geo", UniformType::Matrix3x3),
+            UniformName::new("neori_geo_size", UniformType::_2f),
+            UniformName::new("neori_geo_to_tex", UniformType::Matrix3x3),
+            UniformName::new("neori_progress", UniformType::_1f),
+            UniformName::new("neori_clamped_progress", UniformType::_1f),
+            UniformName::new("neori_random_seed", UniformType::_1f),
         ],
-        &["niri_tex"],
+        &["neori_tex"],
     )
 }
 
@@ -322,14 +322,14 @@ fn compile_open_program(
         renderer,
         &program,
         &[
-            UniformName::new("niri_input_to_geo", UniformType::Matrix3x3),
-            UniformName::new("niri_geo_size", UniformType::_2f),
-            UniformName::new("niri_geo_to_tex", UniformType::Matrix3x3),
-            UniformName::new("niri_progress", UniformType::_1f),
-            UniformName::new("niri_clamped_progress", UniformType::_1f),
-            UniformName::new("niri_random_seed", UniformType::_1f),
+            UniformName::new("neori_input_to_geo", UniformType::Matrix3x3),
+            UniformName::new("neori_geo_size", UniformType::_2f),
+            UniformName::new("neori_geo_to_tex", UniformType::Matrix3x3),
+            UniformName::new("neori_progress", UniformType::_1f),
+            UniformName::new("neori_clamped_progress", UniformType::_1f),
+            UniformName::new("neori_random_seed", UniformType::_1f),
         ],
-        &["niri_tex"],
+        &["neori_tex"],
     )
 }
 

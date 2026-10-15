@@ -1,6 +1,8 @@
-# Contributing to niri
+# Contributing to neori
 
-Thanks for your interest in niri!
+Thanks for your interest in neori!
+
+Neori is a fork of [niri](https://github.com/niri-wm/niri). Many of the upstream contribution guidelines still apply. This file lists neori-specific changes.
 The project has grown quite a bit, and we could use all help that we can.
 
 Make sure to join our Matrix chat if you have any questions or want to discuss anything: https://matrix.to/#/#niri:matrix.org

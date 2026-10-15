@@ -1,14 +1,14 @@
 use futures_util::StreamExt;
-use niri_config::Xkb;
+use neori_config::Xkb;
 use zbus::names::InterfaceName;
 use zbus::{fdo, zvariant};
 
-pub enum Locale1ToNiri {
+pub enum Locale1ToNeori {
     XkbChanged(Xkb),
 }
 
 pub fn start(
-    to_niri: calloop::channel::Sender<Locale1ToNiri>,
+    to_neori: calloop::channel::Sender<Locale1ToNeori>,
 ) -> anyhow::Result<zbus::blocking::Connection> {
     let conn = zbus::blocking::Connection::system()?;
 
@@ -69,8 +69,8 @@ pub fn start(
         };
 
         // Send the initial properties.
-        if let Err(err) = to_niri.send(Locale1ToNiri::XkbChanged(xkb.clone())) {
-            warn!("error sending message to niri: {err:?}");
+        if let Err(err) = to_neori.send(Locale1ToNeori::XkbChanged(xkb.clone())) {
+            warn!("error sending message to neori: {err:?}");
             return;
         };
 
@@ -127,8 +127,8 @@ pub fn start(
                 continue;
             }
 
-            if let Err(err) = to_niri.send(Locale1ToNiri::XkbChanged(xkb.clone())) {
-                warn!("error sending message to niri: {err:?}");
+            if let Err(err) = to_neori.send(Locale1ToNeori::XkbChanged(xkb.clone())) {
+                warn!("error sending message to neori: {err:?}");
                 return;
             };
         }
