@@ -383,6 +383,14 @@ impl Mapped {
         self.is_window_cast_target
     }
 
+    /// Whether this window is fullscreen, covering the whole screen.
+    ///
+    /// This does not include the "windowed fullscreen" state; see
+    /// [`Self::is_windowed_fullscreen()`].
+    pub fn is_fullscreen(&self) -> bool {
+        self.sizing_mode().is_fullscreen()
+    }
+
     pub fn toggle_ignore_opacity_window_rule(&mut self) {
         self.ignore_opacity_window_rule = !self.ignore_opacity_window_rule;
     }

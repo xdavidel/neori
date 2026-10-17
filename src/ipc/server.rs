@@ -518,6 +518,10 @@ fn make_ipc_window(
     layout: WindowLayout,
     is_xwayland: bool,
 ) -> neori_ipc::Window {
+    // Must be computed outside of `with_toplevel_role()`, which holds the surface data lock;
+    // `is_fullscreen()` reads the toplevel's committed state and would deadlock otherwise.
+    let is_fullscreen = mapped.is_fullscreen();
+
     with_toplevel_role(mapped.toplevel(), |role| neori_ipc::Window {
         id: mapped.id().get(),
         title: role.title.clone(),
@@ -526,6 +530,9 @@ fn make_ipc_window(
         workspace_id: workspace_id.map(|id| id.get()),
         is_focused: mapped.is_focused(),
         is_floating: mapped.is_floating(),
+        is_fullscreen,
+        is_window_cast_target: mapped.is_window_cast_target(),
+        is_active_in_column: mapped.is_active_in_column(),
         is_xwayland,
         is_urgent: mapped.is_urgent(),
         layout,
@@ -717,8 +724,8 @@ impl State {
                 focused_id = Some(id);
             }
 
-            let is_xwayland = xwayland_pid
-                .is_some_and(|pid| mapped.credentials().is_some_and(|c| c.pid == pid));
+            let is_xwayland =
+                xwayland_pid.is_some_and(|pid| mapped.credentials().is_some_and(|c| c.pid == pid));
 
             let Some(ipc_win) = state.windows.get(&id) else {
                 let window = make_ipc_window(mapped, ws_id, window_layout, is_xwayland);
@@ -729,6 +736,9 @@ impl State {
             let workspace_id = ws_id.map(|id| id.get());
             let mut changed = ipc_win.workspace_id != workspace_id
                 || ipc_win.is_floating != mapped.is_floating()
+                || ipc_win.is_fullscreen != mapped.is_fullscreen()
+                || ipc_win.is_window_cast_target != mapped.is_window_cast_target()
+                || ipc_win.is_active_in_column != mapped.is_active_in_column()
                 || ipc_win.is_xwayland != is_xwayland;
 
             changed |= with_toplevel_role(mapped.toplevel(), |role| {

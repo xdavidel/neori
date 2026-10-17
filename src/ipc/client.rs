@@ -697,6 +697,29 @@ fn print_window(window: &Window) {
     );
 
     println!(
+        "  Is fullscreen: {}",
+        if window.is_fullscreen { "yes" } else { "no" }
+    );
+
+    println!(
+        "  Is window cast target: {}",
+        if window.is_window_cast_target {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+
+    println!(
+        "  Is active in column: {}",
+        if window.is_active_in_column {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+
+    println!(
         "  Is xwayland: {}",
         if window.is_xwayland { "yes" } else { "no" }
     );

@@ -1356,6 +1356,18 @@ pub struct Window {
     ///
     /// If the window isn't floating then it is in the tiling layout.
     pub is_floating: bool,
+    /// Whether this window is currently fullscreen, covering the whole screen.
+    ///
+    /// This is `false` for windows in the "windowed fullscreen" state, which are rendered like a
+    /// normal (possibly maximized) window.
+    pub is_fullscreen: bool,
+    /// Whether this window is the target of a screencast (i.e. a single-window cast).
+    pub is_window_cast_target: bool,
+    /// Whether this window is the active (visible) window in its column.
+    ///
+    /// In the scrolling layout, windows sharing a column are shown as tabs; this is `true` for the
+    /// tab that is currently displayed.
+    pub is_active_in_column: bool,
     /// Whether this window is an X11 window, as opposed to a native Wayland window.
     ///
     /// X11 windows are run through xwayland-satellite, which neori starts on demand. This is
