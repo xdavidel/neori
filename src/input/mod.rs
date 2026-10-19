@@ -1444,7 +1444,9 @@ impl State {
                 self.neori.queue_redraw_all();
             }
             Action::FocusWorkspaceDown => {
+                let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_down();
+                self.warp_cursor_if_active_output_changed(output_before);
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
@@ -1461,7 +1463,9 @@ impl State {
                 }
             }
             Action::FocusWorkspaceUp => {
+                let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_up();
+                self.warp_cursor_if_active_output_changed(output_before);
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
@@ -1478,16 +1482,10 @@ impl State {
                 }
             }
             Action::FocusWorkspace(reference) => {
-                if let Some((target_output, index)) =
+                if let Some((_target_output, index)) =
                     self.neori.find_output_and_workspace_index(reference)
                 {
-                    let target_was_active = self
-                        .neori
-                        .layout
-                        .active_output()
-                        .is_some_and(|active| {
-                            target_output.as_ref().is_some_and(|target| target == active)
-                        });
+                    let output_before = self.neori.layout.active_output().cloned();
 
                     let config = &self.neori.config;
                     if config.borrow().input.workspace_auto_back_and_forth {
@@ -1496,17 +1494,11 @@ impl State {
                         self.neori.layout.switch_workspace(index);
                     }
 
-                    // If the target workspace is on another monitor (and the focus
-                    // actually landed there), move the cursor to it.
-                    if !target_was_active {
-                        if let Some(output) = target_output {
-                            if self.neori.layout.active_output() == Some(&output)
-                                && !self.maybe_warp_cursor_to_focus_centered()
-                            {
-                                self.move_cursor_to_output(&output);
-                            }
-                        }
-                    }
+                    // Switching to a workspace that lives on another monitor moves the
+                    // keyboard focus there, so bring the cursor along. Compare the active
+                    // output before and after the switch so this works for workspaces
+                    // referenced by index, name, or id alike.
+                    self.warp_cursor_if_active_output_changed(output_before);
                     self.maybe_warp_cursor_to_focus();
 
                     self.neori.layer_shell_on_demand_focus = None;
@@ -1516,7 +1508,9 @@ impl State {
                 }
             }
             Action::FocusWorkspacePrevious => {
+                let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_previous();
+                self.warp_cursor_if_active_output_changed(output_before);
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular

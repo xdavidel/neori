@@ -878,3 +878,101 @@ post-map configures:
     let _guard = settings.bind_to_scope();
     assert_snapshot!(snapshot);
 }
+
+/// Switching to a workspace that lives on another monitor moves the keyboard focus
+/// there, so the cursor must follow.
+///
+/// `find_output_and_workspace_index` returns `None` for the output when the workspace
+/// is referenced by index, so the cursor warp used to be skipped for `Mod+1`-style
+/// bindings even though the keyboard focus did move to the other monitor.
+#[test]
+fn focus_workspace_across_monitors_warps_cursor() {
+    use neori_config::{Action, WorkspaceReference};
+    use smithay::output::Output;
+
+    use super::client::ClientId;
+
+    // Two monitors side by side. The second window is routed to the second output by a
+    // window rule, so a second workspace has to be created there.
+    let config = Config::parse_mem(
+        r##"
+neori.window_rule {
+    match = { title = "on-two" },
+    open_on_output = "headless-2",
+}
+"##,
+    )
+    .unwrap();
+
+    let mut f = Fixture::with_config(config);
+    f.add_output(1, (1280, 720));
+    f.add_output(2, (1280, 720));
+
+    let id = f.add_client();
+
+    let open_window = |f: &mut Fixture, id: ClientId, title: &str| {
+        let window = f.client(id).create_window();
+        let surface = window.surface.clone();
+        window.set_title(title);
+        window.commit();
+        f.roundtrip(id);
+        let window = f.client(id).window(&surface);
+        window.attach_new_buffer();
+        window.ack_last_and_commit();
+        f.double_roundtrip(id);
+    };
+
+    open_window(&mut f, id, "on-one");
+    open_window(&mut f, id, "on-two");
+
+    let output1 = f.neori_output(1);
+    let output2 = f.neori_output(2);
+
+    let ws_index_on = |f: &mut Fixture, output: &Output| -> u32 {
+        f.neori()
+            .layout
+            .monitor_for_output(output)
+            .unwrap()
+            .active_workspace_ref()
+            .index()
+    };
+
+    let ws1 = ws_index_on(&mut f, &output1);
+    let ws2 = ws_index_on(&mut f, &output2);
+    assert_ne!(ws1, ws2, "each monitor should have its own workspace");
+
+    let cursor_is_on = |f: &mut Fixture, output: &Output| -> bool {
+        let pointer = f.neori().seat.get_pointer().unwrap();
+        let pos = pointer.current_location();
+        f.neori()
+            .output_under(pos)
+            .map(|(under, _)| under == output)
+            .unwrap_or(false)
+    };
+
+    // Start focused on the first monitor.
+    f.neori_focus_output(1);
+    assert!(cursor_is_on(&mut f, &output1), "cursor starts on output 1");
+
+    // Focusing workspace 2 by index moves focus to the second monitor, and the cursor
+    // has to follow. This is the `Mod+2` path.
+    f.neori_state().do_action(
+        Action::FocusWorkspace(WorkspaceReference::Index(ws2 as u8)),
+        false,
+    );
+
+    assert!(
+        cursor_is_on(&mut f, &output2),
+        "cursor should warp to output 2 when focusing workspace {ws2} by index"
+    );
+
+    // Going back to the previous workspace lands on the first monitor again, so the
+    // cursor has to follow back. This is the `Mod+Tab` path.
+    f.neori_state()
+        .do_action(Action::FocusWorkspacePrevious, false);
+
+    assert!(
+        cursor_is_on(&mut f, &output1),
+        "cursor should follow focus back to output 1"
+    );
+}

@@ -1116,6 +1116,27 @@ impl State {
         self.move_cursor(center(geo).to_f64());
     }
 
+    /// Warps the cursor to the active output when a workspace switch moved the focus
+    /// to a different monitor.
+    ///
+    /// Callers capture `before` (the active output) prior to the switch and pass it in
+    /// afterwards. If `warp-mouse-to-focus` is configured, the cursor follows the focused
+    /// window instead, which lands on the new monitor as well.
+    pub fn warp_cursor_if_active_output_changed(&mut self, before: Option<Output>) {
+        let after = self.neori.layout.active_output().cloned();
+        if before == after {
+            return;
+        }
+
+        if self.maybe_warp_cursor_to_focus_centered() {
+            return;
+        }
+
+        if let Some(output) = after {
+            self.move_cursor_to_output(&output);
+        }
+    }
+
     pub fn refresh_popup_grab(&mut self) {
         if let Some(grab) = &mut self.neori.popup_grab {
             if grab.grab.has_ended() {
