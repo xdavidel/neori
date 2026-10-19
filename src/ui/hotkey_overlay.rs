@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::iter::zip;
 use std::rc::Rc;
 
-use neori_config::{Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
+use neori_config::{keycode, Action, Bind, Config, Key, ModKey, Modifiers, Trigger};
 use pangocairo::cairo::{self, ImageSurface};
 use pangocairo::pango::{AttrColor, AttrInt, AttrList, AttrString, FontDescription, Weight};
 use smithay::backend::renderer::element::Kind;
@@ -285,7 +285,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
             && (bind.key.modifiers.contains(Modifiers::COMPOSITOR)
                 || bind.key.modifiers.contains(Modifiers::SUPER))
             // Also filter out wheel and touchpad scroll binds.
-            && matches!(bind.key.trigger, Trigger::Keysym(_))
+            && matches!(bind.key.trigger, Trigger::Keysym(_) | Trigger::Keycode(_))
     }) {
         let action = &bind.action;
 
@@ -547,6 +547,9 @@ fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
 
     let pretty = match key.trigger {
         Trigger::Keysym(keysym) => prettify_keysym_name(screen_reader, &keysym_get_name(keysym)),
+        Trigger::Keycode(code) => keycode::keysym_name_from_evdev(code)
+            .map(|name| prettify_keysym_name(screen_reader, name))
+            .unwrap_or_else(|| format!("KEYCODE_{code}")),
         Trigger::MouseLeft => String::from("Mouse Left"),
         Trigger::MouseRight => String::from("Mouse Right"),
         Trigger::MouseMiddle => String::from("Mouse Middle"),

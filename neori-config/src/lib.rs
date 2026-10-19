@@ -29,6 +29,7 @@ pub mod debug;
 pub mod error;
 pub mod gestures;
 pub mod input;
+pub mod keycode;
 pub mod layer_rule;
 pub mod layout;
 pub mod misc;
@@ -46,6 +47,7 @@ pub use crate::debug::Debug;
 pub use crate::error::{ConfigIncludeError, ConfigParseResult};
 pub use crate::gestures::Gestures;
 pub use crate::input::{Input, ModKey, ScrollMethod, TrackLayout, WarpMouseToFocusMode, Xkb};
+pub use crate::keycode::*;
 pub use crate::layer_rule::LayerRule;
 pub use crate::layout::*;
 pub use crate::misc::*;
@@ -774,10 +776,16 @@ mod tests {
         assert!(config.outputs.0[0].focus_at_startup);
         assert_eq!(config.workspaces.len(), 1);
         assert_eq!(config.workspaces[0].name.0, "web");
-        assert_eq!(config.workspaces[0].open_on_output.as_deref(), Some("eDP-1"));
+        assert_eq!(
+            config.workspaces[0].open_on_output.as_deref(),
+            Some("eDP-1")
+        );
 
         let err = Config::parse_mem(r#"neori.window_rule("x", {})"#).unwrap_err();
-        assert!(err.main.contains("expected a single table argument"), "{err}");
+        assert!(
+            err.main.contains("expected a single table argument"),
+            "{err}"
+        );
         let err = Config::parse_mem(r#"neori.output(1, {})"#).unwrap_err();
         assert!(err.main.contains("name must be a string"), "{err}");
     }
@@ -825,10 +833,9 @@ mod tests {
         assert!(out.modeline.is_some());
 
         // Bare boolean VRR means always-on.
-        let config = Config::parse_mem(
-            r#"neori.output { name = "eDP-1", variable_refresh_rate = true }"#,
-        )
-        .unwrap();
+        let config =
+            Config::parse_mem(r#"neori.output { name = "eDP-1", variable_refresh_rate = true }"#)
+                .unwrap();
         assert_eq!(
             config.outputs.0[0].variable_refresh_rate,
             Some(Vrr { on_demand: false })
@@ -839,10 +846,14 @@ mod tests {
     fn max_bpc_rejects_out_of_range() {
         // Valid values parse.
         let config = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 10 }"#).unwrap();
-        assert_eq!(config.outputs.0[0].max_bpc, Some(MaxBpc(neori_ipc::MaxBpc::_10)));
+        assert_eq!(
+            config.outputs.0[0].max_bpc,
+            Some(MaxBpc(neori_ipc::MaxBpc::_10))
+        );
 
         // Out-of-range integers must not wrap into a valid variant (262 as u8 == 6).
-        let err = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 262 }"#).unwrap_err();
+        let err =
+            Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 262 }"#).unwrap_err();
         assert!(err.main.contains("max-bpc"), "{err}");
 
         let err = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 7 }"#).unwrap_err();
@@ -879,7 +890,10 @@ mod tests {
             "#,
         )
         .unwrap_err();
-        assert!(err.main.contains("unknown key `bogus_key` in layout"), "{err}");
+        assert!(
+            err.main.contains("unknown key `bogus_key` in layout"),
+            "{err}"
+        );
 
         // `neori.strict(false)` disables it again.
         let config = Config::parse_mem(
@@ -1075,7 +1089,6 @@ mod tests {
 
     #[test]
     fn on_startup_function_callback_in_include() {
-
         let dir = std::env::temp_dir().join(format!("neori-on-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

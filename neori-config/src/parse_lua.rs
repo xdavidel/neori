@@ -110,8 +110,7 @@ impl ScriptHost {
             .unwrap_or(Path::new("/"))
             .to_path_buf();
 
-        register_require_searcher(&self.lua, search_dir.clone(), &includes)
-            .map_err(&parse_err)?;
+        register_require_searcher(&self.lua, search_dir.clone(), &includes).map_err(&parse_err)?;
 
         let api_data = setup_neori_api(
             &self.lua,
@@ -538,7 +537,8 @@ fn setup_neori_api(
     // Entry pushers: neori.window_rule { ... } appends one entry to a section.
     //
     // `neori.output` and `neori.workspace` also accept a leading name argument, i.e.
-    // `neori.output("eDP-1", { scale = 2.0 })`, which is sugar for `neori.output { name = "eDP-1", scale = 2.0 }`.
+    // `neori.output("eDP-1", { scale = 2.0 })`, which is sugar for `neori.output { name = "eDP-1",
+    // scale = 2.0 }`.
     for (name, section, named) in [
         ("window_rule", "window_rules", false),
         ("layer_rule", "layer_rules", false),
@@ -549,9 +549,9 @@ fn setup_neori_api(
         let func = lua
             .create_function(move |lua, args: mlua::Variadic<Value>| {
                 let mut args = args.into_iter();
-                let first = args
-                    .next()
-                    .ok_or_else(|| LuaError::runtime(format!("neori.{name}: expected an argument")))?;
+                let first = args.next().ok_or_else(|| {
+                    LuaError::runtime(format!("neori.{name}: expected an argument"))
+                })?;
                 let value = match (args.next(), args.next()) {
                     (None, None) => first,
                     (Some(rest), None) if named => {
@@ -864,23 +864,17 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                 "window_rules" | "window-rules" => parse_window_rules(t, config)?,
                 "layer_rules" | "layer-rules" => parse_layer_rules(t, config)?,
                 "workspaces" | "workspace" => parse_workspaces(t, config)?,
-                _ => invalid_config(&format!(
-                    "key `{key_str}` does not accept a table value"
-                ))?,
+                _ => invalid_config(&format!("key `{key_str}` does not accept a table value"))?,
             },
             Value::Boolean(b) => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = b,
-                _ => invalid_config(&format!(
-                    "key `{key_str}` does not accept a boolean value"
-                ))?,
+                _ => invalid_config(&format!("key `{key_str}` does not accept a boolean value"))?,
             },
             Value::Nil => match key_str.as_str() {
                 "screenshot_path" | "screenshot-path" => {
                     config.screenshot_path = ScreenshotPath(None);
                 }
-                _ => invalid_config(&format!(
-                    "key `{key_str}` does not accept a nil value"
-                ))?,
+                _ => invalid_config(&format!("key `{key_str}` does not accept a nil value"))?,
             },
             _ => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = value_is_truthy(&value),
@@ -2485,10 +2479,10 @@ fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), St
                         .get("trigger_width")
                         .map_err(|e| format!("{e}"))
                         .unwrap_or(10.0);
-                    gestures.dnd_edge_view_scroll.delay_ms =
-                        t.get("delay_ms")
-                            .map_err(|e| format!("{e}"))
-                            .unwrap_or(100u16);
+                    gestures.dnd_edge_view_scroll.delay_ms = t
+                        .get("delay_ms")
+                        .map_err(|e| format!("{e}"))
+                        .unwrap_or(100u16);
                     gestures.dnd_edge_view_scroll.max_speed = t
                         .get("max_speed")
                         .map_err(|e| format!("{e}"))
@@ -2501,10 +2495,10 @@ fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), St
                         .get("trigger_height")
                         .map_err(|e| format!("{e}"))
                         .unwrap_or(50.0);
-                    gestures.dnd_edge_workspace_switch.delay_ms =
-                        t.get("delay_ms")
-                            .map_err(|e| format!("{e}"))
-                            .unwrap_or(100u16);
+                    gestures.dnd_edge_workspace_switch.delay_ms = t
+                        .get("delay_ms")
+                        .map_err(|e| format!("{e}"))
+                        .unwrap_or(100u16);
                     gestures.dnd_edge_workspace_switch.max_speed = t
                         .get("max_speed")
                         .map_err(|e| format!("{e}"))
@@ -2796,7 +2790,7 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
 }
 
 fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
-    let key: Key = key_name
+    let mut key: Key = key_name
         .parse::<Key>()
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
 
@@ -2805,6 +2799,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     let mut cooldown = None;
     let mut allow_when_locked = false;
     let mut allow_inhibiting = true;
+    let mut by_keycode = false;
     let mut hotkey_overlay_title: Option<String> = None;
     let mut has_hotkey_overlay_title = false;
 
@@ -2835,6 +2830,9 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                     "allow_inhibiting" | "allow-inhibiting" => {
                         allow_inhibiting = value_is_truthy(&av);
                     }
+                    "keycode" | "key-code" => {
+                        by_keycode = value_is_truthy(&av);
+                    }
                     "hotkey_overlay_title" | "hotkey-overlay-title" => {
                         has_hotkey_overlay_title = true;
                         if let Value::String(s) = &av {
@@ -2856,6 +2854,12 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
 
     if matches!(action, Action::ToggleKeyboardShortcutsInhibit) {
         allow_inhibiting = false;
+    }
+
+    if by_keycode {
+        key = key
+            .into_keycode()
+            .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
     }
 
     Ok(Bind {
@@ -3083,7 +3087,9 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
             Action::SwitchFocusBetweenFloatingAndTiling
         }
         "do_screen_transition" | "do-screen-transition" => Action::DoScreenTransition(None),
-        "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => Action::ToggleWindowRuleOpacity,
+        "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => {
+            Action::ToggleWindowRuleOpacity
+        }
         "toggle_debug_tint" | "toggle-debug-tint" => Action::ToggleDebugTint,
         "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
             Action::DebugToggleOpaqueRegions
@@ -3330,6 +3336,8 @@ fn action_from_table_key(
         }
         "repeat"
         | "cooldown_ms"
+        | "keycode"
+        | "key-code"
         | "allow_when_locked"
         | "allow-when-locked"
         | "allow_inhibiting"
@@ -3392,9 +3400,7 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
                 }
             }
             "horizontal_view_movement" | "horizontal-view-movement" => {
-                if let Some(a) =
-                    parse_animation_switch(&value, anims.horizontal_view_movement.0)?
-                {
+                if let Some(a) = parse_animation_switch(&value, anims.horizontal_view_movement.0)? {
                     anims.horizontal_view_movement = HorizontalViewMovementAnim(a);
                 }
             }

@@ -7,7 +7,9 @@ use neori_ipc::{
     ColumnDisplay, LayoutSwitchTarget, PositionChange, SizeChange, WorkspaceReferenceArg,
 };
 use smithay::input::keyboard::keysyms::KEY_NoSymbol;
-use smithay::input::keyboard::xkb::{keysym_from_name, KEYSYM_CASE_INSENSITIVE, KEYSYM_NO_FLAGS};
+use smithay::input::keyboard::xkb::{
+    keysym_from_name, keysym_get_name, KEYSYM_CASE_INSENSITIVE, KEYSYM_NO_FLAGS,
+};
 use smithay::input::keyboard::Keysym;
 
 use crate::recent_windows::{MruDirection, MruFilter, MruScope};
@@ -32,9 +34,41 @@ pub struct Key {
     pub modifiers: Modifiers,
 }
 
+impl Key {
+    /// Rewrites a keysym trigger into the equivalent evdev keycode so that the binding
+    /// keeps matching the same physical key when the keyboard layout changes.
+    ///
+    /// The keysym name is looked up in the `us` layout, so this works for any key that
+    /// exists on a standard US keyboard. Non-keysym triggers are returned unchanged.
+    pub fn into_keycode(self) -> Result<Self, miette::Error> {
+        let trigger = match self.trigger {
+            Trigger::Keysym(keysym) => {
+                let name = keysym_get_name(keysym);
+                match crate::keycode::evdev_from_keysym_name(&name) {
+                    Some(code) => Trigger::Keycode(code),
+                    None => {
+                        return Err(miette!(
+                            "cannot use keycode for '{name}': no key with this name in the US layout"
+                        ));
+                    }
+                }
+            }
+            other => other,
+        };
+
+        Ok(Self {
+            trigger,
+            modifiers: self.modifiers,
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum Trigger {
     Keysym(Keysym),
+    /// A Linux evdev keycode. Unlike a keysym this does not change with the active
+    /// keyboard layout.
+    Keycode(u32),
     MouseLeft,
     MouseRight,
     MouseMiddle,
