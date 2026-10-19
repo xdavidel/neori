@@ -2947,6 +2947,45 @@ mod tests {
     }
 
     #[test]
+    fn window_rule_variable_refresh_rate() {
+        use crate::window_rule::VrrRule;
+
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule { variable_refresh_rate = true }
+            neori.window_rule { variable_refresh_rate = false }
+            neori.window_rule { variable_refresh_rate = "fullscreen-only" }
+            neori.window_rule { ["variable-refresh-rate"] = "true" }
+            neori.window_rule { opacity = 0.5 }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config
+                .window_rules
+                .iter()
+                .map(|r| r.variable_refresh_rate)
+                .collect::<Vec<_>>(),
+            [
+                Some(VrrRule::On),
+                Some(VrrRule::Off),
+                Some(VrrRule::FullscreenOnly),
+                Some(VrrRule::On),
+                None,
+            ]
+        );
+
+        assert!(Config::parse_mem(
+            r#"
+            neori.strict()
+            neori.window_rule { variable_refresh_rate = "sometimes" }
+            "#,
+        )
+        .is_err());
+    }
+
+    #[test]
     fn window_rule_on_xdg_activate() {
         let config = Config::parse_mem(
             r#"

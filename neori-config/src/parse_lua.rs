@@ -3301,7 +3301,22 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
                 rule.baba_is_float = Some(value_is_truthy(&value));
             }
             "variable_refresh_rate" | "variable-refresh-rate" => {
-                rule.variable_refresh_rate = Some(value_is_truthy(&value));
+                rule.variable_refresh_rate = match &value {
+                    Value::Boolean(true) => Some(VrrRule::On),
+                    Value::Boolean(false) => Some(VrrRule::Off),
+                    _ => match value_to_string(&value)?.as_str() {
+                        // Also accept bool strings to reduce confusion.
+                        "true" => Some(VrrRule::On),
+                        "false" => Some(VrrRule::Off),
+                        "fullscreen-only" | "fullscreen_only" => Some(VrrRule::FullscreenOnly),
+                        other => {
+                            invalid_config(&format!(
+                                "invalid variable_refresh_rate `{other}`, expected true, \"fullscreen-only\", or false"
+                            ))?;
+                            None
+                        }
+                    },
+                };
             }
             "tiled_state" | "tiled-state" => {
                 rule.tiled_state = Some(value_is_truthy(&value));

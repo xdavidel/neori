@@ -36,7 +36,7 @@ pub struct WindowRule {
     pub clip_to_geometry: Option<bool>,
     pub baba_is_float: Option<bool>,
     pub block_out_from: Option<BlockOutFrom>,
-    pub variable_refresh_rate: Option<bool>,
+    pub variable_refresh_rate: Option<VrrRule>,
     pub default_column_display: Option<ColumnDisplay>,
     pub default_floating_position: Option<FloatingPosition>,
     pub scroll_factor: Option<FloatOrInt<0, 100>>,
@@ -44,6 +44,16 @@ pub struct WindowRule {
     pub tiled_state: Option<bool>,
     pub background_effect: BackgroundEffectRule,
     pub popups: PopupsRule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VrrRule {
+    /// No effect on VRR.
+    Off,
+    /// Enable VRR when the window is visible.
+    On,
+    /// Enable VRR when the window is the current fullscreen window.
+    FullscreenOnly,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
