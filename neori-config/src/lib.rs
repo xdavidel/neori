@@ -575,6 +575,22 @@ mod tests {
     }
 
     #[test]
+    fn keycode_option_rewrites_trigger_to_keycode() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Slash", neori.spawn("rofi", "-show", "run", { hotkey_overlay_title = "Binary Launcher", keycode = true }))
+            neori.bind("Mod+Shift+Slash", { show_hotkey_overlay = true, keycode = true })
+            "#,
+        )
+        .unwrap();
+
+        let binds = &config.binds.0;
+        assert_eq!(binds.len(), 2);
+        assert_eq!(binds[0].key.trigger, Trigger::Keycode(53));
+        assert_eq!(binds[1].key.trigger, Trigger::Keycode(53));
+    }
+
+    #[test]
     fn neori_api_sections() {
         let config = Config::parse_mem(
             r#"

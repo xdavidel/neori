@@ -4654,7 +4654,20 @@ fn find_bind<'a>(
 
     let bindings: Vec<_> = bindings.into_iter().collect();
 
-    // Keysym binds take priority: they are layout-dependent by design.
+    // Keycode binds take priority: they match the physical key regardless of the active layout,
+    // so a keycode bind must not be shadowed by a keysym bind that happens to collide on the
+    // current layout (e.g. Super+Slash by keycode vs Super+Period on the Hebrew layout).
+    let evdev = key_code.raw().saturating_sub(8);
+    if let Some(bind) = find_configured_bind(
+        bindings.iter().copied(),
+        mod_key,
+        Trigger::Keycode(evdev),
+        mods,
+    ) {
+        return Some(bind);
+    }
+
+    // Keysym binds are layout-dependent by design.
     if let Some(raw) = raw {
         if let Some(bind) = find_configured_bind(
             bindings.iter().copied(),
@@ -4664,17 +4677,6 @@ fn find_bind<'a>(
         ) {
             return Some(bind);
         }
-    }
-
-    // Keycode binds match the physical key regardless of the active layout.
-    let evdev = key_code.raw().saturating_sub(8);
-    if let Some(bind) = find_configured_bind(
-        bindings.iter().copied(),
-        mod_key,
-        Trigger::Keycode(evdev),
-        mods,
-    ) {
-        return Some(bind);
     }
 
     None
@@ -5698,6 +5700,135 @@ mod tests {
                 },
             ),
             None,
+        );
+    }
+
+    #[test]
+    fn keycode_bind_matches_physical_key_across_layouts() {
+        // A Super+Slash bind requested by keycode: the trigger is the *physical* evdev keycode
+        // (53), not the keysym.
+        let bind = Bind {
+            key: Key {
+                trigger: Trigger::Keycode(53),
+                modifiers: Modifiers::COMPOSITOR,
+            },
+            action: Action::CloseWindow,
+            repeat: true,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        };
+        let bindings = Binds(vec![bind.clone()]);
+
+        let comp_mod = ModKey::Super;
+        let super_mods = ModifiersState {
+            logo: true,
+            ..Default::default()
+        };
+
+        // The physical slash key is XKB keycode 61 (evdev 53 + 8).
+        let slash_key_code = Keycode::from(53u32 + 8);
+
+        // On the US layout, the raw keysym is `slash`; a keysym bind would match.
+        // Simulate the Hebrew layout where the same physical key reports a different keysym.
+        let hebrew_sym = Keysym::hebrew_finalkaph;
+
+        // With the US raw keysym, the keycode bind still matches.
+        assert_eq!(
+            find_bind(
+                &bindings.0,
+                comp_mod,
+                slash_key_code,
+                hebrew_sym,
+                Some(Keysym::slash),
+                super_mods,
+                false,
+            )
+            .as_ref(),
+            Some(&bind)
+        );
+
+        // With a non-US keysym and no matching keysym bind, the physical key still matches.
+        assert_eq!(
+            find_bind(
+                &bindings.0,
+                comp_mod,
+                slash_key_code,
+                hebrew_sym,
+                Some(hebrew_sym),
+                super_mods,
+                false,
+            )
+            .as_ref(),
+            Some(&bind)
+        );
+    }
+
+    #[test]
+    fn keycode_bind_takes_priority_over_colliding_keysym_bind() {
+        // Super+Slash requested by keycode (physical evdev 53), and an unrelated Super+Period
+        // keysym bind. On a Hebrew layout the physical slash key reports `period`; the keycode
+        // bind must still win so that the physical key behaves the same on every layout.
+        let keycode_bind = Bind {
+            key: Key {
+                trigger: Trigger::Keycode(53),
+                modifiers: Modifiers::COMPOSITOR,
+            },
+            action: Action::CloseWindow,
+            repeat: true,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        };
+        let period_bind = Bind {
+            key: Key {
+                trigger: Trigger::Keysym(Keysym::period),
+                modifiers: Modifiers::COMPOSITOR,
+            },
+            action: Action::Spawn(vec!["dmc".into(), "-n".into()]),
+            repeat: true,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: true,
+            hotkey_overlay_title: None,
+        };
+        let bindings = Binds(vec![period_bind.clone(), keycode_bind.clone()]);
+
+        let slash_key_code = Keycode::from(53u32 + 8);
+        let found = find_bind(
+            &bindings.0,
+            ModKey::Super,
+            slash_key_code,
+            Keysym::period,
+            Some(Keysym::period),
+            ModifiersState {
+                logo: true,
+                ..Default::default()
+            },
+            false,
+        );
+        // Keycode binds have priority, so the physical key still triggers Super+Slash.
+        assert_eq!(found.as_ref(), Some(&keycode_bind));
+
+        // Sanity check: with no keycode bind, the keysym bind still matches.
+        let keysym_only = Binds(vec![period_bind.clone()]);
+        assert_eq!(
+            find_bind(
+                &keysym_only.0,
+                ModKey::Super,
+                slash_key_code,
+                Keysym::period,
+                Some(Keysym::period),
+                ModifiersState {
+                    logo: true,
+                    ..Default::default()
+                },
+                false,
+            )
+            .as_ref(),
+            Some(&period_bind)
         );
     }
 }
