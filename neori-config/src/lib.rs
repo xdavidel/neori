@@ -390,6 +390,61 @@ mod tests {
     }
 
     #[test]
+    fn shake_to_find_is_disabled_by_default() {
+        let config = Config::parse_mem("").unwrap();
+        assert!(!config.cursor.shake_to_find.enable);
+    }
+
+    #[test]
+    fn shake_to_find_bool_enables() {
+        let config = Config::parse_mem("neori.cursor { shake_to_find = true }").unwrap();
+        let shake = &config.cursor.shake_to_find;
+        assert!(shake.enable);
+        assert_eq!(shake.size_multiplier, 4.);
+        assert_eq!(shake.size, None);
+    }
+
+    #[test]
+    fn shake_to_find_table_parses() {
+        let config = Config::parse_mem(
+            r#"
+            neori.cursor {
+              xcursor_size = 32,
+              shake_to_find = {
+                size_multiplier = 3,
+                size = 128,
+                timeout_ms = 1500,
+                animation_ms = 300,
+              },
+            }
+            "#,
+        )
+        .unwrap();
+        let shake = &config.cursor.shake_to_find;
+        assert!(shake.enable);
+        assert_eq!(shake.size_multiplier, 3.);
+        assert_eq!(shake.size, Some(128));
+        assert_eq!(shake.timeout_ms, 1500);
+        assert_eq!(shake.animation_ms, 300);
+    }
+
+    #[test]
+    fn shake_to_find_rejects_non_positive_multiplier() {
+        let err = Config::parse_mem("neori.cursor { shake_to_find = { size_multiplier = 0 } }")
+            .unwrap_err();
+        assert!(
+            err.main.contains("size_multiplier"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn enlarge_cursor_action_parses() {
+        let config = Config::parse_mem(r#"neori.bind("Mod+Shift+F", "enlarge-cursor")"#).unwrap();
+        assert!(actions(&config).contains(&Action::EnlargeCursor));
+    }
+
+    #[test]
     fn require_includes_merge_into_config() {
         let dir = std::env::temp_dir().join(format!("neori-require-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

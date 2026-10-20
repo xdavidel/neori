@@ -8,6 +8,7 @@ pub struct Cursor {
     pub xcursor_size: u8,
     pub hide_when_typing: bool,
     pub hide_after_inactive_ms: Option<u32>,
+    pub shake_to_find: ShakeToFind,
 }
 
 impl Default for Cursor {
@@ -17,6 +18,33 @@ impl Default for Cursor {
             xcursor_size: 24,
             hide_when_typing: false,
             hide_after_inactive_ms: None,
+            shake_to_find: ShakeToFind::default(),
+        }
+    }
+}
+
+/// Enlarges the cursor when the user shakes the mouse, to help find it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShakeToFind {
+    pub enable: bool,
+    /// Multiplier applied to `xcursor_size` while the cursor is enlarged.
+    pub size_multiplier: f64,
+    /// Absolute xcursor size in px while enlarged. Overrides `size_multiplier` when set.
+    pub size: Option<u8>,
+    /// How long the cursor stays enlarged after the last detected shake.
+    pub timeout_ms: u32,
+    /// Duration of the grow/shrink animation.
+    pub animation_ms: u32,
+}
+
+impl Default for ShakeToFind {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            size_multiplier: 4.0,
+            size: None,
+            timeout_ms: 1000,
+            animation_ms: 250,
         }
     }
 }
@@ -28,6 +56,17 @@ pub struct CursorPart {
     pub xcursor_size: Option<u8>,
     pub hide_when_typing: Option<Flag>,
     pub hide_after_inactive_ms: Option<u32>,
+    pub shake_to_find: Option<ShakeToFindPart>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default, PartialEq)]
+pub struct ShakeToFindPart {
+    pub enable: Option<Flag>,
+    pub size_multiplier: Option<f64>,
+    pub size: Option<u8>,
+    pub timeout_ms: Option<u32>,
+    pub animation_ms: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

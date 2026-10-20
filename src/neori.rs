@@ -119,6 +119,7 @@ use crate::animation::Clock;
 use crate::backend::tty::SurfaceDmabufFeedback;
 use crate::backend::{Backend, Headless, RenderResult, Tty, Winit};
 use crate::cursor::{CursorManager, CursorTextureCache, RenderCursor, XCursor};
+use crate::cursor_shake::CursorShake;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_locale1::Locale1ToNeori;
 #[cfg(feature = "dbus")]
@@ -340,6 +341,7 @@ pub struct Neori {
 
     pub cursor_manager: CursorManager,
     pub cursor_texture_cache: CursorTextureCache,
+    pub cursor_shake: CursorShake,
     pub cursor_shape_manager_state: CursorShapeManagerState,
     pub dnd_icon: Option<DndIcon>,
     /// Contents under pointer.
@@ -1551,6 +1553,7 @@ impl State {
             self.neori
                 .cursor_manager
                 .reload(&config.cursor.xcursor_theme, config.cursor.xcursor_size);
+            self.neori.cursor_shake.update_config(&config.cursor);
             self.neori.cursor_texture_cache.clear();
         }
 
@@ -2477,6 +2480,7 @@ impl Neori {
         let cursor_shape_manager_state = CursorShapeManagerState::new::<State>(&display_handle);
         let cursor_manager =
             CursorManager::new(&config_.cursor.xcursor_theme, config_.cursor.xcursor_size);
+        let cursor_shake = CursorShake::new(&config_.cursor);
 
         let mod_key = backend.mod_key(&config.borrow());
         let mods_with_mouse_binds = mods_with_mouse_binds(mod_key, &config_.binds);
@@ -2649,6 +2653,7 @@ impl Neori {
             xkb_from_locale1: None,
             cursor_manager,
             cursor_texture_cache: Default::default(),
+            cursor_shake,
             cursor_shape_manager_state,
             dnd_icon: None,
             pointer_contents: PointContents::default(),
@@ -3781,6 +3786,19 @@ impl Neori {
         }
     }
 
+    /// Advances the shake-to-find cursor animation and pushes the size to the cursor manager.
+    pub fn update_cursor_shake(&mut self) {
+        let multiplier = self.cursor_shake.advance(&self.clock);
+        self.cursor_manager.set_size_multiplier(multiplier);
+    }
+
+    /// Triggers the shake-to-find cursor enlargement (from a bind or IPC action).
+    pub fn enlarge_cursor(&mut self) {
+        let clock = self.clock.clone();
+        self.cursor_shake.trigger_action(&clock);
+        self.queue_redraw_all();
+    }
+
     pub fn render_pointer<R: NeoriRenderer>(
         &self,
         renderer: &mut R,
@@ -4688,6 +4706,8 @@ impl Neori {
         // Freeze the clock at the target time.
         self.clock.set_unadjusted(target_presentation_time);
 
+        self.update_cursor_shake();
+
         self.update_render_elements(Some(output));
 
         let mut res = RenderResult::Skipped;
@@ -4699,6 +4719,7 @@ impl Neori {
             state.unfinished_animations_remain |= self.exit_confirm_dialog.are_animations_ongoing();
             state.unfinished_animations_remain |= self.screenshot_ui.are_animations_ongoing();
             state.unfinished_animations_remain |= self.window_mru_ui.are_animations_ongoing();
+            state.unfinished_animations_remain |= self.cursor_shake.are_animations_ongoing();
             state.unfinished_animations_remain |= state.screen_transition.is_some();
 
             // Also keep redrawing if the current cursor is animated.

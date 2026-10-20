@@ -61,6 +61,7 @@ pub mod pick_window_grab;
 pub mod resize_grab;
 pub mod scroll_swipe_gesture;
 pub mod scroll_tracker;
+pub mod shake;
 pub mod spatial_movement_grab;
 pub mod swipe_tracker;
 pub mod touch_overview_grab;
@@ -2381,6 +2382,9 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
+            Action::EnlargeCursor => {
+                self.neori.enlarge_cursor();
+            }
             Action::ToggleWindowUrgent(id) => {
                 let window = self
                     .neori
@@ -2529,6 +2533,13 @@ impl State {
         // We received an event for the regular pointer, so show it now.
         self.neori.pointer_visibility = PointerVisibility::Visible;
         self.neori.tablet_cursor_location = None;
+
+        // Detect the shake-to-find gesture.
+        let delta = event.delta();
+        let clock = self.neori.clock.clone();
+        self.neori
+            .cursor_shake
+            .pointer_motion(event.time_msec(), delta.x, delta.y, &clock);
 
         // Check if we have an active pointer constraint.
         //

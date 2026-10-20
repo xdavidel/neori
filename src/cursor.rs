@@ -23,6 +23,8 @@ type XCursorCache = HashMap<(CursorIcon, i32), Option<Rc<XCursor>>>;
 pub struct CursorManager {
     theme: CursorTheme,
     size: u8,
+    /// Multiplier applied to `size`, used to enlarge the cursor temporarily (shake-to-find).
+    size_multiplier: f64,
     current_cursor: CursorImageStatus,
     named_cursor_cache: RefCell<XCursorCache>,
 }
@@ -36,6 +38,7 @@ impl CursorManager {
         Self {
             theme,
             size,
+            size_multiplier: 1.,
             current_cursor: CursorImageStatus::default_named(),
             named_cursor_cache: Default::default(),
         }
@@ -47,6 +50,26 @@ impl CursorManager {
         self.theme = CursorTheme::load(theme);
         self.size = size;
         self.named_cursor_cache.get_mut().clear();
+    }
+
+    /// Set the multiplier applied to the cursor size.
+    ///
+    /// Used to enlarge the cursor temporarily. Clears the cursor cache when the
+    /// multiplier actually changes.
+    pub fn set_size_multiplier(&mut self, multiplier: f64) {
+        let multiplier = multiplier.max(1.);
+        if multiplier == self.size_multiplier {
+            return;
+        }
+        self.size_multiplier = multiplier;
+        self.named_cursor_cache.get_mut().clear();
+    }
+
+    /// The effective cursor size in physical pixels for the given output `scale`.
+    fn effective_size(&self, scale: i32) -> i32 {
+        let size = (self.size as f64 * self.size_multiplier).round() as i32;
+        // Cursors must not be smaller than 1px; also keeps the value sane for the xcursor cache.
+        size.max(1) * scale
     }
 
     /// Checks if the cursor WlSurface is alive, and if not, cleans it up.
@@ -110,7 +133,7 @@ impl CursorManager {
             .borrow_mut()
             .entry((icon, scale))
             .or_insert_with_key(|(icon, scale)| {
-                let size = self.size as i32 * scale;
+                let size = self.effective_size(*scale);
                 let mut cursor = Self::load_xcursor(&self.theme, icon.name(), size);
 
                 // Check alternative names to account for non-compliant themes.

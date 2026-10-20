@@ -914,6 +914,8 @@ pub enum Action {
     OpenOverview {},
     /// Close the Overview.
     CloseOverview {},
+    /// Enlarge the cursor temporarily to help find it (shake-to-find effect).
+    EnlargeCursor {},
     /// Toggle urgent status of a window.
     ToggleWindowUrgent {
         /// Id of the window to toggle urgent.

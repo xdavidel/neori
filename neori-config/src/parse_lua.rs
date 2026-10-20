@@ -2396,9 +2396,41 @@ fn parse_cursor_section(table: LuaTable, config: &mut Config) -> Result<(), Stri
             "hide_after_inactive_ms" | "hide-after-inactive-ms" => {
                 config.cursor.hide_after_inactive_ms = Some(value_to_u32(&value)?);
             }
+            "shake_to_find" | "shake-to-find" => match value {
+                Value::Table(t) => parse_shake_to_find_table(t, &mut config.cursor.shake_to_find)?,
+                _ => config.cursor.shake_to_find.enable = value_is_truthy(&value),
+            },
             _ => unknown_key("cursor", &ks)?,
         }
     }
+    Ok(())
+}
+
+fn parse_shake_to_find_table(table: LuaTable, shake: &mut ShakeToFind) -> Result<(), String> {
+    // A table implies the feature is wanted unless `enable = false` is given.
+    shake.enable = true;
+
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(|e| format!("cursor.shake_to_find error: {e}"))?;
+        let ks = key_str(&key)?;
+        match ks.as_str() {
+            "enable" | "enabled" => shake.enable = value_is_truthy(&value),
+            "size_multiplier" | "size-multiplier" => {
+                let v = value_to_f64(&value)?;
+                if !(v.is_finite() && v > 0.) {
+                    return Err(format!(
+                        "cursor.shake_to_find.size_multiplier must be a positive number, got {v}"
+                    ));
+                }
+                shake.size_multiplier = v;
+            }
+            "size" => shake.size = Some(value_to_u8(&value)?),
+            "timeout_ms" | "timeout-ms" => shake.timeout_ms = value_to_u32(&value)?,
+            "animation_ms" | "animation-ms" => shake.animation_ms = value_to_u32(&value)?,
+            _ => unknown_key("cursor.shake_to_find", &ks)?,
+        }
+    }
+
     Ok(())
 }
 
@@ -3014,6 +3046,7 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         "toggle_overview" | "toggle-overview" => Action::ToggleOverview,
         "open_overview" | "open-overview" => Action::OpenOverview,
         "close_overview" | "close-overview" => Action::CloseOverview,
+        "enlarge_cursor" | "enlarge-cursor" => Action::EnlargeCursor,
         "show_hotkey_overlay" | "show-hotkey-overlay" => Action::ShowHotkeyOverlay,
         "screenshot" => Action::Screenshot(true, None),
         "screenshot_screen" | "screenshot-screen" => Action::ScreenshotScreen(true, true, None),
@@ -3192,6 +3225,7 @@ fn action_from_table_key(
         "toggle_overview" | "toggle-overview" => Some(Action::ToggleOverview),
         "open_overview" | "open-overview" => Some(Action::OpenOverview),
         "close_overview" | "close-overview" => Some(Action::CloseOverview),
+        "enlarge_cursor" | "enlarge-cursor" => Some(Action::EnlargeCursor),
         "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay),
         "screenshot" => {
             let show_pointer = table
