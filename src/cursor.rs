@@ -56,13 +56,14 @@ impl CursorManager {
     ///
     /// Used to enlarge the cursor temporarily. Clears the cursor cache when the
     /// multiplier actually changes.
-    pub fn set_size_multiplier(&mut self, multiplier: f64) {
+    pub fn set_size_multiplier(&mut self, multiplier: f64) -> bool {
         let multiplier = multiplier.max(1.);
         if multiplier == self.size_multiplier {
-            return;
+            return false;
         }
         self.size_multiplier = multiplier;
         self.named_cursor_cache.get_mut().clear();
+        true
     }
 
     /// The effective cursor size in physical pixels for the given output `scale`.

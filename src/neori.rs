@@ -3789,7 +3789,11 @@ impl Neori {
     /// Advances the shake-to-find cursor animation and pushes the size to the cursor manager.
     pub fn update_cursor_shake(&mut self) {
         let multiplier = self.cursor_shake.advance(&self.clock);
-        self.cursor_manager.set_size_multiplier(multiplier);
+        if self.cursor_manager.set_size_multiplier(multiplier) {
+            // The texture cache is keyed by (icon, scale) only, so it must be cleared when the
+            // cursor size changes, otherwise the old-sized cursor keeps being drawn.
+            self.cursor_texture_cache.clear();
+        }
     }
 
     /// Triggers the shake-to-find cursor enlargement (from a bind or IPC action).
