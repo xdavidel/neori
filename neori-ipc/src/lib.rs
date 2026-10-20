@@ -916,6 +916,12 @@ pub enum Action {
     CloseOverview {},
     /// Enlarge the cursor temporarily to help find it (shake-to-find effect).
     EnlargeCursor {},
+    /// Send the focused window to the scratchpad, hiding it.
+    SendToScratchpad {},
+    /// Show the scratchpad window and remove it from the scratchpad.
+    RemoveFromScratchpad {},
+    /// Toggle the scratchpad window's appearance, centered on the active monitor.
+    ToggleScratchpad {},
     /// Toggle urgent status of a window.
     ToggleWindowUrgent {
         /// Id of the window to toggle urgent.

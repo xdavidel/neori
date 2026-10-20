@@ -354,6 +354,18 @@ pub struct Layout<W: LayoutElement> {
     /// Used for `switch_workspace_previous()` and auto-back-and-forth behavior in the global
     /// workspace model.
     previous_active_workspace_id: Option<WorkspaceId>,
+    /// The scratchpad's hidden workspace.
+    ///
+    /// Holds the scratchpad window (at most one) while it is hidden, as a floating tile that is
+    /// not part of any monitor's normal workspace sequence, so it is invisible to navigation and
+    /// rendering. It is created lazily when a window is first sent to the scratchpad.
+    scratchpad: Option<Workspace<W>>,
+    /// Id of the window currently owned by the scratchpad, if any.
+    ///
+    /// Set when a window is sent to the scratchpad and kept until it is removed, so we can find
+    /// the scratchpad window whether it is currently hidden (in [`Self::scratchpad`]) or shown
+    /// (moved back onto a monitor's workspace).
+    scratchpad_window_id: Option<W::Id>,
     /// Ongoing interactive move.
     interactive_move: Option<InteractiveMoveState<W>>,
     /// Ongoing drag-and-drop operation.
@@ -714,6 +726,8 @@ impl<W: LayoutElement> Layout<W> {
             is_active: true,
             last_active_workspace_id: HashMap::new(),
             previous_active_workspace_id: None,
+            scratchpad: None,
+            scratchpad_window_id: None,
             interactive_move: None,
             dnd: None,
             clock,
@@ -740,6 +754,8 @@ impl<W: LayoutElement> Layout<W> {
             is_active: true,
             last_active_workspace_id: HashMap::new(),
             previous_active_workspace_id: None,
+            scratchpad: None,
+            scratchpad_window_id: None,
             interactive_move: None,
             dnd: None,
             clock,
@@ -1225,7 +1241,165 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        if let Some(scratchpad) = &mut self.scratchpad {
+            if scratchpad.has_window(window) {
+                let removed = scratchpad.remove_tile(window, transaction);
+                if self.scratchpad_window_id.as_ref() == Some(window) {
+                    self.scratchpad_window_id = None;
+                }
+                return Some(removed);
+            }
+        }
+
         None
+    }
+
+    /// Sends the currently focused window to the scratchpad, hiding it.
+    ///
+    /// Does nothing if there is no focused window, or if the focused window is already the
+    /// scratchpad window. If the scratchpad already holds a different window, that window is
+    /// removed from the layout first so the scratchpad holds at most one window.
+    pub fn send_to_scratchpad(&mut self) {
+        let Some(window_id) = self.focus().map(|win| win.id().clone()) else {
+            return;
+        };
+
+        if let Some(old_id) = self.scratchpad_window_id.clone() {
+            if old_id == window_id {
+                return;
+            }
+            self.remove_scratchpad_window(&old_id);
+        }
+
+        let Some(removed) = self.remove_window(&window_id, Transaction::new()) else {
+            return;
+        };
+
+        let scratchpad = self.scratchpad.get_or_insert_with(|| {
+            // A scratchpad workspace has no output while hidden; it gets one when shown again.
+            Workspace::new_no_outputs(self.clock.clone(), self.options.clone())
+        });
+
+        scratchpad.add_tile(
+            removed.tile,
+            WorkspaceAddWindowTarget::Auto,
+            ActivateWindow::No,
+            removed.width,
+            removed.is_full_width,
+            true,
+        );
+
+        self.scratchpad_window_id = Some(window_id);
+    }
+
+    /// Removes the given window from the scratchpad, or from wherever it is shown, without
+    /// restoring it. Used when replacing the scratchpad window.
+    fn remove_scratchpad_window(&mut self, id: &W::Id) {
+        if let Some(scratchpad) = &mut self.scratchpad {
+            if scratchpad.has_window(id) {
+                scratchpad.remove_tile(id, Transaction::new());
+                return;
+            }
+        }
+        self.remove_window(id, Transaction::new());
+    }
+
+    /// Toggles the scratchpad window appearance, centered on the active monitor.
+    ///
+    /// If the scratchpad window is hidden, it is shown, centered and focused, on the active
+    /// monitor's active workspace. If it is already shown, it is hidden back into the scratchpad.
+    /// Does nothing if the scratchpad is empty.
+    pub fn toggle_scratchpad(&mut self) {
+        let Some(id) = self.scratchpad_window_id.clone() else {
+            return;
+        };
+
+        if let Some(scratchpad) = &mut self.scratchpad {
+            if scratchpad.has_window(&id) {
+                // Hidden: show it.
+                let removed = scratchpad.remove_tile(&id, Transaction::new());
+                self.show_tile(removed, true);
+                return;
+            }
+        }
+
+        // Shown: hide it back into the scratchpad.
+        self.hide_scratchpad_window(&id);
+    }
+
+    /// Hides the given scratchpad window back into the scratchpad workspace.
+    fn hide_scratchpad_window(&mut self, id: &W::Id) {
+        let Some(removed) = self.remove_window(id, Transaction::new()) else {
+            return;
+        };
+
+        let scratchpad = self.scratchpad.get_or_insert_with(|| {
+            Workspace::new_no_outputs(self.clock.clone(), self.options.clone())
+        });
+
+        scratchpad.add_tile(
+            removed.tile,
+            WorkspaceAddWindowTarget::Auto,
+            ActivateWindow::No,
+            removed.width,
+            removed.is_full_width,
+            true,
+        );
+
+        self.scratchpad_window_id = Some(id.clone());
+    }
+
+    /// Removes the scratchpad window from the scratchpad and shows it, centered and focused, on
+    /// the active monitor's active workspace.
+    pub fn remove_from_scratchpad(&mut self) {
+        let Some(id) = self.scratchpad_window_id.clone() else {
+            return;
+        };
+
+        let Some(scratchpad) = &mut self.scratchpad else {
+            return;
+        };
+
+        if !scratchpad.has_window(&id) {
+            return;
+        }
+
+        let removed = scratchpad.remove_tile(&id, Transaction::new());
+        self.show_tile(removed, true);
+    }
+
+    /// Adds a removed tile to the active monitor's active workspace as a floating window,
+    /// activating (optionally) and centering it.
+    fn show_tile(&mut self, removed: RemovedTile<W>, activate: bool) {
+        let MonitorSet::Normal {
+            monitors,
+            active_monitor_idx,
+            ..
+        } = &mut self.monitor_set
+        else {
+            return;
+        };
+
+        let activate = if activate {
+            ActivateWindow::Yes
+        } else {
+            ActivateWindow::No
+        };
+
+        let mon = &mut monitors[*active_monitor_idx];
+        let ws_idx = mon.active_workspace_idx;
+        let tile_id = removed.tile.window().id().clone();
+
+        mon.workspaces[ws_idx].add_tile(
+            removed.tile,
+            WorkspaceAddWindowTarget::Auto,
+            activate,
+            ColumnWidth::Proportion(0.5),
+            false,
+            true,
+        );
+
+        mon.workspaces[ws_idx].center_window(Some(&tile_id));
     }
 
     pub fn descendants_added(&mut self, id: &W::Id) -> bool {
@@ -1420,6 +1594,12 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        if let Some(scratchpad) = &self.scratchpad {
+            if let Some(window) = scratchpad.find_wl_surface(wl_surface) {
+                return Some((window, None));
+            }
+        }
+
         None
     }
 
@@ -1449,6 +1629,12 @@ impl<W: LayoutElement> Layout<W> {
                         return Some((window, None));
                     }
                 }
+            }
+        }
+
+        if let Some(scratchpad) = &mut self.scratchpad {
+            if let Some(window) = scratchpad.find_wl_surface_mut(wl_surface) {
+                return Some((window, None));
             }
         }
 
@@ -5404,7 +5590,12 @@ impl<W: LayoutElement> Layout<W> {
             .workspaces()
             .flat_map(|(mon, _, ws)| ws.windows().map(move |win| (mon, win)));
 
-        moving_window.chain(rest)
+        let scratchpad = self
+            .scratchpad
+            .iter()
+            .flat_map(|ws| ws.windows().map(|win| (None, win)));
+
+        moving_window.chain(rest).chain(scratchpad)
     }
 
     pub fn has_window(&self, window: &W::Id) -> bool {

@@ -2114,6 +2114,41 @@ fn focus_workspace_previous_tracks_window_activation() {
 }
 
 #[test]
+fn scratchpad_hides_and_shows_window() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        Op::CompleteAnimations,
+    ]);
+
+    assert!(layout.focus().map(|w| *w.id()) == Some(0));
+
+    // Send the focused window to the scratchpad: it becomes hidden but is still tracked.
+    layout.send_to_scratchpad();
+    assert!(layout.has_window(&0));
+    assert!(layout.focus().is_none());
+
+    // The scratchpad window no longer lives on any monitor workspace.
+    let on_monitor = layout.workspaces().any(|(_, _, ws)| ws.has_window(&0));
+    assert!(!on_monitor);
+
+    // Toggling shows it again, focused, on the active workspace.
+    layout.toggle_scratchpad();
+    assert!(layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
+    assert_eq!(layout.focus().map(|w| *w.id()), Some(0));
+
+    // Toggling again hides it back into the scratchpad.
+    layout.toggle_scratchpad();
+    assert!(!layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
+    assert!(layout.workspaces_mut().all(|ws| !ws.has_window(&0)));
+    assert!(layout.has_window(&0));
+
+    layout.verify_invariants();
+}
+
+#[test]
 fn removing_output_must_keep_empty_focus_on_primary() {
     let ops = [
         Op::AddOutput(1),

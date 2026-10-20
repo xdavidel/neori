@@ -2381,6 +2381,18 @@ impl State {
             Action::EnlargeCursor => {
                 self.neori.enlarge_cursor();
             }
+            Action::SendToScratchpad => {
+                self.neori.layout.send_to_scratchpad();
+                self.neori.queue_redraw_all();
+            }
+            Action::RemoveFromScratchpad => {
+                self.neori.layout.remove_from_scratchpad();
+                self.neori.queue_redraw_all();
+            }
+            Action::ToggleScratchpad => {
+                self.neori.layout.toggle_scratchpad();
+                self.neori.queue_redraw_all();
+            }
             Action::ToggleWindowUrgent(id) => {
                 let window = self
                     .neori

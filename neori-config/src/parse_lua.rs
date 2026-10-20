@@ -3060,6 +3060,9 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         "open_overview" | "open-overview" => Action::OpenOverview,
         "close_overview" | "close-overview" => Action::CloseOverview,
         "enlarge_cursor" | "enlarge-cursor" => Action::EnlargeCursor,
+        "send_to_scratchpad" | "send-to-scratchpad" => Action::SendToScratchpad,
+        "remove_from_scratchpad" | "remove-from-scratchpad" => Action::RemoveFromScratchpad,
+        "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad,
         "show_hotkey_overlay" | "show-hotkey-overlay" => Action::ShowHotkeyOverlay,
         "screenshot" => Action::Screenshot(true, None),
         "screenshot_screen" | "screenshot-screen" => Action::ScreenshotScreen(true, true, None),
@@ -3239,6 +3242,9 @@ fn action_from_table_key(
         "open_overview" | "open-overview" => Some(Action::OpenOverview),
         "close_overview" | "close-overview" => Some(Action::CloseOverview),
         "enlarge_cursor" | "enlarge-cursor" => Some(Action::EnlargeCursor),
+        "send_to_scratchpad" | "send-to-scratchpad" => Some(Action::SendToScratchpad),
+        "remove_from_scratchpad" | "remove-from-scratchpad" => Some(Action::RemoveFromScratchpad),
+        "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad),
         "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay),
         "screenshot" => {
             let show_pointer = table

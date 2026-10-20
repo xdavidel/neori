@@ -446,6 +446,23 @@ mod tests {
     }
 
     #[test]
+    fn scratchpad_actions_parse() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Alt+minus", "send-to-scratchpad")
+            neori.bind("Mod+Alt+Return", "toggle-scratchpad")
+            neori.bind("Mod+Alt+plus", { remove_from_scratchpad = true })
+            "#,
+        )
+        .unwrap();
+
+        let actions = actions(&config);
+        assert!(actions.contains(&Action::SendToScratchpad));
+        assert!(actions.contains(&Action::ToggleScratchpad));
+        assert!(actions.contains(&Action::RemoveFromScratchpad));
+    }
+
+    #[test]
     fn require_includes_merge_into_config() {
         let dir = std::env::temp_dir().join(format!("neori-require-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
