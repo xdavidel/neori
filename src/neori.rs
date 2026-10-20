@@ -2049,10 +2049,10 @@ impl State {
 
         let binds_changed = config.binds != old_config.binds;
         let new_mod_key = self.backend.mod_key(&config);
+        let mut hotkey_overlay_changed =
+            config.hotkey_overlay.hide_not_bound != old_config.hotkey_overlay.hide_not_bound;
         if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
-            self.neori
-                .hotkey_overlay
-                .on_hotkey_config_updated(new_mod_key);
+            hotkey_overlay_changed = true;
             self.neori.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &config.binds);
             self.neori.mods_with_horizontal_wheel_binds =
                 mods_with_horizontal_wheel_binds(new_mod_key, &config.binds);
@@ -2062,6 +2062,11 @@ impl State {
                 mods_with_tablet_stylus_binds(new_mod_key, &config.binds);
             self.neori.mods_with_finger_scroll_binds =
                 mods_with_finger_scroll_binds(new_mod_key, &config.binds);
+        }
+        if hotkey_overlay_changed {
+            self.neori
+                .hotkey_overlay
+                .on_hotkey_config_updated(new_mod_key);
         }
 
         if config.window_rules != old_config.window_rules {
