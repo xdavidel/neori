@@ -2674,7 +2674,8 @@ fn parse_keyboard(table: &LuaTable, kb: &mut Keyboard) -> Result<(), String> {
                     kb.xkb.layout = t.get("layout").unwrap_or_default();
                     kb.xkb.variant = t.get("variant").unwrap_or_default();
                     kb.xkb.options = t.get("options").unwrap_or(None);
-                    kb.xkb.file = t.get("file").unwrap_or(None);
+                    let file: Option<String> = t.get("file").unwrap_or(None);
+                    kb.xkb.file = file.map(|file| read_xkb_file(&file));
                 }
             }
             "repeat_delay" | "repeat-delay" => {
@@ -5838,6 +5839,27 @@ fn parse_curve_value(value: &Value) -> Result<Curve, String> {
         "ease-out-expo" | "ease_out_expo" => Curve::EaseOutExpo,
         _ => return Err(format!("unknown curve: {curve_str}")),
     })
+}
+
+/// Reads the xkb keymap file at `path` (relative to the config, `~` expanded), and watches it
+/// so that changing it reloads the config. A file that can't be read is warned about.
+fn read_xkb_file(path: &str) -> XkbFile {
+    let path = match resolve_config_path(path) {
+        Ok(path) => path,
+        Err(err) => {
+            warn!("failed to expand xkb file path: {err}");
+            return XkbFile(None);
+        }
+    };
+
+    watch_config_file(&path);
+    match std::fs::read_to_string(&path) {
+        Ok(keymap) => XkbFile(Some(keymap)),
+        Err(err) => {
+            warn!("failed to read xkb file from {path:?}: {err}");
+            XkbFile(None)
+        }
+    }
 }
 
 /// Parses a `custom_shader` value: either the GLSL source as a string, or a

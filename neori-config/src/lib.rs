@@ -3023,6 +3023,49 @@ mod tests {
     }
 
     #[test]
+    fn xkb_file_is_read_and_watched() {
+        let dir = std::env::temp_dir().join(format!(
+            "neori-config-xkb-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let keymap = dir.join("keymap.xkb");
+        std::fs::write(&keymap, "xkb_keymap {};").unwrap();
+        let config_path = dir.join("config.lua");
+
+        // Relative paths resolve against the config directory, and the file is watched.
+        let res = Config::parse(
+            &config_path,
+            r#"neori.input { keyboard = { xkb = { file = "keymap.xkb" } } }"#,
+        );
+        let config = res.config.unwrap();
+        assert_eq!(
+            config.input.keyboard.xkb.file,
+            Some(crate::input::XkbFile(Some("xkb_keymap {};".to_string())))
+        );
+        assert!(res.includes.contains(&keymap));
+
+        // A missing file doesn't fail the config, but is still watched.
+        let missing = dir.join("missing.xkb");
+        let res = Config::parse(
+            &config_path,
+            r#"neori.input { keyboard = { xkb = { file = "missing.xkb" } } }"#,
+        );
+        assert_eq!(
+            res.config.unwrap().input.keyboard.xkb.file,
+            Some(crate::input::XkbFile(None))
+        );
+        assert!(res.includes.contains(&missing));
+
+        // No file by default.
+        let config = Config::parse_mem("").unwrap();
+        assert_eq!(config.input.keyboard.xkb.file, None);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn custom_shader_only_on_supported_animations() {
         // Lenient mode ignores the key on animations without shader support.
         let config = Config::parse_mem(

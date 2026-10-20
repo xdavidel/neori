@@ -81,7 +81,7 @@ pub struct Xkb {
     pub layout: String,
     pub variant: String,
     pub options: Option<String>,
-    pub file: Option<String>,
+    pub file: Option<XkbFile>,
 }
 
 impl Xkb {
@@ -95,6 +95,10 @@ impl Xkb {
         }
     }
 }
+
+/// Contents of an xkb keymap file, read when parsing the config (`None` if reading failed).
+#[derive(PartialEq, Eq, Clone, Debug)]
+pub struct XkbFile(pub Option<String>);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TrackLayout {
