@@ -2536,6 +2536,9 @@ impl<W: LayoutElement> Layout<W> {
             return;
         }
 
+        // Mirrors `record_previous_active_workspace()`; written directly here to
+        // avoid a whole-`self` borrow while `monitors`/`active_monitor_idx` are
+        // borrowed from `self.monitor_set`.
         if cur_ws_id != target_ws_id {
             self.previous_active_workspace_id = Some(cur_ws_id);
         }
