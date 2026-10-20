@@ -41,22 +41,37 @@ impl Key {
     /// The keysym name is looked up in the `us` layout, so this works for any key that
     /// exists on a standard US keyboard. Non-keysym triggers are returned unchanged.
     pub fn into_keycode(self) -> Result<Self, miette::Error> {
+        let name = match self.trigger {
+            Trigger::Keysym(keysym) => keysym_get_name(keysym),
+            other => {
+                return Ok(Self {
+                    trigger: other,
+                    modifiers: self.modifiers,
+                });
+            }
+        };
+
+        match self.try_into_keycode() {
+            Some(key) => Ok(key),
+            None => Err(miette!(
+                "cannot use keycode for '{name}': no key with this name in the US layout"
+            )),
+        }
+    }
+
+    /// Like [`Key::into_keycode`], but returns `None` when the keysym has no key in the US
+    /// layout (e.g. XF86 media keys) instead of erroring. Non-keysym triggers convert to
+    /// themselves.
+    pub fn try_into_keycode(self) -> Option<Self> {
         let trigger = match self.trigger {
             Trigger::Keysym(keysym) => {
                 let name = keysym_get_name(keysym);
-                match crate::keycode::evdev_from_keysym_name(&name) {
-                    Some(code) => Trigger::Keycode(code),
-                    None => {
-                        return Err(miette!(
-                            "cannot use keycode for '{name}': no key with this name in the US layout"
-                        ));
-                    }
-                }
+                Trigger::Keycode(crate::keycode::evdev_from_keysym_name(&name)?)
             }
             other => other,
         };
 
-        Ok(Self {
+        Some(Self {
             trigger,
             modifiers: self.modifiers,
         })

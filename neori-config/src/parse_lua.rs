@@ -2831,7 +2831,9 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     let mut cooldown = None;
     let mut allow_when_locked = false;
     let mut allow_inhibiting = true;
-    let mut by_keycode = false;
+    // `None` means the default (keycode when possible, falling back to keysym for keys
+    // without a US-layout keycode such as XF86 media keys).
+    let mut by_keycode: Option<bool> = None;
     let mut hotkey_overlay_title: Option<String> = None;
     let mut has_hotkey_overlay_title = false;
 
@@ -2863,7 +2865,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                         allow_inhibiting = value_is_truthy(&av);
                     }
                     "keycode" | "key-code" => {
-                        by_keycode = value_is_truthy(&av);
+                        by_keycode = Some(value_is_truthy(&av));
                     }
                     "hotkey_overlay_title" | "hotkey-overlay-title" => {
                         has_hotkey_overlay_title = true;
@@ -2888,10 +2890,21 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         allow_inhibiting = false;
     }
 
-    if by_keycode {
-        key = key
-            .into_keycode()
-            .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
+    match by_keycode {
+        // Explicitly disabled: keep the layout-dependent keysym trigger.
+        Some(false) => {}
+        // Explicitly enabled: convert, erroring if the key has no US-layout keycode.
+        Some(true) => {
+            key = key
+                .into_keycode()
+                .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
+        }
+        // Default: convert when possible, otherwise silently keep the keysym (e.g. XF86 keys).
+        None => {
+            if let Some(converted) = key.try_into_keycode() {
+                key = converted;
+            }
+        }
     }
 
     Ok(Bind {

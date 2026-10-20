@@ -362,6 +362,7 @@ impl ConfigPath {
 mod tests {
     use insta::assert_snapshot;
     use pretty_assertions::assert_eq;
+    use smithay::input::keyboard::Keysym;
 
     use super::*;
     use crate::output::{MaxBpc, Mode};
@@ -575,11 +576,11 @@ mod tests {
     }
 
     #[test]
-    fn keycode_option_rewrites_trigger_to_keycode() {
+    fn keycode_is_the_default() {
         let config = Config::parse_mem(
             r#"
-            neori.bind("Mod+Slash", neori.spawn("rofi", "-show", "run", { hotkey_overlay_title = "Binary Launcher", keycode = true }))
-            neori.bind("Mod+Shift+Slash", { show_hotkey_overlay = true, keycode = true })
+            neori.bind("Mod+Slash", neori.spawn("rofi", "-show", "run", { hotkey_overlay_title = "Binary Launcher" }))
+            neori.bind("Mod+Shift+Slash", { show_hotkey_overlay = true })
             "#,
         )
         .unwrap();
@@ -588,6 +589,31 @@ mod tests {
         assert_eq!(binds.len(), 2);
         assert_eq!(binds[0].key.trigger, Trigger::Keycode(53));
         assert_eq!(binds[1].key.trigger, Trigger::Keycode(53));
+    }
+
+    #[test]
+    fn keycode_false_keeps_the_keysym() {
+        let config = Config::parse_mem(
+            r#"neori.bind("Mod+Slash", { show_hotkey_overlay = true, keycode = false })"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.binds.0[0].key.trigger,
+            Trigger::Keysym(Keysym::slash)
+        );
+    }
+
+    #[test]
+    fn keycode_falls_back_to_keysym_for_unknown_keys() {
+        // A keysym with no US-layout keycode (e.g. a layout-specific key) keeps the keysym
+        // by default instead of erroring.
+        let config = Config::parse_mem(r#"neori.bind("XF86Keyboard", "spawn true")"#).unwrap();
+
+        assert_eq!(
+            config.binds.0[0].key.trigger,
+            Trigger::Keysym(Keysym::XF86_Keyboard)
+        );
     }
 
     #[test]

@@ -597,11 +597,11 @@ fn prettify_keysym_name(screen_reader: bool, name: &str) -> String {
     };
 
     let name = match name {
-        "Next" => "Page Down",
-        "Prior" => "Page Up",
-        "Print" => "PrtSc",
-        "Return" => "Enter",
-        "space" => "Space",
+        "Next" | "next" => "Page Down",
+        "Prior" | "prior" => "Page Up",
+        "Print" | "print" => "PrtSc",
+        "Return" | "return" => "Enter",
+        "space" | "Space" => "Space",
         _ => name,
     };
 
