@@ -1550,6 +1550,8 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
 
+        let before = self.active_workspace_id();
+
         let MonitorSet::Normal {
             monitors,
             active_monitor_idx,
@@ -1573,6 +1575,7 @@ impl<W: LayoutElement> Layout<W> {
                         _ => mon.switch_workspace(workspace_idx),
                     }
 
+                    self.record_previous_active_workspace(before);
                     return;
                 }
             }
@@ -1585,6 +1588,8 @@ impl<W: LayoutElement> Layout<W> {
                 return;
             }
         }
+
+        let before = self.active_workspace_id();
 
         let MonitorSet::Normal {
             monitors,
@@ -1609,6 +1614,7 @@ impl<W: LayoutElement> Layout<W> {
                         _ => mon.switch_workspace(workspace_idx),
                     }
 
+                    self.record_previous_active_workspace(before);
                     return;
                 }
             }
@@ -1654,6 +1660,26 @@ impl<W: LayoutElement> Layout<W> {
 
         let mon = &mut monitors[*active_monitor_idx];
         Some(&mut mon.workspaces[mon.active_workspace_idx])
+    }
+
+    /// Returns the id of the currently active workspace, if any.
+    pub fn active_workspace_id(&self) -> Option<WorkspaceId> {
+        self.active_workspace().map(|ws| ws.id())
+    }
+
+    /// Records `before` as the globally previous workspace if the active
+    /// workspace changed since it was captured.
+    ///
+    /// Call this around every operation that can change the active workspace
+    /// (not just [`Self::activate_workspace_position`]), otherwise
+    /// `switch_workspace_previous()` ends up toggling to a stale workspace.
+    fn record_previous_active_workspace(&mut self, before: Option<WorkspaceId>) {
+        let after = self.active_workspace_id();
+        if let Some(before) = before {
+            if after != Some(before) {
+                self.previous_active_workspace_id = Some(before);
+            }
+        }
     }
 
     pub fn windows_for_output(&self, output: &Output) -> impl Iterator<Item = &W> + '_ {
@@ -2341,6 +2367,31 @@ impl<W: LayoutElement> Layout<W> {
         }
     }
 
+    /// Switches the workspace on the monitor with the given output up, keeping
+    /// the global previous-workspace bookkeeping up to date.
+    ///
+    /// Used by the `FocusWorkspaceUpUnderMouse`/`DownUnderMouse` actions, which
+    /// operate on the monitor under the cursor rather than the active one.
+    pub fn switch_workspace_up_on_output(&mut self, output: &Output) {
+        let before = self.active_workspace_id();
+        let Some(mon) = self.monitor_for_output_mut(output) else {
+            return;
+        };
+        mon.switch_workspace_up();
+        self.record_previous_active_workspace(before);
+    }
+
+    /// Switches the workspace on the monitor with the given output down, keeping
+    /// the global previous-workspace bookkeeping up to date.
+    pub fn switch_workspace_down_on_output(&mut self, output: &Output) {
+        let before = self.active_workspace_id();
+        let Some(mon) = self.monitor_for_output_mut(output) else {
+            return;
+        };
+        mon.switch_workspace_down();
+        self.record_previous_active_workspace(before);
+    }
+
     /// Focuses the workspace with the given global number.
     ///
     /// The workspace may live on any monitor; focusing it also focuses that
@@ -2898,6 +2949,7 @@ impl<W: LayoutElement> Layout<W> {
         }
 
         let is_overview_open = self.overview_open;
+        let before_dnd_switch = self.active_workspace_id();
 
         // Scroll the view if needed.
         if let Some((output, pos_within_output, is_scrolling)) = dnd_scroll {
@@ -2981,6 +3033,7 @@ impl<W: LayoutElement> Layout<W> {
                             mon.activate_workspace_with_anim_config(ws_idx, config);
 
                             self.focus_output(&output);
+                            self.record_previous_active_workspace(before_dnd_switch);
 
                             if is_overview_open {
                                 self.close_overview();
@@ -3560,6 +3613,7 @@ impl<W: LayoutElement> Layout<W> {
     }
 
     pub fn focus_output(&mut self, output: &Output) {
+        let before = self.active_workspace_id();
         if let MonitorSet::Normal {
             monitors,
             active_monitor_idx,
@@ -3569,6 +3623,7 @@ impl<W: LayoutElement> Layout<W> {
             for (idx, mon) in monitors.iter().enumerate() {
                 if &mon.output == output {
                     *active_monitor_idx = idx;
+                    self.record_previous_active_workspace(before);
                     return;
                 }
             }
@@ -4981,9 +5036,11 @@ impl<W: LayoutElement> Layout<W> {
 
     pub fn toggle_overview_to_workspace(&mut self, ws_idx: usize) {
         let config = self.options.animations.overview_open_close.0;
+        let before = self.active_workspace_id();
         if let Some(mon) = self.active_monitor() {
             mon.activate_workspace_with_anim_config(ws_idx, Some(config));
         }
+        self.record_previous_active_workspace(before);
         self.toggle_overview();
     }
 

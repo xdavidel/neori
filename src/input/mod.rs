@@ -1491,12 +1491,10 @@ impl State {
             }
             Action::FocusWorkspaceDownUnderMouse => {
                 if let Some(output) = self.neori.output_under_cursor() {
-                    if let Some(mon) = self.neori.layout.monitor_for_output_mut(&output) {
-                        mon.switch_workspace_down();
-                        self.maybe_warp_cursor_to_focus();
-                        self.neori.layer_shell_on_demand_focus = None;
-                        self.neori.queue_redraw(&output);
-                    }
+                    self.neori.layout.switch_workspace_down_on_output(&output);
+                    self.maybe_warp_cursor_to_focus();
+                    self.neori.layer_shell_on_demand_focus = None;
+                    self.neori.queue_redraw(&output);
                 }
             }
             Action::FocusWorkspaceUp => {
@@ -1510,12 +1508,10 @@ impl State {
             }
             Action::FocusWorkspaceUpUnderMouse => {
                 if let Some(output) = self.neori.output_under_cursor() {
-                    if let Some(mon) = self.neori.layout.monitor_for_output_mut(&output) {
-                        mon.switch_workspace_up();
-                        self.maybe_warp_cursor_to_focus();
-                        self.neori.layer_shell_on_demand_focus = None;
-                        self.neori.queue_redraw(&output);
-                    }
+                    self.neori.layout.switch_workspace_up_on_output(&output);
+                    self.maybe_warp_cursor_to_focus();
+                    self.neori.layer_shell_on_demand_focus = None;
+                    self.neori.queue_redraw(&output);
                 }
             }
             Action::FocusWorkspace(reference) => {

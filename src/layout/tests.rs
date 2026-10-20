@@ -2079,6 +2079,41 @@ fn switch_workspace_up_down_skips_missing_numbers() {
 }
 
 #[test]
+fn focus_workspace_previous_tracks_window_activation() {
+    // Workspace 1 has window 0; workspace 2 has window 1.
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        Op::FocusWorkspace(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::CompleteAnimations,
+    ]);
+
+    // We are on workspace 2 now.
+    assert_eq!(layout.active_workspace_number(), Some(2));
+
+    // Activating a window on workspace 1 (focus-follows-mouse, or clicking a window
+    // on another workspace) switches to it through a path that bypasses
+    // activate_workspace_position. The global previous-workspace bookkeeping must
+    // still be updated, so the next switch_workspace_previous() comes back here.
+    layout.activate_window(&0);
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    layout.switch_workspace_previous();
+    assert_eq!(layout.active_workspace_number(), Some(2));
+
+    // And toggling back works.
+    layout.switch_workspace_previous();
+    assert_eq!(layout.active_workspace_number(), Some(1));
+
+    layout.verify_invariants();
+}
+
+#[test]
 fn removing_output_must_keep_empty_focus_on_primary() {
     let ops = [
         Op::AddOutput(1),
