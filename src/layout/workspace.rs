@@ -1,6 +1,6 @@
+use std::cell::Cell;
 use std::cmp::max;
 use std::rc::Rc;
-use std::cell::Cell;
 use std::time::Duration;
 
 use neori_config::utils::MergeWith as _;
@@ -251,12 +251,7 @@ impl<W: LayoutElement> Workspace<W> {
         Self::new_with_config(output, None, clock, options)
     }
 
-    pub fn new_with_number(
-        index: u32,
-        output: Output,
-        clock: Clock,
-        options: Rc<Options>,
-    ) -> Self {
+    pub fn new_with_number(index: u32, output: Output, clock: Clock, options: Rc<Options>) -> Self {
         reserve_workspace_index(index);
         Self::new_with_config_indexed(output, None, clock, options, index)
     }

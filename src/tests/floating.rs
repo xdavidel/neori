@@ -441,7 +441,8 @@ fn interactive_move_unfullscreen_to_floating_restores_size() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window,
@@ -490,7 +491,8 @@ fn interactive_move_unmaximize_to_floating_restores_size() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window,
@@ -527,7 +529,8 @@ fn resize_during_interactive_move_propagates_to_floating() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window_id = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window_id.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window_id,
@@ -743,7 +746,8 @@ fn interactive_move_restores_floating_size_when_set_to_floating() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window_id = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window_id.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window_id,

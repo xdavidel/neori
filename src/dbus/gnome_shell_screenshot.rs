@@ -86,7 +86,10 @@ impl Screenshot {
         to_neori: calloop::channel::Sender<ScreenshotToNeori>,
         from_neori: async_channel::Receiver<NeoriToScreenshot>,
     ) -> Self {
-        Self { to_neori, from_neori }
+        Self {
+            to_neori,
+            from_neori,
+        }
     }
 }
 

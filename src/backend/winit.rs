@@ -204,7 +204,8 @@ impl Winit {
             Err(err) => {
                 debug!("failed building default dmabuf feedback, falling back to v3: {err:?}");
                 let primary_formats = renderer.dmabuf_formats();
-                neori.dmabuf_state
+                neori
+                    .dmabuf_state
                     .create_global::<State>(&neori.display_handle, primary_formats)
             }
         };

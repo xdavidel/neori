@@ -62,7 +62,10 @@ impl Introspect {
         to_neori: calloop::channel::Sender<IntrospectToNeori>,
         from_neori: async_channel::Receiver<NeoriToIntrospect>,
     ) -> Self {
-        Self { to_neori, from_neori }
+        Self {
+            to_neori,
+            from_neori,
+        }
     }
 }
 

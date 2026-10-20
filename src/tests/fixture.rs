@@ -10,7 +10,7 @@ use smithay::output::Output;
 
 use super::client::{Client, ClientId};
 use super::server::Server;
-use crate::neori::{NewClient, Neori};
+use crate::neori::{Neori, NewClient};
 
 pub struct Fixture {
     pub event_loop: EventLoop<'static, State>,

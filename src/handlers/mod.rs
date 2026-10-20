@@ -553,7 +553,8 @@ impl ForeignToplevelHandler for State {
     }
 
     fn set_fullscreen(&mut self, wl_surface: WlSurface, wl_output: Option<WlOutput>) {
-        if let Some((mapped, current_output)) = self.neori.layout.find_window_and_output(&wl_surface)
+        if let Some((mapped, current_output)) =
+            self.neori.layout.find_window_and_output(&wl_surface)
         {
             let window = mapped.window.clone();
 

@@ -1338,9 +1338,9 @@ impl<W: LayoutElement> Layout<W> {
             let index = u32::from(index);
             self.ensure_workspace_index(index);
             match &mut self.monitor_set {
-                MonitorSet::Normal { monitors, .. } => monitors.iter_mut().find_map(|mon| {
-                    mon.workspaces.iter_mut().find(|ws| ws.index() == index)
-                }),
+                MonitorSet::Normal { monitors, .. } => monitors
+                    .iter_mut()
+                    .find_map(|mon| mon.workspaces.iter_mut().find(|ws| ws.index() == index)),
                 MonitorSet::NoOutputs { workspaces } => {
                     workspaces.iter_mut().find(|ws| ws.index() == index)
                 }
@@ -2226,10 +2226,12 @@ impl<W: LayoutElement> Layout<W> {
         }
 
         // Cross-monitor move.
-        let dst_output = { match &self.monitor_set {
-            MonitorSet::Normal { monitors, .. } => monitors[dst_mon_idx].output.clone(),
-            MonitorSet::NoOutputs { .. } => return,
-        }};
+        let dst_output = {
+            match &self.monitor_set {
+                MonitorSet::Normal { monitors, .. } => monitors[dst_mon_idx].output.clone(),
+                MonitorSet::NoOutputs { .. } => return,
+            }
+        };
         self.move_to_output(window, &dst_output, Some(dst_ws_idx), activate);
     }
 
@@ -2388,15 +2390,14 @@ impl<W: LayoutElement> Layout<W> {
     /// Finds the (monitor, workspace) position of a workspace by number.
     fn workspace_position_by_number(&self, number: u32) -> Option<(usize, usize)> {
         match &self.monitor_set {
-            MonitorSet::Normal { monitors, .. } => monitors
-                .iter()
-                .enumerate()
-                .find_map(|(mon_idx, mon)| {
+            MonitorSet::Normal { monitors, .. } => {
+                monitors.iter().enumerate().find_map(|(mon_idx, mon)| {
                     mon.workspaces
                         .iter()
                         .position(|ws| ws.index() == number)
                         .map(|ws_idx| (mon_idx, ws_idx))
-                }),
+                })
+            }
             MonitorSet::NoOutputs { workspaces } => workspaces
                 .iter()
                 .position(|ws| ws.index() == number)
@@ -2407,15 +2408,14 @@ impl<W: LayoutElement> Layout<W> {
     /// Finds the (monitor, workspace) position of a workspace by id.
     fn workspace_position_by_id(&self, id: WorkspaceId) -> Option<(usize, usize)> {
         match &self.monitor_set {
-            MonitorSet::Normal { monitors, .. } => monitors
-                .iter()
-                .enumerate()
-                .find_map(|(mon_idx, mon)| {
+            MonitorSet::Normal { monitors, .. } => {
+                monitors.iter().enumerate().find_map(|(mon_idx, mon)| {
                     mon.workspaces
                         .iter()
                         .position(|ws| ws.id() == id)
                         .map(|ws_idx| (mon_idx, ws_idx))
-                }),
+                })
+            }
             MonitorSet::NoOutputs { workspaces } => workspaces
                 .iter()
                 .position(|ws| ws.id() == id)

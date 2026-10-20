@@ -1242,7 +1242,10 @@ impl<W: LayoutElement> Monitor<W> {
         self.options = options;
     }
 
-    pub fn update_layout_config(&mut self, layout_config: Option<neori_config::LayoutPart>) -> bool {
+    pub fn update_layout_config(
+        &mut self,
+        layout_config: Option<neori_config::LayoutPart>,
+    ) -> bool {
         if self.layout_config == layout_config {
             return false;
         }
@@ -1998,7 +2001,10 @@ impl<W: LayoutElement> Monitor<W> {
         true
     }
 
-    pub fn workspace_switch_gesture_end(&mut self, is_touchpad: Option<bool>) -> WorkspaceGestureEnd {
+    pub fn workspace_switch_gesture_end(
+        &mut self,
+        is_touchpad: Option<bool>,
+    ) -> WorkspaceGestureEnd {
         let Some(WorkspaceSwitch::Gesture(gesture)) = &self.workspace_switch else {
             return WorkspaceGestureEnd::NotAffected;
         };

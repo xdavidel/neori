@@ -295,7 +295,9 @@ impl CompositorHandler for State {
                         .stop_casts_for_target(CastTarget::Window { id: id.get() });
 
                     self.neori.window_mru_ui.remove_window(id);
-                    self.neori.layout.remove_window(&window, transaction.clone());
+                    self.neori
+                        .layout
+                        .remove_window(&window, transaction.clone());
                     self.add_default_dmabuf_pre_commit_hook(surface);
 
                     // If this is the only instance, then this transaction will complete
@@ -311,7 +313,9 @@ impl CompositorHandler for State {
                     // Newly-unmapped toplevels must perform the initial commit-configure sequence
                     // afresh.
                     let unmapped = Unmapped::new(window);
-                    self.neori.unmapped_windows.insert(surface.clone(), unmapped);
+                    self.neori
+                        .unmapped_windows
+                        .insert(surface.clone(), unmapped);
 
                     if let Some(output) = output {
                         self.neori.queue_redraw(&output);
@@ -342,7 +346,9 @@ impl CompositorHandler for State {
                 }
 
                 // The toplevel remains mapped.
-                self.neori.window_mru_ui.update_window(&self.neori.layout, id);
+                self.neori
+                    .window_mru_ui
+                    .update_window(&self.neori.layout, id);
                 self.neori.layout.update_window(&window, serial);
 
                 // Move the toplevel according to the attach offset.

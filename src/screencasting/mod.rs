@@ -270,7 +270,8 @@ impl State {
             CastTarget::Window { id } => {
                 let mut windows = self.neori.layout.windows();
                 if let Some((_, mapped)) = windows.find(|(_, mapped)| mapped.id().get() == *id) {
-                    if let Some(output) = self.neori.casting.mapped_cast_output.get(&mapped.window) {
+                    if let Some(output) = self.neori.casting.mapped_cast_output.get(&mapped.window)
+                    {
                         refresh = Some(output.current_mode().unwrap().refresh as u32);
                     }
                 }

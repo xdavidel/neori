@@ -177,7 +177,12 @@ impl Backend {
         }
     }
 
-    pub fn set_output_on_demand_vrr(&mut self, neori: &mut Neori, output: &Output, enable_vrr: bool) {
+    pub fn set_output_on_demand_vrr(
+        &mut self,
+        neori: &mut Neori,
+        output: &Output,
+        enable_vrr: bool,
+    ) {
         match self {
             Backend::Tty(tty) => tty.set_output_on_demand_vrr(neori, output, enable_vrr),
             Backend::Winit(_) => (),

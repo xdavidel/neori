@@ -462,7 +462,10 @@ impl Tty {
 
         event_loop
             .insert_source(notifier, move |event, _, state| {
-                state.backend.tty().on_session_event(&mut state.neori, event);
+                state
+                    .backend
+                    .tty()
+                    .on_session_event(&mut state.neori, event);
             })
             .unwrap();
 
@@ -1185,9 +1188,11 @@ impl Tty {
 
                 // Disable and destroy the dmabuf global.
                 if let Some(global) = self.dmabuf_global.take() {
-                    neori.dmabuf_state
+                    neori
+                        .dmabuf_state
                         .disable_global::<State>(&neori.display_handle, &global);
-                    neori.event_loop
+                    neori
+                        .event_loop
                         .insert_source(
                             Timer::from_duration(Duration::from_secs(10)),
                             move |_, _, state| {
@@ -2269,7 +2274,12 @@ impl Tty {
         }
     }
 
-    pub fn set_output_on_demand_vrr(&mut self, neori: &mut Neori, output: &Output, enable_vrr: bool) {
+    pub fn set_output_on_demand_vrr(
+        &mut self,
+        neori: &mut Neori,
+        output: &Output,
+        enable_vrr: bool,
+    ) {
         let _span = tracy_client::span!("Tty::set_output_on_demand_vrr");
 
         let output_state = neori.output_state.get_mut(output).unwrap();

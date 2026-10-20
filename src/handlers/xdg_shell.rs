@@ -443,7 +443,9 @@ impl XdgShellHandler for State {
                         .or_else(|| {
                             toplevel
                                 .parent()
-                                .and_then(|parent| self.neori.layout.find_window_and_output(&parent))
+                                .and_then(|parent| {
+                                    self.neori.layout.find_window_and_output(&parent)
+                                })
                                 .and_then(|(_win, output)| output)
                                 .and_then(|o| self.neori.layout.monitor_for_output(o))
                                 .map(|mon| (mon, true))
@@ -659,7 +661,9 @@ impl XdgShellHandler for State {
                         .or_else(|| {
                             toplevel
                                 .parent()
-                                .and_then(|parent| self.neori.layout.find_window_and_output(&parent))
+                                .and_then(|parent| {
+                                    self.neori.layout.find_window_and_output(&parent)
+                                })
                                 .and_then(|(_win, output)| output)
                                 .and_then(|o| self.neori.layout.monitor_for_output(o))
                                 .map(|mon| (mon, true))
@@ -860,7 +864,9 @@ impl XdgShellHandler for State {
         let was_active = active_window == Some(&window);
 
         self.neori.window_mru_ui.remove_window(id);
-        self.neori.layout.remove_window(&window, transaction.clone());
+        self.neori
+            .layout
+            .remove_window(&window, transaction.clone());
 
         let surface = surface.wl_surface();
         // This check is necessary because implicit resource destruction is done with

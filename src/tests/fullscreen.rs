@@ -239,7 +239,8 @@ fn interactive_move_unfullscreen_to_scrolling_restores_size() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window,
@@ -279,7 +280,8 @@ fn interactive_move_unmaximize_to_scrolling_restores_size() {
     let neori = f.neori();
     let mapped = neori.layout.windows().next().unwrap().1;
     let window = mapped.window.clone();
-    neori.layout
+    neori
+        .layout
         .interactive_move_begin(window.clone(), &output, Point::default());
     neori.layout.interactive_move_update(
         &window,
