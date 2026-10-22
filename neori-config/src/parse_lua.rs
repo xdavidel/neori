@@ -602,10 +602,15 @@ fn setup_neori_api(
                     "startup" => "startup",
                     "monitor-added" | "monitor_added" => "monitor-added",
                     "monitor-removed" | "monitor_removed" => "monitor-removed",
+                    "lid-open" | "lid_open" => "lid-open",
+                    "lid-closed" | "lid_closed" => "lid-closed",
+                    "tablet-mode-on" | "tablet_mode_on" => "tablet-mode-on",
+                    "tablet-mode-off" | "tablet_mode_off" => "tablet-mode-off",
                     _ => {
                         return Err(LuaError::runtime(format!(
                             "unknown event '{event}' (supported events: startup, monitor-added, \
-                             monitor-removed)"
+                             monitor-removed, lid-open, lid-closed, tablet-mode-on, \
+                             tablet-mode-off)"
                         )));
                     }
                 };
@@ -765,6 +770,14 @@ const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "monitor-added",
     "monitor_removed",
     "monitor-removed",
+    "lid_open",
+    "lid-open",
+    "lid_closed",
+    "lid-closed",
+    "tablet_mode_on",
+    "tablet-mode-on",
+    "tablet_mode_off",
+    "tablet-mode-off",
     "outputs",
     "output",
     "window_rules",
@@ -859,6 +872,14 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                 }
                 "monitor_removed" | "monitor-removed" => {
                     config.monitor_removed = parse_event_actions(&t)?
+                }
+                "lid_open" | "lid-open" => config.lid_open = parse_event_actions(&t)?,
+                "lid_closed" | "lid-closed" => config.lid_closed = parse_event_actions(&t)?,
+                "tablet_mode_on" | "tablet-mode-on" => {
+                    config.tablet_mode_on = parse_event_actions(&t)?
+                }
+                "tablet_mode_off" | "tablet-mode-off" => {
+                    config.tablet_mode_off = parse_event_actions(&t)?
                 }
                 "outputs" | "output" => parse_outputs(t, config)?,
                 "window_rules" | "window-rules" => parse_window_rules(t, config)?,

@@ -268,6 +268,12 @@ pub struct Neori {
     /// startup, libinput will immediately send a closed event.
     pub is_lid_closed: bool,
 
+    /// Whether the device is in tablet mode.
+    ///
+    /// Like the lid switch, the tablet mode switch starts off, and libinput immediately sends an
+    /// event if the device was in tablet mode at startup.
+    pub is_tablet_mode: bool,
+
     pub devices: HashSet<input::Device>,
     pub tablets: HashMap<input::Device, TabletData>,
     pub touch: HashSet<input::Device>,
@@ -798,6 +804,33 @@ impl State {
         debug!("laptop lid {}", if is_closed { "closed" } else { "opened" });
         self.neori.is_lid_closed = is_closed;
         self.backend.on_output_config_changed(&mut self.neori);
+
+        // Fire the lid event after the output configuration has been updated, so that handlers
+        // (e.g. reapplying monitor profiles) see the new state. Deferred to idle like the monitor
+        // events, to avoid re-entering the compositor from the switch/logind handler.
+        let event = if is_closed { "lid-closed" } else { "lid-open" };
+        self.neori.event_loop.insert_idle(move |state| {
+            state.fire_switch_event(event);
+        });
+    }
+
+    /// Records the tablet mode state and fires the corresponding event.
+    pub fn set_tablet_mode(&mut self, is_on: bool) {
+        if self.neori.is_tablet_mode == is_on {
+            return;
+        }
+
+        debug!("tablet mode {}", if is_on { "on" } else { "off" });
+        self.neori.is_tablet_mode = is_on;
+
+        let event = if is_on {
+            "tablet-mode-on"
+        } else {
+            "tablet-mode-off"
+        };
+        self.neori.event_loop.insert_idle(move |state| {
+            state.fire_switch_event(event);
+        });
     }
 
     fn refresh(&mut self) {
@@ -1483,6 +1516,26 @@ impl State {
         }
 
         if let Err(err) = self.scripting.call_event_with(event, connector.to_string()) {
+            warn!("{err}");
+        }
+    }
+
+    /// Fires a switch event: executes queued actions from the config, then runs the Lua callbacks
+    /// registered via `neori.on(event, function() ... end)`.
+    fn fire_switch_event(&mut self, event: &str) {
+        let actions = match event {
+            "lid-open" => self.neori.config.borrow().lid_open.clone(),
+            "lid-closed" => self.neori.config.borrow().lid_closed.clone(),
+            "tablet-mode-on" => self.neori.config.borrow().tablet_mode_on.clone(),
+            "tablet-mode-off" => self.neori.config.borrow().tablet_mode_off.clone(),
+            _ => Vec::new(),
+        };
+        for action in actions {
+            // Like switch-events bindings, these run even when the session is locked.
+            self.do_action(action, true);
+        }
+
+        if let Err(err) = self.scripting.call_event(event) {
             warn!("{err}");
         }
     }
@@ -2592,6 +2645,7 @@ impl Neori {
             blocker_cleared_rx,
             monitors_active: true,
             is_lid_closed: false,
+            is_tablet_mode: false,
 
             devices: HashSet::new(),
             tablets: HashMap::new(),

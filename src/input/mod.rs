@@ -4502,6 +4502,10 @@ impl State {
             let is_closed = evt.state() == SwitchState::On;
             trace!("lid switch {}", if is_closed { "closed" } else { "opened" });
             self.set_lid_closed(is_closed);
+        } else if switch == Switch::TabletMode {
+            let is_on = evt.state() == SwitchState::On;
+            trace!("tablet mode switch {}", if is_on { "on" } else { "off" });
+            self.set_tablet_mode(is_on);
         }
 
         let action = {

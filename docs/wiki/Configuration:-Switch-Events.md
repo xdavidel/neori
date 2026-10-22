@@ -29,6 +29,35 @@ Currently, only the [`spawn` action](./Configuration:-Key-Bindings.md#spawn) are
 > [!NOTE]
 > In contrast to key bindings, switch event bindings are *always* executed, even when the session is locked.
 
+### Switch events via `neori.on`
+
+<sup>Since: 26.04</sup>
+
+In addition to the `switch-events {}` section, the same switch changes can be handled with
+`neori.on()`, which supports every [key binding action](./Configuration:-Key-Bindings.md) and
+Lua functions:
+
+```lua
+neori.on("lid-closed", neori.spawn("notify-send", "The laptop lid is closed!"))
+neori.on("lid-open", neori.spawn("notify-send", "The laptop lid is open!"))
+neori.on("tablet-mode-on", neori.spawn("wvkbd"))
+neori.on("tablet-mode-off", neori.spawn("pkill", "wvkbd"))
+```
+
+The supported event names are `lid-open`, `lid-closed`, `tablet-mode-on` and `tablet-mode-off`.
+
+Lua functions registered this way are called with no arguments:
+
+```lua
+neori.on("lid-open", function()
+    print("The laptop lid is open!")
+end)
+```
+
+> [!NOTE]
+> Like `switch-events {}` bindings, `neori.on()` handlers are *always* executed, even when the
+> session is locked.
+
 ### `lid-close`, `lid-open`
 
 These events correspond to closing and opening of the laptop lid.

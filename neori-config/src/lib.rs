@@ -67,6 +67,10 @@ pub struct Config {
     pub startup: Vec<Action>,
     pub monitor_added: Vec<Action>,
     pub monitor_removed: Vec<Action>,
+    pub lid_open: Vec<Action>,
+    pub lid_closed: Vec<Action>,
+    pub tablet_mode_on: Vec<Action>,
+    pub tablet_mode_off: Vec<Action>,
     pub layout: Layout,
     pub prefer_no_csd: bool,
     pub cursor: Cursor,
@@ -1202,6 +1206,80 @@ mod tests {
     }
 
     #[test]
+    fn on_switch_event_function_callback() {
+        let path = Path::new("test-config.lua");
+        let (config, host) = Config::parse_with_host(
+            path,
+            r#"
+            neori.on("lid-open", function()
+                _G.lid_opened = true
+            end)
+            neori.on("lid-closed", function()
+                _G.lid_closed = true
+            end)
+            neori.on("tablet-mode-on", function()
+                _G.tablet_on = true
+            end)
+            neori.on("tablet-mode-off", function()
+                _G.tablet_off = true
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        assert!(config.lid_open.is_empty());
+        assert!(config.lid_closed.is_empty());
+        assert!(config.tablet_mode_on.is_empty());
+        assert!(config.tablet_mode_off.is_empty());
+
+        host.call_event("lid-open").unwrap();
+        host.call_event("lid-closed").unwrap();
+        host.call_event("tablet-mode-on").unwrap();
+        host.call_event("tablet-mode-off").unwrap();
+
+        assert!(host
+            .read_global("lid_opened")
+            .unwrap()
+            .as_boolean()
+            .unwrap());
+        assert!(host
+            .read_global("lid_closed")
+            .unwrap()
+            .as_boolean()
+            .unwrap());
+        assert!(host.read_global("tablet_on").unwrap().as_boolean().unwrap());
+        assert!(host
+            .read_global("tablet_off")
+            .unwrap()
+            .as_boolean()
+            .unwrap());
+    }
+
+    #[test]
+    fn switch_event_actions_parse() {
+        let config = Config::parse_mem(
+            r#"
+            neori.on("lid-open", "spawn waymon -a")
+            neori.on("lid-closed", "spawn waymon -a")
+            neori.on("tablet-mode-on", "spawn tablet-on")
+            neori.on("tablet-mode-off", "spawn tablet-off")
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(config.lid_open.len(), 1);
+        assert_eq!(config.lid_closed.len(), 1);
+        assert_eq!(config.tablet_mode_on.len(), 1);
+        assert_eq!(config.tablet_mode_off.len(), 1);
+
+        assert_eq!(
+            config.lid_open[0],
+            Action::Spawn(vec!["waymon -a".to_string()])
+        );
+    }
+
+    #[test]
     fn on_startup_function_callback_in_include() {
         let dir = std::env::temp_dir().join(format!("neori-on-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1243,7 +1321,8 @@ mod tests {
         let err = Config::parse_mem(r#"neori.on("nope", "spawn waybar")"#).unwrap_err();
         assert!(
             err.main.contains(
-                "unknown event 'nope' (supported events: startup, monitor-added, monitor-removed)"
+                "unknown event 'nope' (supported events: startup, monitor-added, \
+                 monitor-removed, lid-open, lid-closed, tablet-mode-on, tablet-mode-off)"
             ),
             "{err}"
         );
