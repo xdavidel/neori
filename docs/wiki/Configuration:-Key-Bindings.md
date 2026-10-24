@@ -52,6 +52,18 @@ neori.bind("Alt+Alt_L", neori.spawn("the Alt here is unnecessary but allowed"))
 
 Modifier keys always match by keysym, even though other keys match by keycode by default.
 
+<sup>Since: next release</sup> Generic modifiers like `Shift` or `Alt` can be used as trigger keys.
+Binds consisting only of generic modifiers do not depend on the order that you press them:
+
+```lua
+-- Will trigger both when pressing Alt then Shift, and Shift then Alt.
+neori.bind("Alt+Shift", neori.spawn("alacritty"))
+
+-- The trigger is not a generic modifier, so
+-- you need to press it last. Only Ctrl then Left Shift will work.
+neori.bind("Ctrl+Shift_L", neori.spawn("alacritty"))
+```
+
 <sup>Since: 25.05</sup> You can customize the `Mod` key [in the `input` section of the config](./Configuration:-Input.md#mod-key-mod-key-nested).
 
 > [!TIP]

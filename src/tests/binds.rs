@@ -948,10 +948,10 @@ fn generic_modifier_press_release() {
         surface key pressed: 42
         surface modifiers: depressed=1, latched=0, locked=0, group=0
     +LWIN 133 XK_Super_L
-        surface key pressed: 125
+        neori test-action
         surface modifiers: depressed=65, latched=0, locked=0, group=0
     -LWIN 133 XK_Super_L
-        surface key released: 125
+        neori test-action
         surface modifiers: depressed=1, latched=0, locked=0, group=0
     -LFSH  50 XK_Shift_L
         surface key released: 42
@@ -964,14 +964,14 @@ fn generic_modifier_press_release() {
         surface key pressed: 42
         surface modifiers: depressed=1, latched=0, locked=0, group=0
     +LWIN 133 XK_Super_L
-        surface key pressed: 125
+        neori test-action
         surface modifiers: depressed=65, latched=0, locked=0, group=0
     +RWIN 134 XK_Super_R
-        surface key pressed: 126
+        neori test-action
     -RWIN 134 XK_Super_R
-        surface key released: 126
+        neori test-action
     -LWIN 133 XK_Super_L
-        surface key released: 125
+        neori test-action
         surface modifiers: depressed=1, latched=0, locked=0, group=0
     -LFSH  50 XK_Shift_L
         surface key released: 42
@@ -997,6 +997,58 @@ fn generic_modifier_press_release() {
         surface modifiers: depressed=64, latched=0, locked=0, group=0
     -LWIN 133 XK_Super_L
         surface key released: 125
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    // Regressions.
+    let c = r#"
+    neori.bind("Shift+Mod", "close-window")
+    neori.bind("Ctrl+Super", "close-window")
+"#;
+
+    assert_snapshot!(run(c, "+LFSH -LFSH"), @"
+    +LFSH  50 XK_Shift_L
+        surface key pressed: 42
+        surface modifiers: depressed=1, latched=0, locked=0, group=0
+    -LFSH  50 XK_Shift_L
+        surface key released: 42
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LFSH +LWIN -LWIN -LFSH"), @"
+    +LFSH  50 XK_Shift_L
+        surface key pressed: 42
+        surface modifiers: depressed=1, latched=0, locked=0, group=0
+    +LWIN 133 XK_Super_L
+        neori test-action
+        surface modifiers: depressed=65, latched=0, locked=0, group=0
+    -LWIN 133 XK_Super_L
+        surface modifiers: depressed=1, latched=0, locked=0, group=0
+    -LFSH  50 XK_Shift_L
+        surface key released: 42
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LCTL -LCTL"), @"
+    +LCTL  37 XK_Control_L
+        surface key pressed: 29
+        surface modifiers: depressed=4, latched=0, locked=0, group=0
+    -LCTL  37 XK_Control_L
+        surface key released: 29
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LCTL +LWIN -LWIN -LCTL"), @"
+    +LCTL  37 XK_Control_L
+        surface key pressed: 29
+        surface modifiers: depressed=4, latched=0, locked=0, group=0
+    +LWIN 133 XK_Super_L
+        neori test-action
+        surface modifiers: depressed=68, latched=0, locked=0, group=0
+    -LWIN 133 XK_Super_L
+        surface modifiers: depressed=4, latched=0, locked=0, group=0
+    -LCTL  37 XK_Control_L
+        surface key released: 29
         surface modifiers: depressed=0, latched=0, locked=0, group=0
     ");
 }
@@ -1569,6 +1621,165 @@ fn mru_close_forwards_key_release_without_bind() {
     -LALT  64 XK_Alt_L
         surface enter: [56]
         surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+}
+
+#[test]
+fn mru_ignores_generic_modifier_binds() {
+    let c = r#"
+    neori.bind("Alt+Ctrl", "screenshot")
+"#;
+
+    // If a press runs the screenshot action,
+    // we will get surface enter after it.
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LFSH -LFSH -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LFSH  50 XK_Shift_L
+    -LFSH  50 XK_Shift_L
+    -LALT  64 XK_Alt_L
+        surface enter: [56]
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LCTL -LCTL -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LCTL  37 XK_Control_L
+    -LCTL  37 XK_Control_L
+    -LALT  64 XK_Alt_L
+        surface enter: [56]
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    let c = r#"
+    neori.bind("Ctrl+Shift", "screenshot")
+"#;
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LFSH -LFSH -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LFSH  50 XK_Shift_L
+    -LFSH  50 XK_Shift_L
+    -LALT  64 XK_Alt_L
+        surface enter: [56]
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LCTL +LFSH -LFSH -LCTL -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LCTL  37 XK_Control_L
+    +LFSH  50 XK_Shift_L
+    -LFSH  50 XK_Shift_L
+    -LCTL  37 XK_Control_L
+    -LALT  64 XK_Alt_L
+        surface enter: [56]
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    // Now with a normal trigger.
+    let c = r#"
+    neori.bind("Alt+Control_L", "screenshot")
+"#;
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LFSH -LFSH -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LFSH  50 XK_Shift_L
+    -LFSH  50 XK_Shift_L
+    -LALT  64 XK_Alt_L
+        surface enter: [56]
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LCTL -LCTL -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LCTL  37 XK_Control_L
+        surface enter: [56]
+        surface modifiers: depressed=12, latched=0, locked=0, group=0
+    -LCTL  37 XK_Control_L
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    -LALT  64 XK_Alt_L
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    let c = r#"
+    neori.bind("Ctrl+Shift_L", "screenshot")
+"#;
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LFSH -LFSH -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LFSH  50 XK_Shift_L
+        surface enter: [56]
+        surface modifiers: depressed=9, latched=0, locked=0, group=0
+    -LFSH  50 XK_Shift_L
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    -LALT  64 XK_Alt_L
+        surface key released: 56
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    assert_snapshot!(run(c, "+LALT +TAB -TAB +LCTL +LFSH -LFSH -LCTL -LALT"), @"
+    +LALT  64 XK_Alt_L
+        surface key pressed: 56
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    +TAB  23 XK_Tab
+        surface leave
+    -TAB  23 XK_Tab
+    +LCTL  37 XK_Control_L
+    +LFSH  50 XK_Shift_L
+        surface enter: [29, 56]
+        surface modifiers: depressed=13, latched=0, locked=0, group=0
+    -LFSH  50 XK_Shift_L
+        surface modifiers: depressed=12, latched=0, locked=0, group=0
+    -LCTL  37 XK_Control_L
+        surface key released: 29
+        surface modifiers: depressed=8, latched=0, locked=0, group=0
+    -LALT  64 XK_Alt_L
         surface key released: 56
         surface modifiers: depressed=0, latched=0, locked=0, group=0
     ");
