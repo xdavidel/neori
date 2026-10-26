@@ -621,10 +621,15 @@ impl State {
                 }
 
                 let is_locked = this.neori.is_locked();
+                let is_in_screenshot = this.neori.screenshot_ui.is_open();
                 let res = {
                     let config = this.neori.config.borrow();
-                    let bindings =
-                        make_binds_iter(&config, &mut this.neori.window_mru_ui, modifiers);
+                    let bindings = make_binds_iter(
+                        &config,
+                        &this.neori.screenshot_ui,
+                        &mut this.neori.window_mru_ui,
+                        modifiers,
+                    );
 
                     should_intercept_key(
                         &mut this.neori.suppressed_keys,
@@ -637,10 +642,10 @@ impl State {
                         raw,
                         pressed,
                         *mods,
-                        &this.neori.screenshot_ui,
                         this.neori.config.borrow().input.disable_power_key_handling,
                         is_inhibiting_shortcuts,
                         is_locked,
+                        is_in_screenshot,
                     )
                 };
 
@@ -761,10 +766,7 @@ impl State {
         if self.neori.is_locked() && !allowed_when_locked {
             return;
         }
-
-        // The bind lookup already substitutes the screenshot UI's own
-        // actions for presses, so only releases need to be filtered here.
-        if !pressed && self.neori.screenshot_ui.is_open() && !allowed_during_screenshot {
+        if self.neori.screenshot_ui.is_open() && !allowed_during_screenshot {
             return;
         }
 
@@ -3206,11 +3208,14 @@ impl State {
         let modifiers = modifiers_from_state(mods);
 
         let config = self.neori.config.borrow();
-        let bindings = make_binds_iter(&config, &mut self.neori.window_mru_ui, modifiers);
+        let bindings = make_binds_iter(
+            &config,
+            &self.neori.screenshot_ui,
+            &mut self.neori.window_mru_ui,
+            modifiers,
+        );
 
-        find_configured_bind(bindings, mod_key, trigger, mods).filter(|bind| {
-            !self.neori.screenshot_ui.is_open() || bind_allowed_during_screenshot(bind, true)
-        })
+        find_configured_bind(bindings, mod_key, trigger, mods)
     }
 
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
@@ -3269,6 +3274,8 @@ impl State {
 
             if is_mru_open || self.neori.mods_with_mouse_binds.contains(&modifiers) {
                 if let Some(bind) = match button {
+                    // Screenshot UI takes precedence over binds.
+                    Some(MouseButton::Left) if self.neori.screenshot_ui.is_open() => None,
                     Some(MouseButton::Left) => Some(Trigger::MouseLeft),
                     Some(MouseButton::Right) => Some(Trigger::MouseRight),
                     Some(MouseButton::Middle) => Some(Trigger::MouseMiddle),
@@ -3282,6 +3289,7 @@ impl State {
                     if should_record_release_bind(
                         &bind,
                         self.neori.is_locked(),
+                        self.neori.screenshot_ui.is_open(),
                         &self.neori.bind_cooldown_timers,
                     ) {
                         self.neori
@@ -4337,6 +4345,7 @@ impl State {
                             if should_record_release_bind(
                                 &bind,
                                 self.neori.is_locked(),
+                                self.neori.screenshot_ui.is_open(),
                                 &self.neori.bind_cooldown_timers,
                             ) {
                                 self.neori
@@ -5022,10 +5031,10 @@ fn should_intercept_key<'a>(
     raw: Option<Keysym>,
     pressed: bool,
     mods: ModifiersState,
-    screenshot_ui: &ScreenshotUi,
     disable_power_key_handling: bool,
     is_inhibiting_shortcuts: bool,
     is_locked: bool,
+    is_in_screenshot: bool,
 ) -> ShouldInterceptResult {
     // A release never runs a press action, so its result depends only on the bind recorded when
     // the key was pressed, and on whether that press was suppressed.
@@ -5033,7 +5042,7 @@ fn should_intercept_key<'a>(
         return released_key_intercept_result(suppressed_keys, pending_release_binds, key_code);
     }
 
-    let mut final_bind = find_bind(
+    let final_bind = find_bind(
         bindings,
         mod_key,
         key_code,
@@ -5042,39 +5051,6 @@ fn should_intercept_key<'a>(
         mods,
         disable_power_key_handling,
     );
-
-    // Allow only a subset of compositor actions while the screenshot UI is open, since the user
-    // cannot see the screen.
-    if screenshot_ui.is_open() {
-        let mut use_screenshot_ui_action = true;
-
-        if let Some(bind) = &final_bind {
-            if bind_allowed_during_screenshot(bind, true) {
-                use_screenshot_ui_action = false;
-            }
-        }
-
-        if use_screenshot_ui_action {
-            if let Some(raw) = raw {
-                final_bind = screenshot_ui.action(raw, mods).map(|action| Bind {
-                    key: Key {
-                        trigger: Trigger::Keysym(raw),
-                        // Not entirely correct but it doesn't matter in how we currently use it.
-                        modifiers: Modifiers::empty(),
-                    },
-                    action: BoundAction::Press(action),
-                    repeat: true,
-                    cooldown: None,
-                    allow_when_locked: false,
-                    // The screenshot UI owns the focus anyway, so this doesn't really matter.
-                    // But logically, nothing can inhibit its actions. Only opening it can be
-                    // inhibited.
-                    allow_inhibiting: false,
-                    hotkey_overlay_title: None,
-                });
-            }
-        }
-    }
 
     match final_bind {
         Some(bind) => {
@@ -5086,7 +5062,7 @@ fn should_intercept_key<'a>(
                 suppressed_keys.insert(key_code);
                 ShouldInterceptResult::InterceptOnly
             } else if is_keysym_modifier(modified) {
-                if should_record_release_bind(&bind, is_locked, cooldown_timers) {
+                if should_record_release_bind(&bind, is_locked, is_in_screenshot, cooldown_timers) {
                     pending_release_binds.insert(key_code, bind.clone());
                 }
                 if bind.has_press() {
@@ -5101,7 +5077,7 @@ fn should_intercept_key<'a>(
                     ShouldInterceptResult::Forward
                 }
             } else {
-                if should_record_release_bind(&bind, is_locked, cooldown_timers) {
+                if should_record_release_bind(&bind, is_locked, is_in_screenshot, cooldown_timers) {
                     pending_release_binds.insert(key_code, bind.clone());
                 }
                 suppressed_keys.insert(key_code);
@@ -5444,13 +5420,16 @@ fn bind_allowed_when_locked(bind: &Bind, pressed: bool) -> bool {
 fn should_record_release_bind(
     bind: &Bind,
     is_locked: bool,
+    is_in_screenshot: bool,
     cooldown_timers: &HashMap<Key, RegistrationToken>,
 ) -> bool {
     if bind.has_press() && is_bind_on_cooldown(bind, cooldown_timers) {
         return false;
     }
 
-    bind.has_release() && (!is_locked || bind_allowed_when_locked(bind, true))
+    bind.has_release()
+        && (!is_locked || bind_allowed_when_locked(bind, true))
+        && (!is_in_screenshot || bind_allowed_during_screenshot(bind, true))
 }
 
 fn allowed_during_screenshot(action: &Action) -> bool {
@@ -5491,6 +5470,10 @@ fn allowed_during_screenshot(action: &Action) -> bool {
             | Action::SetWindowWidth { id: None, change: _ }
             | Action::SetWindowHeight { id: None, change: _ }
             | Action::SetColumnWidth { change: _ }
+            // Screenshot UI's own actions.
+            | Action::CancelScreenshot
+            | Action::ConfirmScreenshot { .. }
+            | Action::ScreenshotTogglePointer
     )
 }
 
@@ -5944,11 +5927,14 @@ fn grab_allows_hot_corner(grab: &(dyn PointerGrab<State> + 'static)) -> bool {
 /// Includes dynamically populated bindings like the MRU UI.
 fn make_binds_iter<'a>(
     config: &'a Config,
+    screenshot_ui: &'a ScreenshotUi,
     mru: &'a mut WindowMruUi,
     mods: Modifiers,
 ) -> impl Iterator<Item = &'a Bind> {
+    let general_binds = config.binds.0.iter();
+
     // Figure out the binds to use depending on whether the MRU is enabled and/or open.
-    let general_binds = (!mru.is_open()).then_some(config.binds.0.iter());
+    let general_binds = (!mru.is_open()).then_some(general_binds);
     let general_binds = general_binds.into_iter().flatten();
 
     let mru_binds =
@@ -5958,22 +5944,27 @@ fn make_binds_iter<'a>(
     let mru_open_binds = mru.is_open().then(|| mru.opened_bindings(mods));
     let mru_open_binds = mru_open_binds.into_iter().flatten();
 
-    // General binds take precedence over the MRU binds.
-    general_binds.chain(mru_binds).chain(mru_open_binds)
+    // Screenshot UI binds already disable themselves when it's closed.
+    let screenshot_binds = screenshot_ui.binds();
+
+    // The precedence is screenshot UI, then general, then MRU binds.
+    screenshot_binds
+        .chain(general_binds)
+        .chain(mru_binds)
+        .chain(mru_open_binds)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animation::Clock;
 
     const CLOSE_KEYSYM: Keysym = Keysym::q;
     const CLOSE_KEY_CODE: Keycode = Keycode::new(CLOSE_KEYSYM.raw());
     struct TestState {
-        screenshot_ui: ScreenshotUi,
         disable_power_key_handling: bool,
         is_inhibiting: bool,
         is_locked: bool,
+        is_in_screenshot: bool,
         suppressed_keys: HashSet<Keycode>,
         pending_release_binds: HashMap<Keycode, Bind>,
         cooldown_timers: HashMap<Key, RegistrationToken>,
@@ -5981,10 +5972,10 @@ mod tests {
 
     fn create_test_state() -> TestState {
         TestState {
-            screenshot_ui: ScreenshotUi::new(Clock::default(), Default::default()),
             disable_power_key_handling: false,
             is_inhibiting: false,
             is_locked: false,
+            is_in_screenshot: false,
             suppressed_keys: HashSet::new(),
             pending_release_binds: HashMap::new(),
             cooldown_timers: HashMap::new(),
@@ -6057,10 +6048,10 @@ mod tests {
             Some(CLOSE_KEYSYM),
             pressed,
             mods,
-            &state.screenshot_ui,
             state.disable_power_key_handling,
             state.is_inhibiting,
             state.is_locked,
+            state.is_in_screenshot,
         )
     }
 
