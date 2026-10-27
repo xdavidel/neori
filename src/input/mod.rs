@@ -641,7 +641,7 @@ impl State {
                         modified,
                         raw,
                         pressed,
-                        *mods,
+                        modifiers,
                         this.neori.config.borrow().input.disable_power_key_handling,
                         is_inhibiting_shortcuts,
                         is_locked,
@@ -652,7 +652,8 @@ impl State {
                 if matches!(res, ShouldInterceptResult::Forward) {
                     // If we didn't find any bind, try other hardcoded keys.
                     if this.neori.keyboard_focus.is_overview() && pressed {
-                        if let Some(bind) = raw.and_then(|raw| hardcoded_overview_bind(raw, *mods))
+                        if let Some(bind) =
+                            raw.and_then(|raw| hardcoded_overview_bind(raw, modifiers))
                         {
                             this.neori.suppressed_keys.insert(key_code);
                             return ShouldInterceptResult::InterceptAndHandle(bind);
@@ -5030,7 +5031,7 @@ fn should_intercept_key<'a>(
     modified: Keysym,
     raw: Option<Keysym>,
     pressed: bool,
-    mods: ModifiersState,
+    mods: Modifiers,
     disable_power_key_handling: bool,
     is_inhibiting_shortcuts: bool,
     is_locked: bool,
@@ -5101,7 +5102,7 @@ fn find_bind<'a>(
     key_code: Keycode,
     modified: Keysym,
     raw: Option<Keysym>,
-    mods: ModifiersState,
+    mods: Modifiers,
     disable_power_key_handling: bool,
 ) -> Option<Bind> {
     let _span = tracy_client::span!("find_bind");
@@ -5143,7 +5144,6 @@ fn find_bind<'a>(
     }
 
     let bindings: Vec<_> = bindings.into_iter().collect();
-    let modifiers = modifiers_from_state(mods);
 
     // Keycode binds take priority: they match the physical key regardless of the active layout,
     // so a keycode bind must not be shadowed by a keysym bind that happens to collide on the
@@ -5151,7 +5151,7 @@ fn find_bind<'a>(
     let evdev = key_code.raw().saturating_sub(8);
     if let Some(bind) = bindings
         .iter()
-        .find(|bind| bind_matches_trigger(bind, Trigger::Keycode(evdev), mod_key, modifiers))
+        .find(|bind| bind_matches_trigger(bind, Trigger::Keycode(evdev), mod_key, mods))
     {
         return Some((*bind).clone());
     }
@@ -5169,7 +5169,7 @@ fn find_bind<'a>(
             //
             // Pass the bind's trigger itself since we'll check the trigger match below.
             // (Note that this means mod_key is not properly checked when it matches the trigger.)
-            if !bind_matches_trigger(bind, bind_trigger, mod_key, modifiers) {
+            if !bind_matches_trigger(bind, bind_trigger, mod_key, mods) {
                 return false;
             }
 
@@ -5185,7 +5185,7 @@ fn find_bind<'a>(
                 // Check it here.
                 if (bind_trigger == Trigger::CompositorMod
                     || bind_trigger == Trigger::Modifier(mod_key))
-                    && !modifiers.contains(mod_key.to_modifiers())
+                    && !mods.contains(mod_key.to_modifiers())
                 {
                     return false;
                 }
@@ -5495,8 +5495,7 @@ fn bind_allowed_during_screenshot(bind: &Bind, pressed: bool) -> bool {
     }
 }
 
-fn hardcoded_overview_bind(key: Keysym, mods: ModifiersState) -> Option<Bind> {
-    let mods = modifiers_from_state(mods);
+fn hardcoded_overview_bind(key: Keysym, mods: Modifiers) -> Option<Bind> {
     if !mods.is_empty() {
         return None;
     }
@@ -6002,18 +6001,11 @@ mod tests {
         bind(Trigger::Keysym(CLOSE_KEYSYM), Modifiers::COMPOSITOR, action)
     }
 
-    fn mod_held() -> ModifiersState {
-        ModifiersState {
-            logo: true,
-            ..Default::default()
-        }
-    }
-
     /// Processes a press of the `Mod+Q` bind that the tests are written with.
     fn press_close_key(
         state: &mut TestState,
         bindings: &Binds,
-        mods: ModifiersState,
+        mods: Modifiers,
     ) -> ShouldInterceptResult {
         process_close_key(state, bindings, mods, KeyState::Pressed)
     }
@@ -6022,7 +6014,7 @@ mod tests {
     fn release_close_key(
         state: &mut TestState,
         bindings: &Binds,
-        mods: ModifiersState,
+        mods: Modifiers,
     ) -> ShouldInterceptResult {
         process_close_key(state, bindings, mods, KeyState::Released)
     }
@@ -6030,7 +6022,7 @@ mod tests {
     fn process_close_key(
         state: &mut TestState,
         bindings: &Binds,
-        mods: ModifiersState,
+        mods: Modifiers,
         key_state: KeyState,
     ) -> ShouldInterceptResult {
         let pressed = key_state == KeyState::Pressed;
@@ -6296,10 +6288,7 @@ mod tests {
         let bindings = Binds(vec![bind.clone()]);
 
         let comp_mod = ModKey::Super;
-        let super_mods = ModifiersState {
-            logo: true,
-            ..Default::default()
-        };
+        let super_mods = Modifiers::SUPER;
 
         // The physical slash key is XKB keycode 61 (evdev 53 + 8).
         let slash_key_code = Keycode::from(53u32 + 8);
@@ -6379,10 +6368,7 @@ mod tests {
             slash_key_code,
             Keysym::period,
             Some(Keysym::period),
-            ModifiersState {
-                logo: true,
-                ..Default::default()
-            },
+            Modifiers::SUPER,
             false,
         );
         // Keycode binds have priority, so the physical key still triggers Super+Slash.
@@ -6397,10 +6383,7 @@ mod tests {
                 slash_key_code,
                 Keysym::period,
                 Some(Keysym::period),
-                ModifiersState {
-                    logo: true,
-                    ..Default::default()
-                },
+                Modifiers::SUPER,
                 false,
             )
             .as_ref(),
@@ -6494,13 +6477,13 @@ mod tests {
             is_locked: true,
             ..create_test_state()
         };
-        let result = press_close_key(&mut state, &bindings, mod_held());
+        let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
 
         // `handle_bind()` drops the press while locked, and nothing is recorded to undo.
         assert_matches!(result, ShouldInterceptResult::InterceptAndHandle(_));
         assert!(state.pending_release_binds.is_empty());
 
-        let result = release_close_key(&mut state, &bindings, mod_held());
+        let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptOnly);
     }
 
@@ -6514,12 +6497,12 @@ mod tests {
         })]);
 
         let mut state = create_test_state();
-        let result = press_close_key(&mut state, &bindings, mod_held());
+        let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptAndHandle(_));
         assert!(state.pending_release_binds.contains_key(&CLOSE_KEY_CODE));
 
         state.is_locked = true;
-        let result = release_close_key(&mut state, &bindings, mod_held());
+        let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(
             result,
             ShouldInterceptResult::InterceptAndHandle(Bind {
@@ -6538,11 +6521,11 @@ mod tests {
         let bindings = Binds(vec![close_bind(BoundAction::Release(Action::CloseWindow { id: None }))]);
 
         let mut state = create_test_state();
-        let result = press_close_key(&mut state, &bindings, mod_held());
+        let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptOnly);
         assert!(state.pending_release_binds.contains_key(&CLOSE_KEY_CODE));
 
-        let result = release_close_key(&mut state, &bindings, mod_held());
+        let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(
             result,
             ShouldInterceptResult::InterceptAndHandle(Bind {
@@ -6564,11 +6547,11 @@ mod tests {
             is_locked: true,
             ..create_test_state()
         };
-        let result = press_close_key(&mut state, &bindings, mod_held());
+        let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptOnly);
         assert!(state.pending_release_binds.contains_key(&CLOSE_KEY_CODE));
 
-        let result = release_close_key(&mut state, &bindings, mod_held());
+        let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(
             result,
             ShouldInterceptResult::InterceptAndHandle(Bind {
@@ -6587,11 +6570,11 @@ mod tests {
             is_locked: true,
             ..create_test_state()
         };
-        let result = press_close_key(&mut state, &bindings, mod_held());
+        let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptOnly);
         assert!(state.pending_release_binds.is_empty());
 
-        let result = release_close_key(&mut state, &bindings, mod_held());
+        let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(result, ShouldInterceptResult::InterceptOnly);
         assert!(state.pending_release_binds.is_empty());
     }
