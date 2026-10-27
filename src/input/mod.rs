@@ -5028,7 +5028,7 @@ fn should_intercept_key<'a>(
     suppressed_keys: &mut HashSet<Keycode>,
     pending_release_binds: &mut HashMap<Keycode, Bind>,
     cooldown_timers: &HashMap<Key, RegistrationToken>,
-    bindings: impl IntoIterator<Item = &'a Bind>,
+    bindings: impl IntoIterator<Item = &'a Bind> + Clone,
     mod_key: ModKey,
     key_code: Keycode,
     modified: Option<Keysym>,
@@ -5099,8 +5099,8 @@ fn should_intercept_key<'a>(
     }
 }
 
-fn find_bind<'a>(
-    bindings: impl IntoIterator<Item = &'a Bind>,
+fn find_bind<'a, I: IntoIterator<Item = &'a Bind> + Clone>(
+    bindings: I,
     mod_key: ModKey,
     key_code: Keycode,
     modified: Option<Keysym>,
@@ -5146,70 +5146,74 @@ fn find_bind<'a>(
         });
     }
 
-    let bindings: Vec<_> = bindings.into_iter().collect();
-
     // Keycode binds take priority: they match the physical key regardless of the active layout,
     // so a keycode bind must not be shadowed by a keysym bind that happens to collide on the
     // current layout (e.g. Super+Slash by keycode vs Super+Period on the Hebrew layout).
     let evdev = key_code.raw().saturating_sub(8);
     if let Some(bind) = bindings
-        .iter()
+        .clone()
+        .into_iter()
         .find(|bind| bind_matches_trigger(bind, Trigger::Keycode(evdev), mod_key, mods))
     {
-        return Some((*bind).clone());
+        return Some(bind.clone());
     }
 
     // Keysym binds are layout-dependent by design.
-    let raw = raw?;
-
     // A modifier key can trigger binds bound as the compositor mod key (`Mod`), by its own keysym
     // (like `Alt_L`), or as the modifier itself (like `Alt`). Return the first bind that matches.
-    bindings
-        .into_iter()
-        .find(|bind| {
-            let bind_trigger = bind.key.trigger;
-            // Check that the bind modifiers match the held modifiers.
-            //
-            // Pass the bind's trigger itself since we'll check the trigger match below.
-            // (Note that this means mod_key is not properly checked when it matches the trigger.)
-            if !bind_matches_trigger(bind, bind_trigger, mod_key, mods) {
-                return false;
-            }
-
-            // Binds that consist only of generic modifiers can be hit in any order (trigger key
-            // does not have to be the last). This is consistent with how these types of binds work
-            // elsewhere.
-            //
-            // For example:
-            // - Alt + Shift to switch keyboard layout on Windows
-            // - Ctrl + Alt to show inlay hints in VSCode
-            if bind_trigger.is_generic_modifier() {
-                // Bind trigger matching compositor mod isn't properly checked above.
-                // Check it here.
-                if (bind_trigger == Trigger::CompositorMod
-                    || bind_trigger == Trigger::Modifier(mod_key))
-                    && !mods.contains(mod_key.to_modifiers())
-                {
+    let find = |bindings: I, key: Keysym| {
+        bindings
+            .into_iter()
+            .find(|bind| {
+                let bind_trigger = bind.key.trigger;
+                // Check that the bind modifiers match the held modifiers.
+                //
+                // Pass the bind's trigger itself since we'll check the trigger match below.
+                // (Note that this means mod_key is not properly checked when it matches the
+                // trigger.)
+                if !bind_matches_trigger(bind, bind_trigger, mod_key, mods) {
                     return false;
                 }
 
-                // Check that the key we pressed is one of the bind modifiers.
-                let mut raw_mods = Trigger::Keysym(raw).implied_modifier();
-                if mod_key.matches_keysym(raw) {
-                    raw_mods |= Modifiers::COMPOSITOR;
-                }
-                return !raw_mods.is_empty() && bind.key.modifiers.intersects(raw_mods);
-            }
+                // Binds that consist only of generic modifiers can be hit in any order (trigger key
+                // does not have to be the last). This is consistent with how these types of binds
+                // work elsewhere.
+                //
+                // For example:
+                // - Alt + Shift to switch keyboard layout on Windows
+                // - Ctrl + Alt to show inlay hints in VSCode
+                if bind_trigger.is_generic_modifier() {
+                    // Bind trigger matching compositor mod isn't properly checked above.
+                    // Check it here.
+                    if (bind_trigger == Trigger::CompositorMod
+                        || bind_trigger == Trigger::Modifier(mod_key))
+                        && !mods.contains(mod_key.to_modifiers())
+                    {
+                        return false;
+                    }
 
-            // Modifier-only binds can be written in several ways:
-            // - `Mod { quit; }` - Trigger::CompositorMod
-            // - `Super { quit; }` - Trigger::Modifier(_)
-            // - `Super_L { quit; }` - Trigger::Keysym(_)
-            //
-            // These only matter for keyboard keys and not for mouse or others. So, check them here.
-            trigger_matches_keysym(bind_trigger, raw, mod_key)
-        })
-        .cloned()
+                    // Check that the key we pressed is one of the bind modifiers.
+                    let mut raw_mods = Trigger::Keysym(key).implied_modifier();
+                    if mod_key.matches_keysym(key) {
+                        raw_mods |= Modifiers::COMPOSITOR;
+                    }
+                    return !raw_mods.is_empty() && bind.key.modifiers.intersects(raw_mods);
+                }
+
+                // Modifier-only binds can be written in several ways:
+                // - `Mod { quit; }` - Trigger::CompositorMod
+                // - `Super { quit; }` - Trigger::Modifier(_)
+                // - `Super_L { quit; }` - Trigger::Keysym(_)
+                //
+                // These only matter for keyboard keys and not for mouse or others. So, check them
+                // here.
+                trigger_matches_keysym(bind_trigger, key, mod_key)
+            })
+            .cloned()
+    };
+
+    let key = raw?;
+    find(bindings, key)
 }
 
 fn trigger_matches_keysym(trigger: Trigger, key: Keysym, mod_key: ModKey) -> bool {
@@ -5934,7 +5938,7 @@ fn make_binds_iter<'a>(
     screenshot_ui: &'a ScreenshotUi,
     mru: &'a mut WindowMruUi,
     mods: Modifiers,
-) -> impl Iterator<Item = &'a Bind> {
+) -> impl Iterator<Item = &'a Bind> + Clone {
     let general_binds = config.binds.0.iter();
 
     // Figure out the binds to use depending on whether the MRU is enabled and/or open.
