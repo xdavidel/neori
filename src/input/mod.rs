@@ -5104,6 +5104,8 @@ fn find_bind<'a>(
     mods: ModifiersState,
     disable_power_key_handling: bool,
 ) -> Option<Bind> {
+    let _span = tracy_client::span!("find_bind");
+
     use keysyms::*;
 
     // Handle hardcoded binds.
