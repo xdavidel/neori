@@ -184,6 +184,18 @@ neori.bind("Mod+Shift+Q", {
 })
 ```
 
+By default, bound key presses/releases are not passed to applications.
+You can set `pass_through = true` if you want applications to see the bound key:
+
+```lua
+-- Let applications see the Alt key presses/releases.
+neori.bind("Alt", {
+    press = neori.spawn("notify-send", "Pressed"),
+    release = neori.spawn("notify-send", "Released"),
+    pass_through = true,
+})
+```
+
 ### Scroll Bindings
 
 You can bind mouse wheel scroll ticks using the following syntax.

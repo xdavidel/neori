@@ -2201,6 +2201,29 @@ mod tests {
     }
 
     #[test]
+    fn pass_through_binds() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Alt", { release = "toggle-overview", pass_through = true })
+            neori.bind("Mod+Q", { close_window = true, ["pass-through"] = false })
+            neori.bind("Mod+T", "close-window")
+            "#,
+        )
+        .unwrap();
+        let binds = &config.binds.0;
+        assert_eq!(binds[0].pass_through, Some(true));
+        assert_eq!(binds[1].pass_through, Some(false));
+        assert_eq!(binds[2].pass_through, None);
+
+        // Only keyboard binds can pass through.
+        let err = Config::parse_mem(
+            r#"neori.bind("Mod+MouseLeft", { close_window = true, pass_through = true })"#,
+        )
+        .unwrap_err();
+        assert!(err.main.contains("only supported for keyboard binds"), "{err}");
+    }
+
+    #[test]
     fn press_and_release_bind_errors() {
         let err = |text: &str| Config::parse_mem(text).unwrap_err().main;
 

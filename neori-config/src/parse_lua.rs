@@ -4642,6 +4642,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     let mut cooldown = None;
     let mut allow_when_locked = false;
     let mut allow_inhibiting = true;
+    let mut pass_through: Option<bool> = None;
     // `None` means the default (keycode when possible, falling back to keysym for keys
     // without a US-layout keycode such as XF86 media keys).
     let mut by_keycode: Option<bool> = None;
@@ -4691,6 +4692,9 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                     }
                     "allow_inhibiting" | "allow-inhibiting" => {
                         allow_inhibiting = value_is_truthy(&av);
+                    }
+                    "pass_through" | "pass-through" => {
+                        pass_through = Some(value_is_truthy(&av));
                     }
                     "keycode" | "key-code" => {
                         by_keycode = Some(value_is_truthy(&av));
@@ -4744,6 +4748,14 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     }
     let repeat = repeat.unwrap_or(release_action.is_none());
 
+    // Supporting this for mouse binds would need design: they trigger compositor gestures, and
+    // it's unclear whether a pass-through should also trigger the gesture. Keyboard only for now.
+    if pass_through.is_some() && !key.trigger.is_keyboard() {
+        return Err(format!(
+            "bind {key_name}: pass_through is only supported for keyboard binds"
+        ));
+    }
+
     // The toggle-inhibit action must always be uninhibitable.
     // Otherwise, it would be impossible to trigger it.
     if matches!(press_action, Some(Action::ToggleKeyboardShortcutsInhibit {}))
@@ -4787,6 +4799,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         cooldown,
         allow_when_locked,
         allow_inhibiting,
+        pass_through,
         hotkey_overlay_title: if has_hotkey_overlay_title {
             Some(hotkey_overlay_title)
         } else {

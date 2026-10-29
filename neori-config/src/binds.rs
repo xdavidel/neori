@@ -24,6 +24,7 @@ pub struct Bind {
     /// with the function looked up in [`crate::ScriptHost`].
     pub action: BoundAction,
     pub repeat: bool,
+    pub pass_through: Option<bool>,
     pub cooldown: Option<Duration>,
     pub allow_when_locked: bool,
     pub allow_inhibiting: bool,

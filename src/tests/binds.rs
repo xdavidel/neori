@@ -1312,6 +1312,67 @@ fn generic_modifier_press_release() {
 }
 
 #[test]
+fn pass_through() {
+    // A normal press-only bind runs its action and forwards the key.
+    let c = r#"
+    neori.bind("Mod+Q", { close_window = true, pass_through = true })
+"#;
+
+    assert_snapshot!(run(c, "+LWIN +LatQ -LatQ -LWIN"), @"
+    +LWIN 133 XK_Super_L
+        surface key pressed: 125
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+    +AD01  24 XK_q
+        neori test-action
+        surface key pressed: 16
+    -AD01  24 XK_q
+        surface key released: 16
+    -LWIN 133 XK_Super_L
+        surface key released: 125
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    // A modifier-only press-and-release bind runs both actions and forwards the key.
+    let c = r#"
+    neori.bind("Mod", { press = "close-window", release = "center-column", pass_through = true })
+"#;
+
+    assert_snapshot!(run(c, "+LWIN -LWIN"), @"
+    +LWIN 133 XK_Super_L
+        neori test-action
+        surface key pressed: 125
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+    -LWIN 133 XK_Super_L
+        neori test-action
+        surface key released: 125
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+
+    // A bind on cooldown does not run its action, but still forwards the key.
+    let c = r#"
+    neori.bind("Mod+Q", { close_window = true, pass_through = true, cooldown_ms = 1000 })
+"#;
+
+    assert_snapshot!(run(c, "+LWIN +LatQ -LatQ +LatQ -LatQ -LWIN"), @"
+    +LWIN 133 XK_Super_L
+        surface key pressed: 125
+        surface modifiers: depressed=64, latched=0, locked=0, group=0
+    +AD01  24 XK_q
+        neori test-action
+        surface key pressed: 16
+    -AD01  24 XK_q
+        surface key released: 16
+    +AD01  24 XK_q
+        surface key pressed: 16
+    -AD01  24 XK_q
+        surface key released: 16
+    -LWIN 133 XK_Super_L
+        surface key released: 125
+        surface modifiers: depressed=0, latched=0, locked=0, group=0
+    ");
+}
+
+#[test]
 fn mod_key_press_and_release_bind() {
     let c = r#"
     neori.bind("Mod", { press = "close-window", release = "center-column" })

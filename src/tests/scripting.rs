@@ -1800,6 +1800,7 @@ fn handle_bind_ignores_unknown_script_function() {
         cooldown: None,
         allow_when_locked: false,
         allow_inhibiting: true,
+        pass_through: None,
         hotkey_overlay_title: None,
     };
     // Must not panic.
