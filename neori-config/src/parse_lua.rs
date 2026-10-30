@@ -4417,6 +4417,9 @@ fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
             "disable_pipewire_dmabuf" | "disable-pipewire-dmabuf" => {
                 debug.disable_pipewire_dmabuf = value_is_truthy(&value);
             }
+            "nested_show_host_cursor" | "nested-show-host-cursor" => {
+                debug.nested_show_host_cursor = value_is_truthy(&value);
+            }
             _ => unknown_key("debug", &ks)?,
         }
     }

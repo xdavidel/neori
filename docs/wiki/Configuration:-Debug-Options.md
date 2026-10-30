@@ -36,6 +36,7 @@ neori.debug {
     skip_cursor_only_updates_during_vrr = true,
     deactivate_unfocused_windows = true,
     disable_10bit_output = true,
+    nested_show_host_cursor = true,
     disable_pipewire_dmabuf = true,
 }
 neori.bind("Mod+Shift+Ctrl+T", "toggle-debug-tint")
@@ -392,4 +393,16 @@ Tints damaged regions with red.
 
 ```lua
 neori.bind("Mod+Shift+Ctrl+D", "debug-toggle-damage")
+```
+
+### `nested-show-host-cursor`
+
+<sup>Since: next release</sup>
+
+Shows the host cursor when running neori as a nested window, on top of the nested neori cursor.
+
+```lua
+neori.debug {
+    nested_show_host_cursor = true,
+}
 ```

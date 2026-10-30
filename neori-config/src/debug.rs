@@ -26,6 +26,7 @@ pub struct Debug {
     pub deactivate_unfocused_windows: bool,
     pub skip_cursor_only_updates_during_vrr: bool,
     pub disable_10bit_output: bool,
+    pub nested_show_host_cursor: bool,
 }
 
 #[allow(dead_code)]
@@ -53,6 +54,7 @@ pub struct DebugPart {
     pub skip_cursor_only_updates_during_vrr: Option<Flag>,
     pub disable_10bit_output: Option<Flag>,
     pub disable_pipewire_dmabuf: Option<Flag>,
+    pub nested_show_host_cursor: Option<Flag>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

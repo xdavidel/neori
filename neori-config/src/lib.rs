@@ -2459,6 +2459,18 @@ mod tests {
     }
 
     #[test]
+    fn debug_nested_show_host_cursor() {
+        let config = Config::parse_mem("neori.debug { nested_show_host_cursor = true }").unwrap();
+        assert!(config.debug.nested_show_host_cursor);
+
+        let config = Config::parse_mem(r#"neori.debug { ["nested-show-host-cursor"] = true }"#).unwrap();
+        assert!(config.debug.nested_show_host_cursor);
+
+        let config = Config::parse_mem("").unwrap();
+        assert!(!config.debug.nested_show_host_cursor);
+    }
+
+    #[test]
     fn debug_disable_10bit_output() {
         let config = Config::parse_mem("neori.debug { disable_10bit_output = true }").unwrap();
         assert!(config.debug.disable_10bit_output);
