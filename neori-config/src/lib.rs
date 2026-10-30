@@ -2510,6 +2510,12 @@ mod tests {
     }
 
     #[test]
+    fn change_vt_action() {
+        let config = Config::parse_mem(r#"neori.bind("Mod+F2", { change_vt = 2 })"#).unwrap();
+        assert_eq!(actions(&config), [Action::ChangeVt { vt: 2 }]);
+    }
+
+    #[test]
     fn toggle_touchpad_action() {
         let config = Config::parse_mem(
             r#"

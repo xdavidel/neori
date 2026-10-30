@@ -5328,6 +5328,9 @@ fn action_from_table_key(
         "spawn_sh" | "spawn-sh" => Some(Action::SpawnSh {
             command: value_to_string(value)?,
         }),
+        "change_vt" | "change-vt" => Some(Action::ChangeVt {
+            vt: value_to_u8(value)?,
+        }),
         "create_virtual_output" | "create-virtual-output" => {
             let (name, width, height, refresh_rate) = match value {
                 Value::Table(t) => (

@@ -973,12 +973,12 @@ impl State {
                 info!("quitting as requested");
                 self.neori.stop_signal.stop()
             }
-            Action::ChangeVt(vt) => {
+            Action::ChangeVt { vt } => {
                 // Changing VT may not deliver the key releases, so treat the held binds as
                 // released while the session is still usable.
                 self.release_held_inputs();
 
-                self.backend.change_vt(vt);
+                self.backend.change_vt(vt as i32);
             }
             Action::Suspend => {
                 // Suspend may not deliver the key releases, so treat the held binds as
@@ -5177,8 +5177,8 @@ fn find_bind<'a, I: Iterator<Item = &'a Bind> + Clone>(
     #[allow(non_upper_case_globals)] // wat
     let hardcoded_action = match modified.map_or(KEY_NoSymbol, Keysym::raw) {
         modified @ KEY_XF86Switch_VT_1..=KEY_XF86Switch_VT_12 => {
-            let vt = (modified - KEY_XF86Switch_VT_1 + 1) as i32;
-            Some(Action::ChangeVt(vt))
+            let vt = (modified - KEY_XF86Switch_VT_1 + 1) as u8;
+            Some(Action::ChangeVt { vt })
         }
         KEY_XF86PowerOff if !disable_power_key_handling => Some(Action::Suspend),
         _ => None,
@@ -5454,7 +5454,7 @@ fn should_reset_pointer_inactivity_timer<I: InputBackend>(event: &InputEvent<I>)
 fn allowed_when_locked(action: &Action) -> bool {
     matches!(
         action,
-        Action::ChangeVt(_)
+        Action::ChangeVt { vt: _ }
             | Action::Suspend
             | Action::PowerOffMonitors {}
             | Action::PowerOnMonitors {}
@@ -5506,7 +5506,7 @@ fn allowed_during_screenshot(action: &Action) -> bool {
     matches!(
         action,
         Action::Quit { skip_confirmation: _ }
-            | Action::ChangeVt(_)
+            | Action::ChangeVt { vt: _ }
             | Action::Suspend
             | Action::PowerOffMonitors {}
             | Action::PowerOnMonitors {}

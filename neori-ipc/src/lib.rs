@@ -252,6 +252,12 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(short, long))]
         skip_confirmation: bool,
     },
+    /// Change the virtual terminal.
+    ChangeVt {
+        /// Virtual terminal to change to.
+        #[cfg_attr(feature = "clap", arg(required = true))]
+        vt: u8,
+    },
     /// Power off all monitors via DPMS.
     PowerOffMonitors {},
     /// Power on all monitors via DPMS.
@@ -1071,13 +1077,6 @@ pub enum Action {
         path: Option<String>,
     },
 
-    /// Switch to a different virtual terminal.
-    ///
-    /// This action is only usable from the config file, not over IPC.
-    #[serde(skip)]
-    #[cfg_attr(feature = "clap", command(skip))]
-    #[cfg_attr(feature = "json-schema", schemars(skip))]
-    ChangeVt(i32),
     /// Suspend the compositor.
     ///
     /// This action is only usable from the config file, not over IPC.
@@ -2598,11 +2597,16 @@ mod tests {
     }
 
     #[test]
+    fn change_vt_is_usable_over_ipc() {
+        let action: Action = serde_json::from_str(r#"{"ChangeVt":{"vt":3}}"#).unwrap();
+        assert_eq!(action, Action::ChangeVt { vt: 3 });
+    }
+
+    #[test]
     fn config_only_actions_cannot_be_deserialized() {
         // Config-only variants are #[serde(skip)] and must not be usable over IPC.
         for json in [
             r#""Suspend""#,
-            r#"{"ChangeVt":1}"#,
             r#"{"ConfirmScreenshot":{"write_to_disk":true}}"#,
             r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
             r#""TestAction""#,
