@@ -1,4 +1,5 @@
 use neori_config::Config;
+use smithay::backend::input::InputTime;
 
 use super::*;
 
@@ -86,7 +87,7 @@ fn creating_virtual_output_fires_monitor_added_event() {
             height: None,
             refresh_rate: None,
         },
-        false,
+        false, InputTime::now(),
     );
 
     // Drain the idle queue so the scheduled fire_monitor_event runs. The action it fires
@@ -128,7 +129,7 @@ fn removing_virtual_output_fires_monitor_removed_event() {
             height: None,
             refresh_rate: None,
         },
-        false,
+        false, InputTime::now(),
     );
     // Drain the monitor-added firing for "doomed" before testing removal.
     f.state.server.dispatch();
@@ -137,7 +138,7 @@ fn removing_virtual_output_fires_monitor_removed_event() {
         neori_ipc::Action::RemoveVirtualOutput {
             name: "doomed".to_string(),
         },
-        false,
+        false, InputTime::now(),
     );
     f.state.server.dispatch();
     // The monitor-removed handler schedules another add; drain that too.
@@ -172,7 +173,7 @@ fn lua_action_create_virtual_output_dispatches() {
             height: Some(1080),
             refresh_rate: Some(60),
         },
-        false,
+        false, InputTime::now(),
     );
 
     let created = f
@@ -190,7 +191,7 @@ fn lua_action_create_virtual_output_dispatches() {
         neori_ipc::Action::RemoveVirtualOutput {
             name: "from-lua".to_string(),
         },
-        false,
+        false, InputTime::now(),
     );
 
     let still_there = f

@@ -3,6 +3,7 @@ use std::fmt::{self, Write as _};
 use insta::assert_snapshot;
 use neori_config::Config;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use smithay::backend::input::InputTime;
 
 use super::*;
 use crate::layout::LayoutElement as _;
@@ -960,7 +961,7 @@ neori.window_rule {
         Action::FocusWorkspace {
             reference: WorkspaceReference::Index(ws2 as u8),
         },
-        false,
+        false, InputTime::now(),
     );
 
     assert!(
@@ -971,7 +972,7 @@ neori.window_rule {
     // Going back to the previous workspace lands on the first monitor again, so the
     // cursor has to follow back. This is the `Mod+Tab` path.
     f.neori_state()
-        .do_action(Action::FocusWorkspacePrevious {}, false);
+        .do_action(Action::FocusWorkspacePrevious {}, false, InputTime::now());
 
     assert!(
         cursor_is_on(&mut f, &output1),

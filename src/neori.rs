@@ -1790,7 +1790,7 @@ impl State {
 
         let startup = mem::take(&mut self.neori.config.borrow_mut().startup);
         for action in startup {
-            self.do_action(action, false);
+            self.do_action(action, false, InputTime::now());
         }
 
         if let Err(err) = self.scripting.call_event("startup") {
@@ -1813,7 +1813,7 @@ impl State {
             _ => Vec::new(),
         };
         for action in actions {
-            self.do_action(action, false);
+            self.do_action(action, false, InputTime::now());
         }
 
         // Skip the Lua-specific priming + snapshot build + call when no handler
@@ -1867,7 +1867,7 @@ impl State {
         };
         for action in actions {
             // Like switch-events bindings, these run even when the session is locked.
-            self.do_action(action, true);
+            self.do_action(action, true, InputTime::now());
         }
 
         if let Err(err) = self.scripting.call_event(event) {

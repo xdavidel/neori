@@ -2129,7 +2129,8 @@ fn vt_switch_runs_release_actions_of_held_binds() {
     assert_eq!(f.neori().test_action_count, 2);
 
     // The VT switch runs both release actions.
-    f.neori_state().do_action(Action::ChangeVt { vt: 1 }, false);
+    f.neori_state()
+        .do_action(Action::ChangeVt { vt: 1 }, false, InputTime::now());
     assert_eq!(f.neori().test_action_count, 4);
 
     // If the releases arrive anyway, they run nothing.

@@ -8,6 +8,7 @@ use neori_config::{
     Config, DeviceOp, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, PointerSnapshot,
     Window as LuaWindow, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
+use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
 use smithay::output::Output as SmithayOutput;
 
@@ -188,7 +189,7 @@ impl State {
         match result {
             Ok(actions) => {
                 for action in actions {
-                    self.do_action(action, false);
+                    self.do_action(action, false, InputTime::now());
                 }
             }
             Err(err) => {

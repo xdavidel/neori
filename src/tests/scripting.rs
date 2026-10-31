@@ -3,7 +3,7 @@
 
 use neori_config::binds::Bind;
 use neori_config::{Action, Config};
-use smithay::backend::input::KeyState;
+use smithay::backend::input::{InputTime, KeyState};
 use smithay::input::keyboard::{Keysym, ModifiersState};
 use wayland_client::protocol::wl_surface::WlSurface as ClientWlSurface;
 
@@ -49,7 +49,7 @@ fn bind_function_fires_when_key_pressed() {
             .expect("function bind missing")
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     assert!(
@@ -82,12 +82,12 @@ fn release_bind_function_fires_on_release_only() {
     let bind = f.state.server.state.neori.config.borrow().binds.0[0].clone();
 
     // The press does nothing for a release-only bind.
-    f.state.server.state.handle_bind(bind.clone(), true);
+    f.state.server.state.handle_bind(bind.clone(), true, InputTime::now());
     f.state.server.dispatch();
     assert!(!created(&mut f));
 
     // The release runs the function.
-    f.state.server.state.handle_bind(bind, false);
+    f.state.server.state.handle_bind(bind, false, InputTime::now());
     f.state.server.dispatch();
     assert!(created(&mut f), "the release function should have run");
 }
@@ -111,7 +111,7 @@ fn bind_function_error_does_not_crash() {
             .clone()
     };
     // Must not panic; the error is caught and warn!()'d.
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 }
 
@@ -154,7 +154,7 @@ fn string_action_binds_still_work() {
         config.binds.0[0].clone()
     };
     assert!(!matches!(bind.press_action(), Some(Action::ScriptFunction { .. })));
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     // The no-arg "create-virtual-output" uses the HEADLESS-N counter.
@@ -255,7 +255,7 @@ fn neori_windows_returns_mapped_windows_from_bind_callback() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let count = f
         .state
@@ -506,7 +506,7 @@ fn window_close_method_closes_the_window() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     // The compositor sent a close request to the client. The client receives it,
@@ -576,7 +576,7 @@ fn window_send_to_workspace_moves_the_window() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     // The window should now be on a workspace with idx >= 2.
@@ -650,7 +650,7 @@ fn window_focus_method_refocuses_a_window() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     assert_eq!(
@@ -713,7 +713,7 @@ fn window_fullscreen_method_sets_fullscreen_state() {
     // configure, the client acks and commits with a new buffer, then the compositor's
     // post-commit path flips sizing_mode to fullscreen.
     let cycle = |f: &mut Fixture, id: ClientId, surface: &ClientWlSurface, bind: Bind| {
-        f.state.server.state.handle_bind(bind, true);
+        f.state.server.state.handle_bind(bind, true, InputTime::now());
         f.state.server.dispatch();
         f.double_roundtrip(id);
         let window = f.client(id).window(surface);
@@ -778,7 +778,7 @@ fn window_float_method_moves_between_tiling_and_floating() {
     };
     let (float_bind, tile_bind) = (binds[0].clone(), binds[1].clone());
 
-    f.state.server.state.handle_bind(float_bind, true);
+    f.state.server.state.handle_bind(float_bind, true, InputTime::now());
     f.state.server.dispatch();
     f.double_roundtrip(id);
     assert!(
@@ -786,7 +786,7 @@ fn window_float_method_moves_between_tiling_and_floating() {
         "w:float(true) should have moved window to floating"
     );
 
-    f.state.server.state.handle_bind(tile_bind, true);
+    f.state.server.state.handle_bind(tile_bind, true, InputTime::now());
     f.state.server.dispatch();
     f.double_roundtrip(id);
     assert!(
@@ -849,7 +849,7 @@ fn window_send_to_output_moves_the_window_between_outputs() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
     f.double_roundtrip(id);
 
@@ -886,7 +886,7 @@ fn neori_outputs_returns_cached_outputs_from_bind_callback() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let count = f
         .state
@@ -951,7 +951,7 @@ fn output_set_scale_takes_effect_on_compositor_output() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let after = f
         .neori()
@@ -1002,7 +1002,7 @@ fn workspace_set_name_and_unset_name_affect_layout() {
         let unset = it.next().unwrap().clone();
         (set, unset)
     };
-    f.state.server.state.handle_bind(bind_set, true);
+    f.state.server.state.handle_bind(bind_set, true, InputTime::now());
     f.state.server.dispatch();
 
     assert_eq!(
@@ -1015,7 +1015,7 @@ fn workspace_set_name_and_unset_name_affect_layout() {
     );
 
     // Fire the second script bind (unset_name).
-    f.state.server.state.handle_bind(bind_unset, true);
+    f.state.server.state.handle_bind(bind_unset, true, InputTime::now());
     f.state.server.dispatch();
 
     assert_eq!(
@@ -1066,7 +1066,7 @@ fn workspace_focus_method_activates_target_workspace() {
             reference: neori_ipc::WorkspaceReferenceArg::Index(2),
             focus: true,
         },
-        false,
+        false, InputTime::now(),
     );
     f.state.server.dispatch();
     f.double_roundtrip(id);
@@ -1097,7 +1097,7 @@ fn workspace_focus_method_activates_target_workspace() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     // Active workspace should now be back to 1.
@@ -1178,7 +1178,7 @@ fn workspace_send_to_output_moves_workspace_between_outputs() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
     f.double_roundtrip(id);
 
@@ -1217,7 +1217,7 @@ fn neori_workspaces_returns_cached_snapshots_from_bind_callback() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let count = f
         .state
@@ -1351,7 +1351,7 @@ fn workspace_focused_event_fires_when_active_workspace_changes() {
             reference: neori_ipc::WorkspaceReferenceArg::Index(2),
             focus: true,
         },
-        false,
+        false, InputTime::now(),
     );
     f.state.server.dispatch();
     f.double_roundtrip(id);
@@ -1436,7 +1436,7 @@ fn workspace_added_event_fires_when_new_workspace_appears() {
             reference: neori_ipc::WorkspaceReferenceArg::Index(2),
             focus: true,
         },
-        false,
+        false, InputTime::now(),
     );
     f.state.server.dispatch();
     f.double_roundtrip(id);
@@ -1624,7 +1624,7 @@ fn pointer_cache_is_refreshed_before_bind_callback() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let x = f
         .state
@@ -1687,7 +1687,7 @@ fn warp_moves_the_cursor() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     let pointer = f
@@ -1727,7 +1727,7 @@ fn keyboard_layout_is_readable_from_lua() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let layout = f
         .state
@@ -1769,7 +1769,7 @@ fn devices_returns_empty_array_in_test_fixture() {
             .unwrap()
             .clone()
     };
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
 
     let count = f
         .state
@@ -1804,7 +1804,7 @@ fn handle_bind_ignores_unknown_script_function() {
         hotkey_overlay_title: None,
     };
     // Must not panic.
-    f.state.server.state.handle_bind(bind, true);
+    f.state.server.state.handle_bind(bind, true, InputTime::now());
     f.state.server.dispatch();
 
     // Suppress unused-import warnings in restricted feature builds.
