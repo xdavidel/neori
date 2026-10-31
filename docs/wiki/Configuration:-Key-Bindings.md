@@ -196,6 +196,15 @@ neori.bind("Alt", {
 })
 ```
 
+Keyboard release-only bindings are passed through by default though.
+You can set `pass_through = false` on those if you don't like that:
+
+```lua
+-- Do not pass Mod press/release event to applications.
+-- (They will still see the modifiers event.)
+neori.bind("Mod", { release = "toggle-overview", pass_through = false })
+```
+
 ### Scroll Bindings
 
 You can bind mouse wheel scroll ticks using the following syntax.

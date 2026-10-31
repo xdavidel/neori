@@ -7,8 +7,8 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::RegistrationToken;
 use input::event::gesture::GestureEventCoordinates as _;
 use neori_config::{
-    is_keysym_modifier, Action, Bind, Binds, BoundAction, Config, Key, ModKey, Modifiers,
-    MruDirection, SwitchBinds, Trigger,
+    Action, Bind, Binds, BoundAction, Config, Key, ModKey, Modifiers, MruDirection, SwitchBinds,
+    Trigger,
 };
 use neori_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
@@ -5138,11 +5138,9 @@ fn should_intercept_key<'a>(
     // By default we intercept the key which hides both the press and release from clients.
     // Clients still learn about the modifier state via `advertise_modifier_state()`.
     //
-    // Modifier-only release-only binds are not intercepted by default so that
-    // bindings like `Ctrl+Alt` do not break application shortcuts.
-    let forward = bind
-        .pass_through
-        .unwrap_or(modified.is_some_and(is_keysym_modifier) && !bind.has_press());
+    // Release-only binds are not intercepted by default so that bindings like `Ctrl+Alt`
+    // do not break application shortcuts.
+    let forward = bind.pass_through.unwrap_or(!bind.has_press());
     if !forward {
         suppressed_keys.insert(key_code);
     }
@@ -6599,13 +6597,13 @@ mod tests {
 
         let mut state = create_test_state();
         let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
-        assert_matches!(result, ShouldInterceptResult::InterceptOnly);
+        assert_matches!(result, ShouldInterceptResult::Forward);
         assert!(state.pending_release_binds.contains_key(&CLOSE_KEY_CODE));
 
         let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(
             result,
-            ShouldInterceptResult::InterceptAndHandle(Bind {
+            ShouldInterceptResult::ForwardAndHandle(Bind {
                 action: BoundAction::Release(Action::CloseWindow { id: None }),
                 ..
             })
@@ -6625,13 +6623,13 @@ mod tests {
             ..create_test_state()
         };
         let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
-        assert_matches!(result, ShouldInterceptResult::InterceptOnly);
+        assert_matches!(result, ShouldInterceptResult::Forward);
         assert!(state.pending_release_binds.contains_key(&CLOSE_KEY_CODE));
 
         let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
         assert_matches!(
             result,
-            ShouldInterceptResult::InterceptAndHandle(Bind {
+            ShouldInterceptResult::ForwardAndHandle(Bind {
                 action: BoundAction::Release(Action::CloseWindow { id: None }),
                 ..
             })
@@ -6648,11 +6646,11 @@ mod tests {
             ..create_test_state()
         };
         let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
-        assert_matches!(result, ShouldInterceptResult::InterceptOnly);
+        assert_matches!(result, ShouldInterceptResult::Forward);
         assert!(state.pending_release_binds.is_empty());
 
         let result = release_close_key(&mut state, &bindings, Modifiers::SUPER);
-        assert_matches!(result, ShouldInterceptResult::InterceptOnly);
+        assert_matches!(result, ShouldInterceptResult::Forward);
         assert!(state.pending_release_binds.is_empty());
     }
 
