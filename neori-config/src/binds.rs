@@ -200,6 +200,20 @@ impl Trigger {
             Trigger::Keysym(_) | Trigger::Keycode(_) | Trigger::CompositorMod | Trigger::Modifier(_)
         )
     }
+
+    pub fn is_scroll(self) -> bool {
+        matches!(
+            self,
+            Trigger::WheelScrollDown
+                | Trigger::WheelScrollUp
+                | Trigger::WheelScrollLeft
+                | Trigger::WheelScrollRight
+                | Trigger::TouchpadScrollDown
+                | Trigger::TouchpadScrollUp
+                | Trigger::TouchpadScrollLeft
+                | Trigger::TouchpadScrollRight
+        )
+    }
 }
 
 impl Key {

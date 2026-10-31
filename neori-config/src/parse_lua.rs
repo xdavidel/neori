@@ -4725,19 +4725,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     }
     let press_action = press_action.or(action);
 
-    if release_action.is_some()
-        && matches!(
-            key.trigger,
-            Trigger::WheelScrollDown
-                | Trigger::WheelScrollUp
-                | Trigger::WheelScrollLeft
-                | Trigger::WheelScrollRight
-                | Trigger::TouchpadScrollDown
-                | Trigger::TouchpadScrollUp
-                | Trigger::TouchpadScrollLeft
-                | Trigger::TouchpadScrollRight
-        )
-    {
+    if release_action.is_some() && key.trigger.is_scroll() {
         return Err(format!(
             "bind {key_name}: release actions are not supported for scroll binds"
         ));
