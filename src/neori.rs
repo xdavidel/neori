@@ -6161,11 +6161,7 @@ impl Neori {
             let frame = s.pending_frame.take().unwrap();
             let buffer = frame.buffer();
             let buffer_size = Size::<i32, BufferCoords>::from((size.w, size.h));
-            let capture_buffer = image_copy_capture_impl::capture_buffer(
-                &buffer,
-                buffer_size,
-                wl_shm::Format::Xrgb8888,
-            );
+            let capture_buffer = image_copy_capture_impl::capture_buffer(&buffer, buffer_size);
             let Some(capture_buffer) = capture_buffer else {
                 frame.fail(CaptureFailureReason::BufferConstraints);
                 // Report full damage next time.
@@ -6252,11 +6248,7 @@ impl Neori {
 
             let frame = s.pending_frame.take().unwrap();
             let buffer = frame.buffer();
-            let capture_buffer = image_copy_capture_impl::capture_buffer(
-                &buffer,
-                constraints.size,
-                wl_shm::Format::Argb8888,
-            );
+            let capture_buffer = image_copy_capture_impl::capture_buffer(&buffer, constraints.size);
             if !matches!(capture_buffer, Some(CaptureBuffer::Shm(_))) {
                 frame.fail(CaptureFailureReason::BufferConstraints);
                 // Report full damage next time.
