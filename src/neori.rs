@@ -6314,7 +6314,14 @@ impl Neori {
                     });
                 }
             }
-            mapped.render_for_screen_cast(renderer, scale, &mut |elem| {
+
+            let ctx = RenderCtx {
+                renderer,
+                // Consistent with outputs and wlr-screencopy.
+                target: RenderTarget::ScreenCapture,
+                xray: None,
+            };
+            mapped.render_for_screen_cast(ctx, scale, &mut |elem| {
                 elements.push(WindowCaptureRenderElement::Window(elem));
             });
 
