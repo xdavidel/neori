@@ -1208,6 +1208,102 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
+            Action::SetWindowFullscreen { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_fullscreen(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::SetWindowFullscreen { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_fullscreen(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowFullscreen { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_fullscreen(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowFullscreen { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_fullscreen(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::SetWindowedFullscreen { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_windowed_fullscreen(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::SetWindowedFullscreen { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_windowed_fullscreen(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowedFullscreen { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_windowed_fullscreen(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowedFullscreen { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_windowed_fullscreen(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::SetWindowMaximizedToEdges { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_maximized(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::SetWindowMaximizedToEdges { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_maximized(&window, true);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowMaximizedToEdges { id: None } => {
+                let focus = self.neori.layout.focus().map(|m| m.window.clone());
+                if let Some(window) = focus {
+                    self.neori.layout.set_maximized(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
+            Action::UnsetWindowMaximizedToEdges { id: Some(id) } => {
+                let id = MappedId::specific(id);
+                if let Some(window) = self.neori.find_window_by_id(id) {
+                    self.neori.layout.set_maximized(&window, false);
+                    // FIXME: granular
+                    self.neori.queue_redraw_all();
+                }
+            }
             Action::FocusWindow { id } => {
                 let id = MappedId::specific(id);
                 if let Some(window) = self.neori.find_window_by_id(id) {

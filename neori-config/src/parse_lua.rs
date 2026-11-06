@@ -5072,6 +5072,12 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
     let action = match s {
         "close_window" | "close-window" => Action::CloseWindow { id: None },
         "fullscreen_window" | "fullscreen-window" => Action::FullscreenWindow { id: None },
+        "set_window_fullscreen" | "set-window-fullscreen" => Action::SetWindowFullscreen { id: None },
+        "unset_window_fullscreen" | "unset-window-fullscreen" => Action::UnsetWindowFullscreen { id: None },
+        "set_windowed_fullscreen" | "set-windowed-fullscreen" => Action::SetWindowedFullscreen { id: None },
+        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => Action::UnsetWindowedFullscreen { id: None },
+        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => Action::SetWindowMaximizedToEdges { id: None },
+        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => Action::UnsetWindowMaximizedToEdges { id: None },
         "quit" => Action::Quit {
             skip_confirmation: false,
         },
@@ -5388,6 +5394,12 @@ fn action_from_table_key(
         }
         "close_window" | "close-window" => Some(Action::CloseWindow { id: None }),
         "fullscreen_window" | "fullscreen-window" => Some(Action::FullscreenWindow { id: None }),
+        "set_window_fullscreen" | "set-window-fullscreen" => Some(Action::SetWindowFullscreen { id: None }),
+        "unset_window_fullscreen" | "unset-window-fullscreen" => Some(Action::UnsetWindowFullscreen { id: None }),
+        "set_windowed_fullscreen" | "set-windowed-fullscreen" => Some(Action::SetWindowedFullscreen { id: None }),
+        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => Some(Action::UnsetWindowedFullscreen { id: None }),
+        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => Some(Action::SetWindowMaximizedToEdges { id: None }),
+        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => Some(Action::UnsetWindowMaximizedToEdges { id: None }),
         "toggle_window_floating" | "toggle-window-floating" => {
             Some(Action::ToggleWindowFloating { id: None })
         }

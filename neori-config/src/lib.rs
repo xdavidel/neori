@@ -2516,6 +2516,32 @@ mod tests {
     }
 
     #[test]
+    fn set_and_unset_fullscreen_and_maximized_actions() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+1", "set-window-fullscreen")
+            neori.bind("Mod+2", { unset_window_fullscreen = true })
+            neori.bind("Mod+3", "set-windowed-fullscreen")
+            neori.bind("Mod+4", "unset-windowed-fullscreen")
+            neori.bind("Mod+5", { set_window_maximized_to_edges = true })
+            neori.bind("Mod+6", "unset-window-maximized-to-edges")
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            actions(&config),
+            [
+                Action::SetWindowFullscreen { id: None },
+                Action::UnsetWindowFullscreen { id: None },
+                Action::SetWindowedFullscreen { id: None },
+                Action::UnsetWindowedFullscreen { id: None },
+                Action::SetWindowMaximizedToEdges { id: None },
+                Action::UnsetWindowMaximizedToEdges { id: None },
+            ]
+        );
+    }
+
+    #[test]
     fn toggle_touchpad_action() {
         let config = Config::parse_mem(
             r#"
