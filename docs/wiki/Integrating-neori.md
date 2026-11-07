@@ -61,7 +61,7 @@ Alternatively, some desktop environments and shells work with neori, and can giv
 
 - [LXQt](https://lxqt-project.org/) officially supports neori, see [their wiki](https://lxqt-project.org/wiki/Wayland-Session) for details on setting it up.
 - Many [XFCE](https://www.xfce.org/) components work on Wayland, including neori. See [their wiki](https://wiki.xfce.org/releng/wayland_roadmap#component_specific_status) for details.
-- There are complete desktop shells that support neori, for example [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) and [Noctalia](https://github.com/noctalia-dev/noctalia-shell).
+- There are complete desktop shells that support neori, for example [Dux Modular Shell](https://github.com/duxlabs-dev/dux-shell) and [Noctalia](https://github.com/noctalia-dev/noctalia-shell).
 - You can run a [COSMIC](https://system76.com/cosmic/) session with neori using [cosmic-ext-extra-sessions](https://github.com/Drakulix/cosmic-ext-extra-sessions).
 
 ### Security model
