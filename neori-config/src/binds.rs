@@ -358,8 +358,47 @@ impl FromStr for Key {
             Trigger::Modifier(ModKey::IsoLevel5Shift)
         } else {
             let mut keysym = keysym_from_name(key, KEYSYM_CASE_INSENSITIVE);
+
+            let with_xf86;
+            let mut final_key = key;
+            if keysym.raw() == KEY_NoSymbol {
+                // If the key didn't match, try it with an XF86 prefix.
+                // This way, you can write e.g. AudioMute instead of XF86AudioMute.
+                //
+                // This is actually needed for the xdg-desktop-portal-gnome implementation of the
+                // GlobalShortcuts portal, as it will request non-XF86-prefixed names. Mutter then
+                // does this same exact prefixing:
+                // https://gitlab.gnome.org/GNOME/mutter/-/blob/b48811767189fb5446bd1b831e98271a21866e09/src/core/meta-accel-parse.c#L302-311
+                with_xf86 = format!("XF86{key}");
+                keysym = keysym_from_name(&with_xf86, KEYSYM_CASE_INSENSITIVE);
+                if keysym.raw() != KEY_NoSymbol {
+                    final_key = &with_xf86;
+                }
+            }
+
+            // The keyboard event handling code can receive either
+            // XF86ScreenSaver or XF86Screensaver, because there is no
+            // case mapping defined between these keysyms. If we just
+            // use the case-insensitive version of keysym_from_name it
+            // is not possible to bind the uppercase version, because the
+            // case-insensitive match prefers the lowercase version when
+            // there is a choice.
+            //
+            // Therefore, when we match this key with the initial
+            // case-insensitive match we try a further case-sensitive match
+            // (so that either key can be bound). If that fails, we change
+            // to the uppercase version because:
+            //
+            // - A comment in xkb_keysym_from_name (in libxkbcommon) tells us that the uppercase
+            //   version is the "best" of the two. [0]
+            // - The xkbcommon crate only has a constant for ScreenSaver. [1]
+            //
+            // [0]: https://github.com/xkbcommon/libxkbcommon/blob/45a118d5325b051343b4b174f60c1434196fa7d4/src/keysym.c#L276
+            // [1]: https://docs.rs/xkbcommon/latest/xkbcommon/xkb/keysyms/index.html#:~:text=KEY%5FXF86ScreenSaver
+            //
+            // See https://github.com/niri-wm/niri/issues/1969
             if keysym == Keysym::XF86_Screensaver {
-                keysym = keysym_from_name(key, KEYSYM_NO_FLAGS);
+                keysym = keysym_from_name(final_key, KEYSYM_NO_FLAGS);
                 if keysym.raw() == KEY_NoSymbol {
                     keysym = Keysym::XF86_ScreenSaver;
                 }
@@ -405,6 +444,29 @@ mod tests {
         );
         assert_eq!(
             "xf86screensaver".parse::<Key>().unwrap(),
+            Key {
+                trigger: Trigger::Keysym(Keysym::XF86_ScreenSaver),
+                modifiers: Modifiers::empty(),
+            }
+        );
+
+        // And now with the auto-prepended XF86 prefix.
+        assert_eq!(
+            "ScreenSaver".parse::<Key>().unwrap(),
+            Key {
+                trigger: Trigger::Keysym(Keysym::XF86_ScreenSaver),
+                modifiers: Modifiers::empty(),
+            },
+        );
+        assert_eq!(
+            "Screensaver".parse::<Key>().unwrap(),
+            Key {
+                trigger: Trigger::Keysym(Keysym::XF86_Screensaver),
+                modifiers: Modifiers::empty(),
+            }
+        );
+        assert_eq!(
+            "screensaver".parse::<Key>().unwrap(),
             Key {
                 trigger: Trigger::Keysym(Keysym::XF86_ScreenSaver),
                 modifiers: Modifiers::empty(),
