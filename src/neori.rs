@@ -6710,7 +6710,8 @@ impl Neori {
             let id = mapped.id();
 
             let mut value = false;
-            for session in &self.image_copy_sessions {
+            // Same as for IPC, one-shot screenshots aren't casts.
+            for session in self.image_copy_sessions.iter().filter(|s| s.is_cast()) {
                 let source = session.session.source();
                 if image_copy_capture_impl::source_mapped_id(&source) == Some(id) {
                     value = true;
