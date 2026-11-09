@@ -12,9 +12,15 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 
 - **Lua-based configuration** — configure with `config.lua` instead of KDL
 - **Window-rule extensions** — `geometry_corner_radius`, `clip_to_geometry`, `draw_border_with_background`, `opacity`, `tiled_state`, `baba_is_float`, `variable_refresh_rate` and more
+- **Scratchpad** — hide a window with `send-to-scratchpad`, bring it back with `remove-from-scratchpad`, or toggle it with `toggle-scratchpad`
+- **Keycode-based binds** — binds match the physical key by default, so shortcuts keep working across keyboard layouts; opt out with `keycode = false`
+- **Shake-to-find cursor** — shake the mouse to temporarily enlarge the cursor (configurable via `neori.cursor.shake_to_find`), or trigger it with the `enlarge-cursor` action
+- **Lid and tablet-mode events** — `neori.on("lid-open" / "lid-closed" / "tablet-mode-on" / "tablet-mode-off", ...)` handlers, run even while the session is locked
+- **Smarter workspace navigation** — sparse on-demand numbering (no auto-created gaps), navigation skips empty workspaces, and at most one empty workspace is kept
+- **Cursor warp on workspace switch** — moving focus to a workspace on another monitor moves the pointer with it
+- **Extended IPC state** — `neori msg windows` exposes `is_fullscreen`, `is_window_cast_target`, `is_active_in_column`, and `is_xwayland`
 - **NIRI_SOCKET compatibility** — IPC remains niri-compatible (`niri msg ...` works, DMS can detect via `NIRI_SOCKET`)
-- **Sparse on-demand workspace numbering** — focusing a workspace doesn't auto-create intermediate gaps
-- **Config validation and API** — full `neori.*` Lua API with `startup`/`monitor-added`/`monitor-removed` hooks
+- **Config validation and API** — full `neori.*` Lua API with `include`/strict mode, `startup`/`monitor-added`/`monitor-removed` hooks, and switch events
 
 ### Neori features (inherited)
 
