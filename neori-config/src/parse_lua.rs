@@ -2448,6 +2448,42 @@ fn parse_shake_to_find_table(table: LuaTable, shake: &mut ShakeToFind) -> Result
             "size" => shake.size = Some(value_to_u8(&value)?),
             "timeout_ms" | "timeout-ms" => shake.timeout_ms = value_to_u32(&value)?,
             "animation_ms" | "animation-ms" => shake.animation_ms = value_to_u32(&value)?,
+            "window_ms" | "window-ms" => {
+                let v = value_to_u32(&value)?;
+                if v == 0 {
+                    return Err(
+                        "cursor.shake_to_find.window_ms must be greater than zero".to_string()
+                    );
+                }
+                shake.window_ms = v;
+            }
+            "min_reversals" | "min-reversals" => {
+                let v = value_to_u32(&value)?;
+                if v == 0 {
+                    return Err(
+                        "cursor.shake_to_find.min_reversals must be greater than zero".to_string(),
+                    );
+                }
+                shake.min_reversals = v;
+            }
+            "min_step" | "min-step" => {
+                let v = value_to_f64(&value)?;
+                if !(v.is_finite() && v >= 0.) {
+                    return Err(format!(
+                        "cursor.shake_to_find.min_step must be a non-negative number, got {v}"
+                    ));
+                }
+                shake.min_step = v;
+            }
+            "reversal_angle_deg" | "reversal-angle-deg" => {
+                let v = value_to_f64(&value)?;
+                if !(v.is_finite() && v > 0. && v < 180.) {
+                    return Err(format!(
+                        "cursor.shake_to_find.reversal_angle_deg must be between 0 and 180, got {v}"
+                    ));
+                }
+                shake.reversal_angle_deg = v;
+            }
             _ => unknown_key("cursor.shake_to_find", &ks)?,
         }
     }

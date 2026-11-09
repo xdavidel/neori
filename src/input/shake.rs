@@ -1,18 +1,39 @@
 use std::collections::VecDeque;
 
+/// Tunable thresholds for shake detection.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShakeSettings {
+    /// Reversals older than this are forgotten.
+    pub window_ms: u32,
+    /// Minimum number of reversals within the window to count as a shake.
+    pub min_reversals: usize,
+    /// Deltas smaller than this (in pixels) are ignored as jitter.
+    pub min_step: f64,
+    /// Minimum direction change to count as a reversal, in degrees.
+    pub reversal_angle_deg: f64,
+}
+
+impl Default for ShakeSettings {
+    fn default() -> Self {
+        Self {
+            window_ms: 600,
+            min_reversals: 4,
+            min_step: 12.0,
+            reversal_angle_deg: 120.0,
+        }
+    }
+}
+
 /// Detects a "shake" gesture in relative pointer motion.
 ///
 /// A shake is a rapid sequence of direction reversals, like moving the mouse quickly
 /// left-right several times. We detect it by looking at consecutive motion deltas: when
-/// the movement direction flips by more than ~120 degrees, that's a reversal. Enough
-/// reversals within a short window counts as a shake.
+/// the movement direction flips by more than the configured angle, that's a reversal.
+/// Enough reversals within a short window counts as a shake.
 pub struct ShakeTracker {
-    /// Reversals older than this are forgotten.
-    window_ms: u32,
-    /// Minimum number of reversals within the window to count as a shake.
-    min_reversals: usize,
-    /// Deltas smaller than this (in pixels) are ignored as jitter.
-    min_step: f64,
+    settings: ShakeSettings,
+    /// Cosine of the reversal angle, precomputed for the direction comparison.
+    reversal_cos: f64,
     /// Time of the last significant motion delta, used to reset after inactivity.
     last_time_ms: Option<u32>,
     /// Direction of the last significant motion delta.
@@ -24,14 +45,24 @@ pub struct ShakeTracker {
 impl ShakeTracker {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        Self::with_settings(ShakeSettings::default())
+    }
+
+    pub fn with_settings(settings: ShakeSettings) -> Self {
         Self {
-            window_ms: 600,
-            min_reversals: 4,
-            min_step: 12.0,
+            settings,
+            reversal_cos: settings.reversal_angle_deg.to_radians().cos(),
             last_time_ms: None,
             last_dir: None,
             reversals: VecDeque::new(),
         }
+    }
+
+    /// Replaces the detection thresholds and clears any tracked state.
+    pub fn set_settings(&mut self, settings: ShakeSettings) {
+        self.settings = settings;
+        self.reversal_cos = settings.reversal_angle_deg.to_radians().cos();
+        self.reset();
     }
 
     /// Feeds a relative motion delta at the given time in milliseconds.
@@ -40,7 +71,7 @@ impl ShakeTracker {
     pub fn push(&mut self, time_ms: u32, delta_x: f64, delta_y: f64) -> bool {
         // Reset the tracked direction if we've been idle for a whole window.
         if let Some(last) = self.last_time_ms {
-            if time_ms.saturating_sub(last) > self.window_ms {
+            if time_ms.saturating_sub(last) > self.settings.window_ms {
                 self.last_dir = None;
                 self.reversals.clear();
             }
@@ -49,7 +80,7 @@ impl ShakeTracker {
         self.prune(time_ms);
 
         let mag = delta_x.hypot(delta_y);
-        if mag < self.min_step {
+        if mag < self.settings.min_step {
             return self.is_shaking();
         }
 
@@ -59,8 +90,8 @@ impl ShakeTracker {
             let prev_mag = px.hypot(py);
             let dot = px * delta_x + py * delta_y;
             let cos = dot / (prev_mag * mag);
-            // ~120 degrees or sharper counts as a reversal.
-            if cos < -0.5 {
+            // A direction change sharper than the configured angle is a reversal.
+            if cos < self.reversal_cos {
                 self.reversals.push_back(time_ms);
             }
         }
@@ -79,12 +110,12 @@ impl ShakeTracker {
     }
 
     fn is_shaking(&self) -> bool {
-        self.reversals.len() >= self.min_reversals
+        self.reversals.len() >= self.settings.min_reversals
     }
 
     fn prune(&mut self, now_ms: u32) {
         while let Some(&front) = self.reversals.front() {
-            if now_ms.saturating_sub(front) > self.window_ms {
+            if now_ms.saturating_sub(front) > self.settings.window_ms {
                 self.reversals.pop_front();
             } else {
                 break;
@@ -185,5 +216,42 @@ mod tests {
             dir = -dir;
         }
         assert!(shaking);
+    }
+
+    #[test]
+    fn min_reversals_setting_controls_sensitivity() {
+        let settings = ShakeSettings {
+            min_reversals: 8,
+            ..Default::default()
+        };
+        let mut tracker = ShakeTracker::with_settings(settings);
+        assert!(!feed_shake(&mut tracker, 6));
+
+        let settings = ShakeSettings {
+            min_reversals: 2,
+            ..Default::default()
+        };
+        let mut tracker = ShakeTracker::with_settings(settings);
+        assert!(feed_shake(&mut tracker, 6));
+    }
+
+    #[test]
+    fn min_step_setting_ignores_small_deltas() {
+        let settings = ShakeSettings {
+            min_step: 100.0,
+            ..Default::default()
+        };
+        let mut tracker = ShakeTracker::with_settings(settings);
+        assert!(!feed_shake(&mut tracker, 6));
+    }
+
+    #[test]
+    fn set_settings_resets_state() {
+        let mut tracker = ShakeTracker::new();
+        feed_shake(&mut tracker, 6);
+        assert!(tracker.is_shaking());
+
+        tracker.set_settings(ShakeSettings::default());
+        assert!(!tracker.is_shaking());
     }
 }

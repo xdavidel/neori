@@ -12,7 +12,9 @@ use smithay::input::keyboard::xkb::{
 };
 use smithay::input::keyboard::Keysym;
 
+use crate::misc::ShakeToFindPart;
 use crate::recent_windows::{MruDirection, MruFilter, MruScope};
+use crate::utils::Flag;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Binds(pub Vec<Bind>);
@@ -337,6 +339,7 @@ pub enum Action {
     OpenOverview,
     CloseOverview,
     EnlargeCursor,
+    SetShakeToFind(ShakeToFindPart),
     ToggleWindowUrgent(u64),
     SetWindowUrgent(u64),
     UnsetWindowUrgent(u64),
@@ -678,6 +681,19 @@ impl From<neori_ipc::Action> for Action {
             neori_ipc::Action::OpenOverview {} => Self::OpenOverview,
             neori_ipc::Action::CloseOverview {} => Self::CloseOverview,
             neori_ipc::Action::EnlargeCursor {} => Self::EnlargeCursor,
+            neori_ipc::Action::SetShakeToFind { settings } => {
+                Self::SetShakeToFind(ShakeToFindPart {
+                    enable: settings.enable.map(Flag),
+                    size_multiplier: settings.size_multiplier,
+                    size: settings.size,
+                    timeout_ms: settings.timeout_ms,
+                    animation_ms: settings.animation_ms,
+                    window_ms: settings.window_ms,
+                    min_reversals: settings.min_reversals,
+                    min_step: settings.min_step,
+                    reversal_angle_deg: settings.reversal_angle_deg,
+                })
+            }
             neori_ipc::Action::SendToScratchpad {} => Self::SendToScratchpad,
             neori_ipc::Action::RemoveFromScratchpad {} => Self::RemoveFromScratchpad,
             neori_ipc::Action::ToggleScratchpad {} => Self::ToggleScratchpad,

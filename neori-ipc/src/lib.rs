@@ -916,6 +916,15 @@ pub enum Action {
     CloseOverview {},
     /// Enlarge the cursor temporarily to help find it (shake-to-find effect).
     EnlargeCursor {},
+    /// Update the shake-to-find cursor settings at runtime.
+    ///
+    /// Only the provided fields are changed. Changes are temporary and are forgotten when the
+    /// config file is reloaded.
+    SetShakeToFind {
+        /// Settings to update; unset fields are left unchanged.
+        #[cfg_attr(feature = "clap", command(flatten))]
+        settings: ShakeToFindToSet,
+    },
     /// Send the focused window to the scratchpad, hiding it.
     SendToScratchpad {},
     /// Show the scratchpad window and remove it from the scratchpad.
@@ -1210,6 +1219,50 @@ pub struct VrrToSet {
     /// Only enable when the output shows a window matching the variable-refresh-rate window rule.
     #[cfg_attr(feature = "clap", arg(long))]
     pub on_demand: bool,
+}
+
+/// Shake-to-find cursor settings to update at runtime.
+///
+/// Every field is optional; only the fields that are set are changed.
+#[derive(Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "clap", derive(clap::Args))]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct ShakeToFindToSet {
+    /// Whether shake-to-find is enabled.
+    #[cfg_attr(
+        feature = "clap",
+        arg(
+            long,
+            value_name = "ON|OFF",
+            action = clap::ArgAction::Set,
+            value_parser = clap::builder::BoolishValueParser::new(),
+        ),
+    )]
+    pub enable: Option<bool>,
+    /// Multiplier applied to the cursor size while enlarged.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub size_multiplier: Option<f64>,
+    /// Absolute cursor size in px while enlarged; overrides `size_multiplier` when set.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub size: Option<u8>,
+    /// How long the cursor stays enlarged after the last shake.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub timeout_ms: Option<u32>,
+    /// Duration of the grow/shrink animation.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub animation_ms: Option<u32>,
+    /// Reversals older than this are forgotten.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub window_ms: Option<u32>,
+    /// Minimum number of reversals within the window to count as a shake.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub min_reversals: Option<u32>,
+    /// Deltas smaller than this (in pixels) are ignored as jitter.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub min_step: Option<f64>,
+    /// Minimum direction change to count as a reversal, in degrees.
+    #[cfg_attr(feature = "clap", arg(long))]
+    pub reversal_angle_deg: Option<f64>,
 }
 
 /// Connected output.
@@ -2190,5 +2243,34 @@ mod tests {
         );
         assert!("-".parse::<PositionChange>().is_err());
         assert!("10% ".parse::<PositionChange>().is_err());
+    }
+
+    #[test]
+    fn set_shake_to_find_round_trips_json() {
+        let action = Action::SetShakeToFind {
+            settings: ShakeToFindToSet {
+                enable: Some(true),
+                size_multiplier: None,
+                size: Some(96),
+                timeout_ms: None,
+                animation_ms: None,
+                window_ms: Some(800),
+                min_reversals: None,
+                min_step: Some(6.5),
+                reversal_angle_deg: None,
+            },
+        };
+
+        let json = serde_json::to_string(&action).unwrap();
+        let action: Action = serde_json::from_str(&json).unwrap();
+
+        let Action::SetShakeToFind { settings } = action else {
+            panic!("unexpected action");
+        };
+        assert_eq!(settings.enable, Some(true));
+        assert_eq!(settings.size, Some(96));
+        assert_eq!(settings.window_ms, Some(800));
+        assert_eq!(settings.min_step, Some(6.5));
+        assert_eq!(settings.size_multiplier, None);
     }
 }

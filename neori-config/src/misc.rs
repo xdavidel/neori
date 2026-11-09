@@ -2,7 +2,7 @@ use crate::appearance::{Color, WorkspaceShadow, WorkspaceShadowPart, DEFAULT_BAC
 use crate::utils::Flag;
 use crate::FloatOrInt;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Cursor {
     pub xcursor_theme: String,
     pub xcursor_size: u8,
@@ -35,6 +35,14 @@ pub struct ShakeToFind {
     pub timeout_ms: u32,
     /// Duration of the grow/shrink animation.
     pub animation_ms: u32,
+    /// Reversals older than this are forgotten.
+    pub window_ms: u32,
+    /// Minimum number of reversals within the window to count as a shake.
+    pub min_reversals: u32,
+    /// Deltas smaller than this (in pixels) are ignored as jitter.
+    pub min_step: f64,
+    /// Minimum direction change to count as a reversal, in degrees.
+    pub reversal_angle_deg: f64,
 }
 
 impl Default for ShakeToFind {
@@ -45,6 +53,43 @@ impl Default for ShakeToFind {
             size: None,
             timeout_ms: 1000,
             animation_ms: 250,
+            window_ms: 600,
+            min_reversals: 4,
+            min_step: 12.0,
+            reversal_angle_deg: 120.0,
+        }
+    }
+}
+
+impl ShakeToFind {
+    /// Applies the fields set in `part`, leaving the rest unchanged.
+    pub fn apply_part(&mut self, part: &ShakeToFindPart) {
+        if let Some(enable) = part.enable {
+            self.enable = enable.0;
+        }
+        if let Some(v) = part.size_multiplier {
+            self.size_multiplier = v;
+        }
+        if let Some(v) = part.size {
+            self.size = Some(v);
+        }
+        if let Some(v) = part.timeout_ms {
+            self.timeout_ms = v;
+        }
+        if let Some(v) = part.animation_ms {
+            self.animation_ms = v;
+        }
+        if let Some(v) = part.window_ms {
+            self.window_ms = v;
+        }
+        if let Some(v) = part.min_reversals {
+            self.min_reversals = v;
+        }
+        if let Some(v) = part.min_step {
+            self.min_step = v;
+        }
+        if let Some(v) = part.reversal_angle_deg {
+            self.reversal_angle_deg = v;
         }
     }
 }
@@ -60,13 +105,17 @@ pub struct CursorPart {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct ShakeToFindPart {
     pub enable: Option<Flag>,
     pub size_multiplier: Option<f64>,
     pub size: Option<u8>,
     pub timeout_ms: Option<u32>,
     pub animation_ms: Option<u32>,
+    pub window_ms: Option<u32>,
+    pub min_reversals: Option<u32>,
+    pub min_step: Option<f64>,
+    pub reversal_angle_deg: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

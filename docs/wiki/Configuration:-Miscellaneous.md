@@ -181,6 +181,41 @@ neori.cursor {
 }
 ```
 
+#### `shake-to-find`
+
+<sup>Since: next release</sup>
+
+Enlarges the cursor when you shake the mouse, to help find it. Set it to `true` to enable it with the defaults, or to a table to tune its appearance, timing, and sensitivity.
+
+```lua
+neori.cursor {
+    shake_to_find = {
+        -- Multiplier applied to `xcursor_size` while enlarged.
+        size_multiplier = 4,
+        -- Absolute size in px while enlarged; overrides `size_multiplier` when set.
+        -- size = 128,
+        -- How long the cursor stays enlarged after the last shake.
+        timeout_ms = 1000,
+        -- Duration of the grow/shrink animation.
+        animation_ms = 250,
+
+        -- Sensitivity:
+        -- Reversals older than this are forgotten.
+        window_ms = 600,
+        -- Minimum number of direction reversals within the window to count as a shake.
+        min_reversals = 4,
+        -- Motion deltas smaller than this many pixels are ignored as jitter.
+        min_step = 12,
+        -- Minimum direction change to count as a reversal, in degrees.
+        reversal_angle_deg = 120,
+    },
+}
+```
+
+Lower `min_reversals`, `min_step`, or `reversal_angle_deg`, or raise `window_ms`, to make the shake easier to trigger.
+
+You can also trigger the enlargement on demand with the `enlarge-cursor` action.
+
 ### `overview`
 
 <sup>Since: 25.05</sup>

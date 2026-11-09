@@ -420,6 +420,10 @@ mod tests {
                 size = 128,
                 timeout_ms = 1500,
                 animation_ms = 300,
+                window_ms = 800,
+                min_reversals = 3,
+                min_step = 6.5,
+                reversal_angle_deg = 135,
               },
             }
             "#,
@@ -431,6 +435,60 @@ mod tests {
         assert_eq!(shake.size, Some(128));
         assert_eq!(shake.timeout_ms, 1500);
         assert_eq!(shake.animation_ms, 300);
+        assert_eq!(shake.window_ms, 800);
+        assert_eq!(shake.min_reversals, 3);
+        assert_eq!(shake.min_step, 6.5);
+        assert_eq!(shake.reversal_angle_deg, 135.);
+    }
+
+    #[test]
+    fn set_shake_to_find_ipc_action_applies_partial_update() {
+        let action = neori_ipc::Action::SetShakeToFind {
+            settings: neori_ipc::ShakeToFindToSet {
+                enable: Some(true),
+                size_multiplier: Some(3.),
+                size: None,
+                timeout_ms: Some(1500),
+                animation_ms: None,
+                window_ms: Some(800),
+                min_reversals: Some(2),
+                min_step: None,
+                reversal_angle_deg: Some(135.),
+            },
+        };
+
+        let Action::SetShakeToFind(part) = Action::from(action) else {
+            panic!("unexpected action");
+        };
+
+        let mut shake = ShakeToFind::default();
+        shake.apply_part(&part);
+
+        assert!(shake.enable);
+        assert_eq!(shake.size_multiplier, 3.);
+        assert_eq!(shake.size, None);
+        assert_eq!(shake.timeout_ms, 1500);
+        assert_eq!(shake.animation_ms, 250);
+        assert_eq!(shake.window_ms, 800);
+        assert_eq!(shake.min_reversals, 2);
+        assert_eq!(shake.min_step, 12.);
+        assert_eq!(shake.reversal_angle_deg, 135.);
+    }
+
+    #[test]
+    fn shake_to_find_rejects_invalid_sensitivity() {
+        for (key, value) in [
+            ("window_ms", "0"),
+            ("min_reversals", "0"),
+            ("min_step", "-1"),
+            ("reversal_angle_deg", "180"),
+        ] {
+            let err = Config::parse_mem(&format!(
+                "neori.cursor {{ shake_to_find = {{ {key} = {value} }} }}"
+            ))
+            .unwrap_err();
+            assert!(err.main.contains(key), "unexpected error for {key}: {err}");
+        }
     }
 
     #[test]

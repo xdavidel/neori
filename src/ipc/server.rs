@@ -76,40 +76,52 @@ impl IpcServer {
     ) -> anyhow::Result<Self> {
         let _span = tracy_client::span!("Ipc::start");
 
-        let socket_path = if let Some(wayland_socket_name) = wayland_socket_name {
-            let wayland_socket_name = wayland_socket_name.to_string_lossy();
-            let socket_name = format!("neori.{wayland_socket_name}.{}.sock", process::id());
-            let mut socket_path = socket_dir();
-            socket_path.push(socket_name);
-
-            let listener = UnixListener::bind(&socket_path).context("error binding socket")?;
-            listener
-                .set_nonblocking(true)
-                .context("error setting socket to non-blocking")?;
-
-            let source = Generic::new(listener, Interest::READ, Mode::Level);
-            event_loop
-                .insert_source(source, |_, socket, state| {
-                    match socket.accept() {
-                        Ok((stream, _)) => on_new_ipc_client(state, stream),
-                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
-                        Err(e) => return Err(e),
-                    }
-
-                    Ok(PostAction::Continue)
-                })
-                .unwrap();
-
-            Some(socket_path)
-        } else {
-            None
-        };
-
-        Ok(Self {
-            socket_path,
+        let mut server = Self {
+            socket_path: None,
             event_streams: Rc::new(RefCell::new(Vec::new())),
             event_stream_state: Rc::new(RefCell::new(EventStreamState::default())),
-        })
+        };
+        server.start_socket(event_loop, wayland_socket_name)?;
+        Ok(server)
+    }
+
+    /// Starts listening on a socket, keeping the existing event stream state.
+    ///
+    /// Does nothing when `wayland_socket_name` is `None`.
+    pub fn start_socket(
+        &mut self,
+        event_loop: &LoopHandle<'static, State>,
+        wayland_socket_name: Option<&OsStr>,
+    ) -> anyhow::Result<()> {
+        let Some(wayland_socket_name) = wayland_socket_name else {
+            return Ok(());
+        };
+
+        let wayland_socket_name = wayland_socket_name.to_string_lossy();
+        let socket_name = format!("neori.{wayland_socket_name}.{}.sock", process::id());
+        let mut socket_path = socket_dir();
+        socket_path.push(socket_name);
+
+        let listener = UnixListener::bind(&socket_path).context("error binding socket")?;
+        listener
+            .set_nonblocking(true)
+            .context("error setting socket to non-blocking")?;
+
+        let source = Generic::new(listener, Interest::READ, Mode::Level);
+        event_loop
+            .insert_source(source, |_, socket, state| {
+                match socket.accept() {
+                    Ok((stream, _)) => on_new_ipc_client(state, stream),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => (),
+                    Err(e) => return Err(e),
+                }
+
+                Ok(PostAction::Continue)
+            })
+            .unwrap();
+
+        self.socket_path = Some(socket_path);
+        Ok(())
     }
 
     fn send_event(&self, event: Event) {
@@ -479,6 +491,34 @@ fn validate_action(action: &Action) -> Result<(), String> {
         let p = Path::new(path);
         if !p.is_file() {
             return Err(format!("path does not point to a file: {path}"));
+        }
+    }
+
+    if let Action::SetShakeToFind { settings } = action {
+        if let Some(v) = settings.size_multiplier {
+            if !(v.is_finite() && v > 0.) {
+                return Err(format!(
+                    "size_multiplier must be a positive number, got {v}"
+                ));
+            }
+        }
+        if settings.window_ms == Some(0) {
+            return Err(String::from("window_ms must be greater than zero"));
+        }
+        if settings.min_reversals == Some(0) {
+            return Err(String::from("min_reversals must be greater than zero"));
+        }
+        if let Some(v) = settings.min_step {
+            if !(v.is_finite() && v >= 0.) {
+                return Err(format!("min_step must be a non-negative number, got {v}"));
+            }
+        }
+        if let Some(v) = settings.reversal_angle_deg {
+            if !(v.is_finite() && v > 0. && v < 180.) {
+                return Err(format!(
+                    "reversal_angle_deg must be between 0 and 180, got {v}"
+                ));
+            }
         }
     }
 

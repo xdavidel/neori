@@ -3,7 +3,16 @@ use std::time::Duration;
 use neori_config::Cursor;
 
 use crate::animation::{Animation, Clock, Curve};
-use crate::input::shake::ShakeTracker;
+use crate::input::shake::{ShakeSettings, ShakeTracker};
+
+fn settings_from(shake: &neori_config::ShakeToFind) -> ShakeSettings {
+    ShakeSettings {
+        window_ms: shake.window_ms,
+        min_reversals: shake.min_reversals as usize,
+        min_step: shake.min_step,
+        reversal_angle_deg: shake.reversal_angle_deg,
+    }
+}
 
 /// Enlarges the cursor when the user shakes the mouse, to help find it.
 ///
@@ -52,6 +61,7 @@ impl CursorShake {
         self.enabled = shake.enable;
         self.timeout = Duration::from_millis(shake.timeout_ms as u64);
         self.animation_ms = shake.animation_ms as u64;
+        self.tracker.set_settings(settings_from(shake));
 
         self.target_multiplier = match shake.size {
             Some(size) if cursor.xcursor_size > 0 => {
@@ -190,6 +200,7 @@ mod tests {
                 size: None,
                 timeout_ms: 1000,
                 animation_ms: 100,
+                ..Default::default()
             },
             ..Default::default()
         }

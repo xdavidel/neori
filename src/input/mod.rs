@@ -2381,6 +2381,16 @@ impl State {
             Action::EnlargeCursor => {
                 self.neori.enlarge_cursor();
             }
+            Action::SetShakeToFind(part) => {
+                let cursor = {
+                    let mut config = self.neori.config.borrow_mut();
+                    config.cursor.shake_to_find.apply_part(&part);
+                    config.cursor.clone()
+                };
+                self.neori.cursor_shake.update_config(&cursor);
+                self.neori.update_cursor_shake();
+                self.neori.queue_redraw_all();
+            }
             Action::SendToScratchpad => {
                 self.neori.layout.send_to_scratchpad();
                 self.neori.queue_redraw_all();

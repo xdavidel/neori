@@ -2,6 +2,7 @@ use fixture::Fixture;
 
 mod client;
 mod fixture;
+mod ipc;
 mod server;
 
 mod animations;

@@ -14,7 +14,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 - **Window-rule extensions** — `geometry_corner_radius`, `clip_to_geometry`, `draw_border_with_background`, `opacity`, `tiled_state`, `baba_is_float`, `variable_refresh_rate` and more
 - **Scratchpad** — hide a window with `send-to-scratchpad`, bring it back with `remove-from-scratchpad`, or toggle it with `toggle-scratchpad`
 - **Keycode-based binds** — binds match the physical key by default, so shortcuts keep working across keyboard layouts; opt out with `keycode = false`
-- **Shake-to-find cursor** — shake the mouse to temporarily enlarge the cursor (configurable via `neori.cursor.shake_to_find`), or trigger it with the `enlarge-cursor` action
+- **Shake-to-find cursor** — shake the mouse to temporarily enlarge the cursor, with configurable size, timing, and detection sensitivity (`neori.cursor.shake_to_find`); trigger it with the `enlarge-cursor` action or retune it at runtime with `neori msg action set-shake-to-find`
 - **Lid and tablet-mode events** — `neori.on("lid-open" / "lid-closed" / "tablet-mode-on" / "tablet-mode-off", ...)` handlers, run even while the session is locked
 - **Smarter workspace navigation** — sparse on-demand numbering (no auto-created gaps), navigation skips empty workspaces, and at most one empty workspace is kept
 - **Cursor warp on workspace switch** — moving focus to a workspace on another monitor moves the pointer with it
