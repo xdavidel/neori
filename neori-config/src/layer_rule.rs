@@ -11,6 +11,7 @@ pub struct LayerRule {
     pub shadow: ShadowRule,
     pub geometry_corner_radius: Option<CornerRadius>,
     pub place_within_backdrop: Option<bool>,
+    pub focus_on_type_in_overview: Option<bool>,
     pub baba_is_float: Option<bool>,
     pub background_effect: BackgroundEffectRule,
     pub popups: PopupsRule,

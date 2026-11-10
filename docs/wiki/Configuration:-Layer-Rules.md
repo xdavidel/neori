@@ -42,6 +42,7 @@ neori.layer_rule {
     -- inactive_color = "#00000064"
     geometry_corner_radius = 12,
     place_within_backdrop = true,
+    focus_on_type_in_overview = true,
     baba_is_float = true,
     background_effect = {
         xray = true,
@@ -221,6 +222,35 @@ neori.layer_rule {
         namespace = "^wallpaper$",
     },
     place_within_backdrop = true,
+}
+```
+
+#### `focus-on-type-in-overview`
+
+<sup>Since: next release</sup>
+
+Set to `true` to make neori focus this surface when typing in the [Overview](./Overview.md).
+It is intended for app launchers, to enable "type to search" integration.
+
+The layer surface must be mapped and have `on-demand` keyboard focus.
+
+> [!NOTE]
+> This rule needs some cooperation from the layer surface.
+> Here's an example.
+>
+> An application launcher should map a layer surface with `none` keyboard interactivity, then switch it to `on-demand`, and commit.
+> The result is an unfocused layer surface with `on-demand` keyboard focus, ready to be focused by neori.
+> Then, typing in the Overview will focus this layer surface and forward the text.
+>
+> If the user deletes the text and you want to hide the surface, you should set keyboard interactivity to `none`, commit, then set it back to `on-demand`, and commit again to drop the keyboard focus back to neori.
+> This way, the surface is ready to receive keyboard focus again.
+
+```lua
+neori.layer_rule {
+    match = {
+        namespace = "^my-launcher-surface$",
+    },
+    focus_on_type_in_overview = true,
 }
 ```
 

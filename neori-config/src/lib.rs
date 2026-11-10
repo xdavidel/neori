@@ -2201,6 +2201,25 @@ mod tests {
     }
 
     #[test]
+    fn layer_rule_focus_on_type_in_overview() {
+        let config = Config::parse_mem(
+            r#"
+            neori.layer_rule {
+                match = { namespace = "^launcher$" },
+                focus_on_type_in_overview = true,
+            }
+            neori.layer_rule { ["focus-on-type-in-overview"] = false }
+            neori.layer_rule { block_out_from = "screencast" }
+            "#,
+        )
+        .unwrap();
+        let rules = &config.layer_rules;
+        assert_eq!(rules[0].focus_on_type_in_overview, Some(true));
+        assert_eq!(rules[1].focus_on_type_in_overview, Some(false));
+        assert_eq!(rules[2].focus_on_type_in_overview, None);
+    }
+
+    #[test]
     fn pass_through_binds() {
         let config = Config::parse_mem(
             r#"

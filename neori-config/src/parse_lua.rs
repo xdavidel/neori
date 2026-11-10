@@ -3448,6 +3448,9 @@ fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
                     _ => None,
                 };
             }
+            "focus_on_type_in_overview" | "focus-on-type-in-overview" => {
+                rule.focus_on_type_in_overview = Some(value_is_truthy(&value));
+            }
             _ => unknown_key("layer_rule", &ks)?,
         }
     }
