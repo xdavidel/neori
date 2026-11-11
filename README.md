@@ -47,6 +47,47 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 
 Follow the [neori getting started guide](https://neori-wm.github.io/neori/Getting-Started.html) for build/runtime details. The main difference is configuration: use `~/.config/neori/config.lua` (or `/etc/neori/config.lua`, or `NEORI_CONFIG`). See `resources/default-config.lua` for a reference.
 
+### Development: testing in a nested session
+
+The easiest way to try a local build is to run it as a nested window inside your current Wayland or X11 session. Neori automatically picks the winit backend when `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`, or `DISPLAY` is set, so do **not** pass `--session`.
+
+```bash
+# From a terminal in your existing session:
+nix develop --command cargo run --release
+
+# Or use a throwaway config instead of ~/.config/neori/config.lua:
+nix develop --command cargo run --release -- -c /tmp/neori-test.lua
+```
+
+Inside the nested session, `Mod` is **Alt** by default. The compositor logs the IPC socket path at startup:
+
+```
+IPC listening on: /run/user/1000/neori.neori-XXXX.12345.sock
+```
+
+Processes started inside the nested session inherit `NEORI_SOCKET`. From a host terminal, export it yourself:
+
+```bash
+export NEORI_SOCKET=/run/user/1000/neori.neori-XXXX.12345.sock
+
+target/release/neori msg action set-shake-to-find --enable true --size-multiplier 6 --window-ms 500
+target/release/neori msg action enlarge-cursor
+target/release/neori msg action focus-workspace 2
+target/release/neori msg action move-column-left
+target/release/neori msg action toggle-overview
+```
+
+List all actions available over IPC with `target/release/neori msg action --help` (config-only actions are hidden). Add `--json` to `neori msg` to see raw JSON, and use `RUST_LOG=neori=trace` for verbose logs.
+
+For Lua-defined actions, put binds in a temporary config and exercise them from the nested session:
+
+```lua
+neori.bind("Mod+1", { focus_workspace = 1 })
+neori.bind("Mod+2", "move-column-left")
+neori.bind("Mod+3", { toggle_overview = true })
+neori.bind("Mod+Shift+F", "enlarge-cursor")
+```
+
 ### Upstream
 
 Neori is a fork of [niri](https://github.com/niri-wm/niri) by YaLTeR. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
