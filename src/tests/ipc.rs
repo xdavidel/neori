@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use neori_ipc::{Action, Reply, Request, Response};
+use neori_config::Config;
+use neori_ipc::{Action, Reply, Request, Response, WorkspaceReferenceArg};
 
 use super::fixture::Fixture;
 
@@ -135,6 +136,91 @@ fn ipc_set_shake_to_find_rejects_invalid_settings() {
         Err(err) => assert!(err.contains("min_reversals"), "unexpected error: {err}"),
         Ok(reply) => panic!("expected an error, got {reply:?}"),
     }
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ipc_general_actions_are_dispatched() {
+    let mut fixture = Fixture::new();
+    fixture.add_output(1, (1920, 1080));
+    fixture.neori_focus_output(1);
+    let path = start_ipc(&mut fixture);
+
+    // Empty-struct variant.
+    let reply = send_action(&mut fixture, &path, Action::FocusColumnLeft {});
+    assert!(
+        matches!(reply, Ok(Response::Handled)),
+        "unexpected reply: {reply:?}"
+    );
+
+    // Struct variant with an optional field, naming the focused workspace.
+    let reply = send_action(
+        &mut fixture,
+        &path,
+        Action::SetWorkspaceName {
+            name: String::from("ipc-general"),
+            workspace: None,
+        },
+    );
+    assert!(
+        matches!(reply, Ok(Response::Handled)),
+        "unexpected reply: {reply:?}"
+    );
+    assert_eq!(
+        fixture.neori().layout.active_workspace().unwrap().name(),
+        Some(&String::from("ipc-general")),
+    );
+
+    // Variant whose config-only ByRef counterpart was folded into it.
+    let reply = send_action(
+        &mut fixture,
+        &path,
+        Action::MoveWorkspaceToIndex {
+            index: 1,
+            reference: Some(WorkspaceReferenceArg::Name(String::from("ipc-general"))),
+        },
+    );
+    assert!(
+        matches!(reply, Ok(Response::Handled)),
+        "unexpected reply: {reply:?}"
+    );
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ipc_dispatches_actions_parsed_from_lua_config() {
+    let config = Config::parse_mem(
+        r#"
+        neori.bind("Mod+1", { focus_workspace = 1 })
+        neori.bind("Mod+2", "move-column-left")
+        neori.bind("Mod+3", { toggle_overview = true })
+        neori.bind("Mod+4", { close_window = true })
+        neori.bind("Mod+5", { move_column_to_workspace = 2 })
+        neori.bind("Mod+6", { set_column_width = "+10%" })
+        "#,
+    )
+    .unwrap();
+
+    let mut fixture = Fixture::new();
+    fixture.add_output(1, (1920, 1080));
+    fixture.neori_focus_output(1);
+    let path = start_ipc(&mut fixture);
+
+    // The Lua parser produces the same Action type that IPC uses, so the actions from a
+    // config can be sent over IPC directly.
+    for bind in &config.binds.0 {
+        let reply = send_action(&mut fixture, &path, bind.action.clone());
+        assert!(
+            matches!(reply, Ok(Response::Handled)),
+            "unexpected reply for {:?}: {reply:?}",
+            bind.action,
+        );
+    }
+
+    // At least one of the actions must have an observable effect.
+    assert!(fixture.neori().layout.is_overview_open());
 
     std::fs::remove_file(&path).ok();
 }

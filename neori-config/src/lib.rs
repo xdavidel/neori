@@ -457,7 +457,7 @@ mod tests {
             },
         };
 
-        let Action::SetShakeToFind(part) = Action::from(action) else {
+        let Action::SetShakeToFind { settings: part } = action else {
             panic!("unexpected action");
         };
 
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn enlarge_cursor_action_parses() {
         let config = Config::parse_mem(r#"neori.bind("Mod+Shift+F", "enlarge-cursor")"#).unwrap();
-        assert!(actions(&config).contains(&Action::EnlargeCursor));
+        assert!(actions(&config).contains(&Action::EnlargeCursor {}));
     }
 
     #[test]
@@ -519,9 +519,9 @@ mod tests {
         .unwrap();
 
         let actions = actions(&config);
-        assert!(actions.contains(&Action::SendToScratchpad));
-        assert!(actions.contains(&Action::ToggleScratchpad));
-        assert!(actions.contains(&Action::RemoveFromScratchpad));
+        assert!(actions.contains(&Action::SendToScratchpad {}));
+        assert!(actions.contains(&Action::ToggleScratchpad {}));
+        assert!(actions.contains(&Action::RemoveFromScratchpad {}));
     }
 
     #[test]
@@ -552,7 +552,9 @@ mod tests {
         );
         assert!(config.input.keyboard.numlock);
         let actions = actions(&config);
-        assert!(actions.contains(&Action::Spawn(vec!["kitty".to_string()])));
+        assert!(actions.contains(&Action::Spawn {
+            command: vec!["kitty".to_string()]
+        }));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -640,11 +642,11 @@ mod tests {
 
         -    startup: [],
         +    startup: [
-        +        Spawn(
-        +            [
+        +        Spawn {
+        +            command: [
         +                "waybar",
         +            ],
-        +        ),
+        +        },
         +    ],
         "#,
         );
@@ -714,11 +716,20 @@ mod tests {
         assert!(config.input.touchpad.tap);
         assert_eq!(config.layout.gaps, 8.0);
         assert_eq!(config.screenshot_path.0.as_deref(), Some("/tmp/shot.png"));
-        assert_eq!(config.startup, [Action::Spawn(vec!["waybar".to_string()])]);
+        assert_eq!(
+            config.startup,
+            [Action::Spawn {
+                command: vec!["waybar".to_string()]
+            }]
+        );
         assert_eq!(config.binds.0.len(), 2);
         let actions = actions(&config);
-        assert!(actions.contains(&Action::Spawn(vec!["kitty".to_string()])));
-        assert!(actions.contains(&Action::FocusWorkspace(WorkspaceReference::Index(1))));
+        assert!(actions.contains(&Action::Spawn {
+            command: vec!["kitty".to_string()]
+        }));
+        assert!(actions.contains(&Action::FocusWorkspace {
+            reference: WorkspaceReference::Index(1)
+        }));
     }
 
     #[test]
@@ -736,15 +747,23 @@ mod tests {
         assert_eq!(
             config.monitor_added,
             [
-                Action::Spawn(vec!["waybar".to_string()]),
-                Action::Spawn(vec!["waybar2".to_string()]),
+                Action::Spawn {
+                    command: vec!["waybar".to_string()]
+                },
+                Action::Spawn {
+                    command: vec!["waybar2".to_string()]
+                },
             ]
         );
         assert_eq!(
             config.monitor_removed,
             [
-                Action::Spawn(vec!["cleanup".to_string()]),
-                Action::SpawnSh("echo bye".to_string()),
+                Action::Spawn {
+                    command: vec!["cleanup".to_string()]
+                },
+                Action::SpawnSh {
+                    command: "echo bye".to_string()
+                },
             ]
         );
 
@@ -766,20 +785,29 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.startup, [Action::Spawn(vec!["waybar".to_string()])]);
+        assert_eq!(
+            config.startup,
+            [Action::Spawn {
+                command: vec!["waybar".to_string()]
+            }]
+        );
         let actions = actions(&config);
-        assert!(actions.contains(&Action::Spawn(vec!["kitty".to_string()])));
-        assert!(actions.contains(&Action::Spawn(vec![
-            "kitty".to_string(),
-            "-e".to_string(),
-            "sh".to_string()
-        ])));
-        assert!(actions.contains(&Action::Spawn(vec![
-            "brightnessctl".to_string(),
-            "set".to_string(),
-            "+10%".to_string()
-        ])));
-        assert!(actions.contains(&Action::SpawnSh("wl-mirror $(echo hi)".to_string())));
+        assert!(actions.contains(&Action::Spawn {
+            command: vec!["kitty".to_string()]
+        }));
+        assert!(actions.contains(&Action::Spawn {
+            command: vec!["kitty".to_string(), "-e".to_string(), "sh".to_string()]
+        }));
+        assert!(actions.contains(&Action::Spawn {
+            command: vec![
+                "brightnessctl".to_string(),
+                "set".to_string(),
+                "+10%".to_string()
+            ]
+        }));
+        assert!(actions.contains(&Action::SpawnSh {
+            command: "wl-mirror $(echo hi)".to_string()
+        }));
 
         let brightness = config
             .binds
@@ -787,11 +815,13 @@ mod tests {
             .iter()
             .find(|b| {
                 b.action
-                    == Action::Spawn(vec![
-                        "brightnessctl".to_string(),
-                        "set".to_string(),
-                        "+10%".to_string(),
-                    ])
+                    == Action::Spawn {
+                        command: vec![
+                            "brightnessctl".to_string(),
+                            "set".to_string(),
+                            "+10%".to_string(),
+                        ],
+                    }
             })
             .unwrap();
         assert!(brightness.allow_when_locked);
@@ -800,7 +830,12 @@ mod tests {
             .binds
             .0
             .iter()
-            .find(|b| b.action == Action::Spawn(vec!["terminal-meta".to_string()]))
+            .find(|b| {
+                b.action
+                    == Action::Spawn {
+                        command: vec!["terminal-meta".to_string()],
+                    }
+            })
             .unwrap();
         assert_eq!(
             meta.hotkey_overlay_title,
@@ -833,22 +868,23 @@ mod tests {
         .unwrap();
 
         let actions = actions(&config);
-        assert!(actions.contains(&Action::FocusColumnFirst));
-        assert!(actions.contains(&Action::MoveColumnToMonitorLeft));
-        assert!(actions.contains(&Action::MoveWorkspaceDown));
-        assert!(actions.contains(&Action::ConsumeOrExpelWindowRight));
-        assert!(actions.contains(&Action::SwitchPresetWindowHeight));
-        assert!(actions.contains(&Action::ResetWindowHeight));
-        assert!(actions.contains(&Action::ExpandColumnToAvailableWidth));
-        assert!(actions.contains(&Action::CenterVisibleColumns));
-        assert!(actions.contains(&Action::SwitchFocusBetweenFloatingAndTiling));
-        assert!(actions.contains(&Action::MoveColumnToWorkspaceDown(true)));
-        assert!(actions.contains(&Action::SetColumnWidth(
-            neori_ipc::SizeChange::AdjustProportion(-10.0)
-        )));
-        assert!(actions.contains(&Action::SetWindowHeight(
-            neori_ipc::SizeChange::AdjustProportion(10.0)
-        )));
+        assert!(actions.contains(&Action::FocusColumnFirst {}));
+        assert!(actions.contains(&Action::MoveColumnToMonitorLeft {}));
+        assert!(actions.contains(&Action::MoveWorkspaceDown {}));
+        assert!(actions.contains(&Action::ConsumeOrExpelWindowRight { id: None }));
+        assert!(actions.contains(&Action::SwitchPresetWindowHeight { id: None }));
+        assert!(actions.contains(&Action::ResetWindowHeight { id: None }));
+        assert!(actions.contains(&Action::ExpandColumnToAvailableWidth {}));
+        assert!(actions.contains(&Action::CenterVisibleColumns {}));
+        assert!(actions.contains(&Action::SwitchFocusBetweenFloatingAndTiling {}));
+        assert!(actions.contains(&Action::MoveColumnToWorkspaceDown { focus: true }));
+        assert!(actions.contains(&Action::SetColumnWidth {
+            change: neori_ipc::SizeChange::AdjustProportion(-10.0)
+        }));
+        assert!(actions.contains(&Action::SetWindowHeight {
+            id: None,
+            change: neori_ipc::SizeChange::AdjustProportion(10.0)
+        }));
     }
 
     #[test]
@@ -870,16 +906,32 @@ mod tests {
         .unwrap();
 
         let actions = actions(&config);
-        assert!(actions.contains(&Action::DoScreenTransition(Some(100))));
-        assert!(actions.contains(&Action::ToggleWindowRuleOpacity));
-        assert!(actions.contains(&Action::ToggleDebugTint));
-        assert!(actions.contains(&Action::DebugToggleDamage));
-        assert!(actions.contains(&Action::DebugToggleOpaqueRegions));
-        assert!(actions.contains(&Action::Quit(true)));
-        assert!(actions.contains(&Action::Screenshot(false, None)));
-        assert!(actions.contains(&Action::ScreenshotScreen(false, false, None)));
-        assert!(actions.contains(&Action::ScreenshotWindow(false, true, None)));
-        assert!(actions.contains(&Action::DoScreenTransition(None)));
+        assert!(actions.contains(&Action::DoScreenTransition {
+            delay_ms: Some(100)
+        }));
+        assert!(actions.contains(&Action::ToggleWindowRuleOpacity { id: None }));
+        assert!(actions.contains(&Action::ToggleDebugTint {}));
+        assert!(actions.contains(&Action::DebugToggleDamage {}));
+        assert!(actions.contains(&Action::DebugToggleOpaqueRegions {}));
+        assert!(actions.contains(&Action::Quit {
+            skip_confirmation: true
+        }));
+        assert!(actions.contains(&Action::Screenshot {
+            show_pointer: false,
+            path: None
+        }));
+        assert!(actions.contains(&Action::ScreenshotScreen {
+            write_to_disk: false,
+            show_pointer: false,
+            path: None
+        }));
+        assert!(actions.contains(&Action::ScreenshotWindow {
+            id: None,
+            write_to_disk: false,
+            show_pointer: true,
+            path: None
+        }));
+        assert!(actions.contains(&Action::DoScreenTransition { delay_ms: None }));
     }
 
     #[test]
@@ -932,7 +984,12 @@ mod tests {
             config.layer_rules[0].block_out_from,
             Some(BlockOutFrom::ScreenCapture)
         );
-        assert_eq!(config.startup, [Action::SpawnSh("qs -c shell".to_string())]);
+        assert_eq!(
+            config.startup,
+            [Action::SpawnSh {
+                command: "qs -c shell".to_string()
+            }]
+        );
         assert!(config.prefer_no_csd);
     }
 
@@ -1112,7 +1169,9 @@ mod tests {
         let config = result.config.expect("config should parse");
 
         assert_eq!(config.layout.gaps, 12.0);
-        assert!(actions(&config).contains(&Action::Spawn(vec!["kitty".to_string()])));
+        assert!(actions(&config).contains(&Action::Spawn {
+            command: vec!["kitty".to_string()]
+        }));
         // Included files are recorded once, for the config watcher.
         assert_eq!(result.includes.len(), 3);
         assert!(result.includes.contains(&dir.join("conf.d/10-binds.lua")));
@@ -1138,8 +1197,10 @@ mod tests {
         assert_eq!(config.layout.gaps, 4.0);
         assert_eq!(config.binds.0.len(), 2);
         let actions = actions(&config);
-        assert!(actions.contains(&Action::Quit(false)));
-        assert!(actions.contains(&Action::CloseWindow));
+        assert!(actions.contains(&Action::Quit {
+            skip_confirmation: false
+        }));
+        assert!(actions.contains(&Action::CloseWindow { id: None }));
     }
 
     #[test]
@@ -1333,7 +1394,9 @@ mod tests {
 
         assert_eq!(
             config.lid_open[0],
-            Action::Spawn(vec!["waymon -a".to_string()])
+            Action::Spawn {
+                command: vec!["waymon -a".to_string()]
+            }
         );
     }
 

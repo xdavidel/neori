@@ -2883,7 +2883,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         .parse::<Key>()
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
 
-    let mut action = Action::CloseWindow;
+    let mut action = Action::CloseWindow { id: None };
     let mut repeat = true;
     let mut cooldown = None;
     let mut allow_when_locked = false;
@@ -2943,7 +2943,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         _ => {}
     }
 
-    if matches!(action, Action::ToggleKeyboardShortcutsInhibit) {
+    if matches!(action, Action::ToggleKeyboardShortcutsInhibit {}) {
         allow_inhibiting = false;
     }
 
@@ -3078,153 +3078,189 @@ fn parse_size_change(value: &Value) -> Result<SizeChange, String> {
 
 fn parse_action_string(s: &str) -> Result<Action, String> {
     let action = match s {
-        "close_window" | "close-window" => Action::CloseWindow,
-        "fullscreen_window" | "fullscreen-window" => Action::FullscreenWindow,
-        "quit" => Action::Quit(false),
+        "close_window" | "close-window" => Action::CloseWindow { id: None },
+        "fullscreen_window" | "fullscreen-window" => Action::FullscreenWindow { id: None },
+        "quit" => Action::Quit {
+            skip_confirmation: false,
+        },
         "toggle_keyboard_shortcuts_inhibit" | "toggle-keyboard-shortcuts-inhibit" => {
-            Action::ToggleKeyboardShortcutsInhibit
+            Action::ToggleKeyboardShortcutsInhibit {}
         }
-        "toggle_window_floating" | "toggle-window-floating" => Action::ToggleWindowFloating,
+        "toggle_window_floating" | "toggle-window-floating" => {
+            Action::ToggleWindowFloating { id: None }
+        }
         "consume_window_into_column" | "consume-window-into-column" => {
-            Action::ConsumeWindowIntoColumn
+            Action::ConsumeWindowIntoColumn {}
         }
-        "expel_window_from_column" | "expel-window-from-column" => Action::ExpelWindowFromColumn,
-        "focus_column_left" | "focus-column-left" => Action::FocusColumnLeft,
-        "focus_column_right" | "focus-column-right" => Action::FocusColumnRight,
-        "focus_window_down" | "focus-window-down" => Action::FocusWindowDown,
-        "focus_window_up" | "focus-window-up" => Action::FocusWindowUp,
-        "focus_monitor_left" | "focus-monitor-left" => Action::FocusMonitorLeft,
-        "focus_monitor_right" | "focus-monitor-right" => Action::FocusMonitorRight,
-        "focus_monitor_down" | "focus-monitor-down" => Action::FocusMonitorDown,
-        "focus_monitor_up" | "focus-monitor-up" => Action::FocusMonitorUp,
-        "focus_workspace_down" | "focus-workspace-down" => Action::FocusWorkspaceDown,
-        "focus_workspace_up" | "focus-workspace-up" => Action::FocusWorkspaceUp,
-        "focus_workspace_previous" | "focus-workspace-previous" => Action::FocusWorkspacePrevious,
-        "move_column_left" | "move-column-left" => Action::MoveColumnLeft,
-        "move_column_right" | "move-column-right" => Action::MoveColumnRight,
-        "move_window_down" | "move-window-down" => Action::MoveWindowDown,
-        "move_window_up" | "move-window-up" => Action::MoveWindowUp,
+        "expel_window_from_column" | "expel-window-from-column" => Action::ExpelWindowFromColumn {},
+        "focus_column_left" | "focus-column-left" => Action::FocusColumnLeft {},
+        "focus_column_right" | "focus-column-right" => Action::FocusColumnRight {},
+        "focus_window_down" | "focus-window-down" => Action::FocusWindowDown {},
+        "focus_window_up" | "focus-window-up" => Action::FocusWindowUp {},
+        "focus_monitor_left" | "focus-monitor-left" => Action::FocusMonitorLeft {},
+        "focus_monitor_right" | "focus-monitor-right" => Action::FocusMonitorRight {},
+        "focus_monitor_down" | "focus-monitor-down" => Action::FocusMonitorDown {},
+        "focus_monitor_up" | "focus-monitor-up" => Action::FocusMonitorUp {},
+        "focus_workspace_down" | "focus-workspace-down" => Action::FocusWorkspaceDown {},
+        "focus_workspace_up" | "focus-workspace-up" => Action::FocusWorkspaceUp {},
+        "focus_workspace_previous" | "focus-workspace-previous" => {
+            Action::FocusWorkspacePrevious {}
+        }
+        "move_column_left" | "move-column-left" => Action::MoveColumnLeft {},
+        "move_column_right" | "move-column-right" => Action::MoveColumnRight {},
+        "move_window_down" | "move-window-down" => Action::MoveWindowDown {},
+        "move_window_up" | "move-window-up" => Action::MoveWindowUp {},
         "switch_preset_column_width" | "switch-preset-column-width" => {
-            Action::SwitchPresetColumnWidth
+            Action::SwitchPresetColumnWidth {}
         }
         "switch_preset_column_width_back" | "switch-preset-column-width-back" => {
-            Action::SwitchPresetColumnWidthBack
+            Action::SwitchPresetColumnWidthBack {}
         }
-        "maximize_column" | "maximize-column" => Action::MaximizeColumn,
-        "maximize_window_to_edges" | "maximize-window-to-edges" => Action::MaximizeWindowToEdges,
-        "center_column" | "center-column" => Action::CenterColumn,
-        "toggle_overview" | "toggle-overview" => Action::ToggleOverview,
-        "open_overview" | "open-overview" => Action::OpenOverview,
-        "close_overview" | "close-overview" => Action::CloseOverview,
-        "enlarge_cursor" | "enlarge-cursor" => Action::EnlargeCursor,
-        "send_to_scratchpad" | "send-to-scratchpad" => Action::SendToScratchpad,
-        "remove_from_scratchpad" | "remove-from-scratchpad" => Action::RemoveFromScratchpad,
-        "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad,
-        "show_hotkey_overlay" | "show-hotkey-overlay" => Action::ShowHotkeyOverlay,
-        "screenshot" => Action::Screenshot(true, None),
-        "screenshot_screen" | "screenshot-screen" => Action::ScreenshotScreen(true, true, None),
-        "screenshot_window" | "screenshot-window" => Action::ScreenshotWindow(true, false, None),
-        "power_off_monitors" | "power-off-monitors" => Action::PowerOffMonitors,
+        "maximize_column" | "maximize-column" => Action::MaximizeColumn {},
+        "maximize_window_to_edges" | "maximize-window-to-edges" => {
+            Action::MaximizeWindowToEdges { id: None }
+        }
+        "center_column" | "center-column" => Action::CenterColumn {},
+        "toggle_overview" | "toggle-overview" => Action::ToggleOverview {},
+        "open_overview" | "open-overview" => Action::OpenOverview {},
+        "close_overview" | "close-overview" => Action::CloseOverview {},
+        "enlarge_cursor" | "enlarge-cursor" => Action::EnlargeCursor {},
+        "send_to_scratchpad" | "send-to-scratchpad" => Action::SendToScratchpad {},
+        "remove_from_scratchpad" | "remove-from-scratchpad" => Action::RemoveFromScratchpad {},
+        "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad {},
+        "show_hotkey_overlay" | "show-hotkey-overlay" => Action::ShowHotkeyOverlay {},
+        "screenshot" => Action::Screenshot {
+            show_pointer: true,
+            path: None,
+        },
+        "screenshot_screen" | "screenshot-screen" => Action::ScreenshotScreen {
+            write_to_disk: true,
+            show_pointer: true,
+            path: None,
+        },
+        "screenshot_window" | "screenshot-window" => Action::ScreenshotWindow {
+            id: None,
+            write_to_disk: true,
+            show_pointer: false,
+            path: None,
+        },
+        "power_off_monitors" | "power-off-monitors" => Action::PowerOffMonitors {},
         "toggle_windowed_fullscreen" | "toggle-windowed-fullscreen" => {
-            Action::ToggleWindowedFullscreen
+            Action::ToggleWindowedFullscreen { id: None }
         }
-        "focus_window_previous" | "focus-window-previous" => Action::FocusWindowPrevious,
+        "focus_window_previous" | "focus-window-previous" => Action::FocusWindowPrevious {},
         "move_window_to_workspace_down" | "move-window-to-workspace-down" => {
-            Action::MoveWindowToWorkspaceDown(true)
+            Action::MoveWindowToWorkspaceDown { focus: true }
         }
         "move_window_to_workspace_up" | "move-window-to-workspace-up" => {
-            Action::MoveWindowToWorkspaceUp(true)
+            Action::MoveWindowToWorkspaceUp { focus: true }
         }
         "move_column_to_workspace_down" | "move-column-to-workspace-down" => {
-            Action::MoveColumnToWorkspaceDown(true)
+            Action::MoveColumnToWorkspaceDown { focus: true }
         }
         "move_column_to_workspace_up" | "move-column-to-workspace-up" => {
-            Action::MoveColumnToWorkspaceUp(true)
+            Action::MoveColumnToWorkspaceUp { focus: true }
         }
         "toggle_column_tabbed_display" | "toggle-column-tabbed-display" => {
-            Action::ToggleColumnTabbedDisplay
+            Action::ToggleColumnTabbedDisplay {}
         }
-        "focus_column_first" | "focus-column-first" => Action::FocusColumnFirst,
-        "focus_column_last" | "focus-column-last" => Action::FocusColumnLast,
-        "move_column_to_first" | "move-column-to-first" => Action::MoveColumnToFirst,
-        "move_column_to_last" | "move-column-to-last" => Action::MoveColumnToLast,
+        "focus_column_first" | "focus-column-first" => Action::FocusColumnFirst {},
+        "focus_column_last" | "focus-column-last" => Action::FocusColumnLast {},
+        "move_column_to_first" | "move-column-to-first" => Action::MoveColumnToFirst {},
+        "move_column_to_last" | "move-column-to-last" => Action::MoveColumnToLast {},
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
-            Action::MoveColumnToMonitorLeft
+            Action::MoveColumnToMonitorLeft {}
         }
         "move_column_to_monitor_right" | "move-column-to-monitor-right" => {
-            Action::MoveColumnToMonitorRight
+            Action::MoveColumnToMonitorRight {}
         }
         "move_column_to_monitor_down" | "move-column-to-monitor-down" => {
-            Action::MoveColumnToMonitorDown
+            Action::MoveColumnToMonitorDown {}
         }
-        "move_column_to_monitor_up" | "move-column-to-monitor-up" => Action::MoveColumnToMonitorUp,
+        "move_column_to_monitor_up" | "move-column-to-monitor-up" => {
+            Action::MoveColumnToMonitorUp {}
+        }
         "move_workspace_to_monitor_left" | "move-workspace-to-monitor-left" => {
-            Action::MoveWorkspaceToMonitorLeft
+            Action::MoveWorkspaceToMonitorLeft {}
         }
         "move_workspace_to_monitor_right" | "move-workspace-to-monitor-right" => {
-            Action::MoveWorkspaceToMonitorRight
+            Action::MoveWorkspaceToMonitorRight {}
         }
         "move_workspace_to_monitor_down" | "move-workspace-to-monitor-down" => {
-            Action::MoveWorkspaceToMonitorDown
+            Action::MoveWorkspaceToMonitorDown {}
         }
         "move_workspace_to_monitor_up" | "move-workspace-to-monitor-up" => {
-            Action::MoveWorkspaceToMonitorUp
+            Action::MoveWorkspaceToMonitorUp {}
         }
-        "move_workspace_down" | "move-workspace-down" => Action::MoveWorkspaceDown,
-        "move_workspace_up" | "move-workspace-up" => Action::MoveWorkspaceUp,
+        "move_workspace_down" | "move-workspace-down" => Action::MoveWorkspaceDown {},
+        "move_workspace_up" | "move-workspace-up" => Action::MoveWorkspaceUp {},
         "consume_or_expel_window_left" | "consume-or-expel-window-left" => {
-            Action::ConsumeOrExpelWindowLeft
+            Action::ConsumeOrExpelWindowLeft { id: None }
         }
         "consume_or_expel_window_right" | "consume-or-expel-window-right" => {
-            Action::ConsumeOrExpelWindowRight
+            Action::ConsumeOrExpelWindowRight { id: None }
         }
         "switch_preset_window_height" | "switch-preset-window-height" => {
-            Action::SwitchPresetWindowHeight
+            Action::SwitchPresetWindowHeight { id: None }
         }
         "switch_preset_window_height_back" | "switch-preset-window-height-back" => {
-            Action::SwitchPresetWindowHeightBack
+            Action::SwitchPresetWindowHeightBack { id: None }
         }
-        "reset_window_height" | "reset-window-height" => Action::ResetWindowHeight,
+        "reset_window_height" | "reset-window-height" => Action::ResetWindowHeight { id: None },
         "expand_column_to_available_width" | "expand-column-to-available-width" => {
-            Action::ExpandColumnToAvailableWidth
+            Action::ExpandColumnToAvailableWidth {}
         }
-        "center_visible_columns" | "center-visible-columns" => Action::CenterVisibleColumns,
+        "center_visible_columns" | "center-visible-columns" => Action::CenterVisibleColumns {},
         "switch_focus_between_floating_and_tiling" | "switch-focus-between-floating-and-tiling" => {
-            Action::SwitchFocusBetweenFloatingAndTiling
+            Action::SwitchFocusBetweenFloatingAndTiling {}
         }
-        "do_screen_transition" | "do-screen-transition" => Action::DoScreenTransition(None),
+        "do_screen_transition" | "do-screen-transition" => {
+            Action::DoScreenTransition { delay_ms: None }
+        }
         "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => {
-            Action::ToggleWindowRuleOpacity
+            Action::ToggleWindowRuleOpacity { id: None }
         }
-        "toggle_debug_tint" | "toggle-debug-tint" => Action::ToggleDebugTint,
+        "toggle_debug_tint" | "toggle-debug-tint" => Action::ToggleDebugTint {},
         "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
-            Action::DebugToggleOpaqueRegions
+            Action::DebugToggleOpaqueRegions {}
         }
-        "debug_toggle_damage" | "debug-toggle-damage" => Action::DebugToggleDamage,
+        "debug_toggle_damage" | "debug-toggle-damage" => Action::DebugToggleDamage {},
         _ if let Some(v) = s
             .strip_prefix("set-column-width ")
             .or_else(|| s.strip_prefix("set_column_width ")) =>
         {
-            Action::SetColumnWidth(parse_size_change_str(v)?)
+            Action::SetColumnWidth {
+                change: parse_size_change_str(v)?,
+            }
         }
         _ if let Some(v) = s
             .strip_prefix("set-window-height ")
             .or_else(|| s.strip_prefix("set_window_height ")) =>
         {
-            Action::SetWindowHeight(parse_size_change_str(v)?)
+            Action::SetWindowHeight {
+                id: None,
+                change: parse_size_change_str(v)?,
+            }
         }
         _ if let Some(v) = s
             .strip_prefix("set-window-width ")
             .or_else(|| s.strip_prefix("set_window_width ")) =>
         {
-            Action::SetWindowWidth(parse_size_change_str(v)?)
+            Action::SetWindowWidth {
+                id: None,
+                change: parse_size_change_str(v)?,
+            }
         }
-        _ if let Some(cmd) = s.strip_prefix("spawn ") => Action::Spawn(vec![cmd.to_string()]),
+        _ if let Some(cmd) = s.strip_prefix("spawn ") => Action::Spawn {
+            command: vec![cmd.to_string()],
+        },
         _ if let Some(cmd) = s
             .strip_prefix("spawn-sh ")
             .or_else(|| s.strip_prefix("spawn_sh ")) =>
         {
-            Action::SpawnSh(cmd.to_string())
+            Action::SpawnSh {
+                command: cmd.to_string(),
+            }
         }
         _ => return Err(format!("unknown action: {s}")),
     };
@@ -3239,70 +3275,90 @@ fn action_from_table_key(
     value: &Value,
 ) -> Result<Option<Action>, String> {
     let action = match key {
-        "spawn" => Some(Action::Spawn(parse_spawn_args(value)?)),
-        "spawn_sh" | "spawn-sh" => Some(Action::SpawnSh(value_to_string(value)?)),
-        "close_window" | "close-window" => Some(Action::CloseWindow),
-        "fullscreen_window" | "fullscreen-window" => Some(Action::FullscreenWindow),
-        "toggle_window_floating" | "toggle-window-floating" => Some(Action::ToggleWindowFloating),
+        "spawn" => Some(Action::Spawn {
+            command: parse_spawn_args(value)?,
+        }),
+        "spawn_sh" | "spawn-sh" => Some(Action::SpawnSh {
+            command: value_to_string(value)?,
+        }),
+        "close_window" | "close-window" => Some(Action::CloseWindow { id: None }),
+        "fullscreen_window" | "fullscreen-window" => Some(Action::FullscreenWindow { id: None }),
+        "toggle_window_floating" | "toggle-window-floating" => {
+            Some(Action::ToggleWindowFloating { id: None })
+        }
         "consume_window_into_column" | "consume-window-into-column" => {
-            Some(Action::ConsumeWindowIntoColumn)
+            Some(Action::ConsumeWindowIntoColumn {})
         }
         "expel_window_from_column" | "expel-window-from-column" => {
-            Some(Action::ExpelWindowFromColumn)
+            Some(Action::ExpelWindowFromColumn {})
         }
         "focus_workspace" | "focus-workspace" => Some(match value {
-            Value::Integer(i) => Action::FocusWorkspace(WorkspaceReference::Index(*i as u8)),
-            Value::String(s) => Action::FocusWorkspace(WorkspaceReference::Name(
-                s.to_str().map_err(|e| format!("{e}"))?.to_string(),
-            )),
-            _ => Action::FocusWorkspace(WorkspaceReference::Index(0)),
+            Value::Integer(i) => Action::FocusWorkspace {
+                reference: WorkspaceReference::Index(*i as u8),
+            },
+            Value::String(s) => Action::FocusWorkspace {
+                reference: WorkspaceReference::Name(
+                    s.to_str().map_err(|e| format!("{e}"))?.to_string(),
+                ),
+            },
+            _ => Action::FocusWorkspace {
+                reference: WorkspaceReference::Index(0),
+            },
         }),
         "move_column_to_workspace" | "move-column-to-workspace" => Some(match value {
-            Value::Integer(i) => {
-                Action::MoveColumnToWorkspace(WorkspaceReference::Index(*i as u8), true)
-            }
-            Value::String(s) => Action::MoveColumnToWorkspace(
-                WorkspaceReference::Name(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
-                true,
-            ),
-            _ => Action::MoveColumnToWorkspace(WorkspaceReference::Index(0), true),
+            Value::Integer(i) => Action::MoveColumnToWorkspace {
+                reference: WorkspaceReference::Index(*i as u8),
+                focus: true,
+            },
+            Value::String(s) => Action::MoveColumnToWorkspace {
+                reference: WorkspaceReference::Name(
+                    s.to_str().map_err(|e| format!("{e}"))?.to_string(),
+                ),
+                focus: true,
+            },
+            _ => Action::MoveColumnToWorkspace {
+                reference: WorkspaceReference::Index(0),
+                focus: true,
+            },
         }),
-        "focus_column_left" | "focus-column-left" => Some(Action::FocusColumnLeft),
-        "focus_column_right" | "focus-column-right" => Some(Action::FocusColumnRight),
-        "focus_window_down" | "focus-window-down" => Some(Action::FocusWindowDown),
-        "focus_window_up" | "focus-window-up" => Some(Action::FocusWindowUp),
-        "focus_monitor_left" | "focus-monitor-left" => Some(Action::FocusMonitorLeft),
-        "focus_monitor_right" | "focus-monitor-right" => Some(Action::FocusMonitorRight),
-        "focus_monitor_down" | "focus-monitor-down" => Some(Action::FocusMonitorDown),
-        "focus_monitor_up" | "focus-monitor-up" => Some(Action::FocusMonitorUp),
-        "focus_workspace_down" | "focus-workspace-down" => Some(Action::FocusWorkspaceDown),
-        "focus_workspace_up" | "focus-workspace-up" => Some(Action::FocusWorkspaceUp),
+        "focus_column_left" | "focus-column-left" => Some(Action::FocusColumnLeft {}),
+        "focus_column_right" | "focus-column-right" => Some(Action::FocusColumnRight {}),
+        "focus_window_down" | "focus-window-down" => Some(Action::FocusWindowDown {}),
+        "focus_window_up" | "focus-window-up" => Some(Action::FocusWindowUp {}),
+        "focus_monitor_left" | "focus-monitor-left" => Some(Action::FocusMonitorLeft {}),
+        "focus_monitor_right" | "focus-monitor-right" => Some(Action::FocusMonitorRight {}),
+        "focus_monitor_down" | "focus-monitor-down" => Some(Action::FocusMonitorDown {}),
+        "focus_monitor_up" | "focus-monitor-up" => Some(Action::FocusMonitorUp {}),
+        "focus_workspace_down" | "focus-workspace-down" => Some(Action::FocusWorkspaceDown {}),
+        "focus_workspace_up" | "focus-workspace-up" => Some(Action::FocusWorkspaceUp {}),
         "focus_workspace_previous" | "focus-workspace-previous" => {
-            Some(Action::FocusWorkspacePrevious)
+            Some(Action::FocusWorkspacePrevious {})
         }
-        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft),
-        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight),
-        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown),
-        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp),
+        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft {}),
+        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight {}),
+        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown {}),
+        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp {}),
         "switch_preset_column_width" | "switch-preset-column-width" => {
-            Some(Action::SwitchPresetColumnWidth)
+            Some(Action::SwitchPresetColumnWidth {})
         }
         "switch_preset_column_width_back" | "switch-preset-column-width-back" => {
-            Some(Action::SwitchPresetColumnWidthBack)
+            Some(Action::SwitchPresetColumnWidthBack {})
         }
-        "maximize_column" | "maximize-column" => Some(Action::MaximizeColumn),
+        "maximize_column" | "maximize-column" => Some(Action::MaximizeColumn {}),
         "maximize_window_to_edges" | "maximize-window-to-edges" => {
-            Some(Action::MaximizeWindowToEdges)
+            Some(Action::MaximizeWindowToEdges { id: None })
         }
-        "center_column" | "center-column" => Some(Action::CenterColumn),
-        "toggle_overview" | "toggle-overview" => Some(Action::ToggleOverview),
-        "open_overview" | "open-overview" => Some(Action::OpenOverview),
-        "close_overview" | "close-overview" => Some(Action::CloseOverview),
-        "enlarge_cursor" | "enlarge-cursor" => Some(Action::EnlargeCursor),
-        "send_to_scratchpad" | "send-to-scratchpad" => Some(Action::SendToScratchpad),
-        "remove_from_scratchpad" | "remove-from-scratchpad" => Some(Action::RemoveFromScratchpad),
-        "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad),
-        "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay),
+        "center_column" | "center-column" => Some(Action::CenterColumn {}),
+        "toggle_overview" | "toggle-overview" => Some(Action::ToggleOverview {}),
+        "open_overview" | "open-overview" => Some(Action::OpenOverview {}),
+        "close_overview" | "close-overview" => Some(Action::CloseOverview {}),
+        "enlarge_cursor" | "enlarge-cursor" => Some(Action::EnlargeCursor {}),
+        "send_to_scratchpad" | "send-to-scratchpad" => Some(Action::SendToScratchpad {}),
+        "remove_from_scratchpad" | "remove-from-scratchpad" => {
+            Some(Action::RemoveFromScratchpad {})
+        }
+        "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad {}),
+        "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay {}),
         "screenshot" => {
             let show_pointer = table
                 .get::<Option<bool>>("show_pointer")
@@ -3311,7 +3367,7 @@ fn action_from_table_key(
             let path = table
                 .get::<Option<String>>("path")
                 .map_err(|e| format!("{e}"))?;
-            Some(Action::Screenshot(show_pointer, path))
+            Some(Action::Screenshot { show_pointer, path })
         }
         "screenshot_screen" | "screenshot-screen" => {
             let write_to_disk = table
@@ -3325,7 +3381,11 @@ fn action_from_table_key(
             let path = table
                 .get::<Option<String>>("path")
                 .map_err(|e| format!("{e}"))?;
-            Some(Action::ScreenshotScreen(write_to_disk, show_pointer, path))
+            Some(Action::ScreenshotScreen {
+                write_to_disk,
+                show_pointer,
+                path,
+            })
         }
         "screenshot_window" | "screenshot-window" => {
             let write_to_disk = table
@@ -3339,110 +3399,123 @@ fn action_from_table_key(
             let path = table
                 .get::<Option<String>>("path")
                 .map_err(|e| format!("{e}"))?;
-            Some(Action::ScreenshotWindow(write_to_disk, show_pointer, path))
+            Some(Action::ScreenshotWindow {
+                id: None,
+                write_to_disk,
+                show_pointer,
+                path,
+            })
         }
         "do_screen_transition" | "do-screen-transition" => {
             let delay_ms = table
                 .get::<Option<u16>>("delay_ms")
                 .map_err(|e| format!("{e}"))?;
-            Some(Action::DoScreenTransition(delay_ms))
+            Some(Action::DoScreenTransition { delay_ms })
         }
         "toggle_window_rule_opacity" | "toggle-window-rule-opacity" => {
-            Some(Action::ToggleWindowRuleOpacity)
+            Some(Action::ToggleWindowRuleOpacity { id: None })
         }
-        "toggle_debug_tint" | "toggle-debug-tint" => Some(Action::ToggleDebugTint),
+        "toggle_debug_tint" | "toggle-debug-tint" => Some(Action::ToggleDebugTint {}),
         "debug_toggle_opaque_regions" | "debug-toggle-opaque-regions" => {
-            Some(Action::DebugToggleOpaqueRegions)
+            Some(Action::DebugToggleOpaqueRegions {})
         }
-        "debug_toggle_damage" | "debug-toggle-damage" => Some(Action::DebugToggleDamage),
-        "power_off_monitors" | "power-off-monitors" => Some(Action::PowerOffMonitors),
+        "debug_toggle_damage" | "debug-toggle-damage" => Some(Action::DebugToggleDamage {}),
+        "power_off_monitors" | "power-off-monitors" => Some(Action::PowerOffMonitors {}),
         "toggle_windowed_fullscreen" | "toggle-windowed-fullscreen" => {
-            Some(Action::ToggleWindowedFullscreen)
+            Some(Action::ToggleWindowedFullscreen { id: None })
         }
-        "focus_window_previous" | "focus-window-previous" => Some(Action::FocusWindowPrevious),
+        "focus_window_previous" | "focus-window-previous" => Some(Action::FocusWindowPrevious {}),
         "move_window_to_workspace_down" | "move-window-to-workspace-down" => {
-            Some(Action::MoveWindowToWorkspaceDown(true))
+            Some(Action::MoveWindowToWorkspaceDown { focus: true })
         }
         "move_window_to_workspace_up" | "move-window-to-workspace-up" => {
-            Some(Action::MoveWindowToWorkspaceUp(true))
+            Some(Action::MoveWindowToWorkspaceUp { focus: true })
         }
         "move_column_to_workspace_down" | "move-column-to-workspace-down" => {
-            Some(Action::MoveColumnToWorkspaceDown(true))
+            Some(Action::MoveColumnToWorkspaceDown { focus: true })
         }
         "move_column_to_workspace_up" | "move-column-to-workspace-up" => {
-            Some(Action::MoveColumnToWorkspaceUp(true))
+            Some(Action::MoveColumnToWorkspaceUp { focus: true })
         }
         "toggle_column_tabbed_display" | "toggle-column-tabbed-display" => {
-            Some(Action::ToggleColumnTabbedDisplay)
+            Some(Action::ToggleColumnTabbedDisplay {})
         }
         "toggle_keyboard_shortcuts_inhibit" | "toggle-keyboard-shortcuts-inhibit" => {
-            Some(Action::ToggleKeyboardShortcutsInhibit)
+            Some(Action::ToggleKeyboardShortcutsInhibit {})
         }
-        "focus_column_first" | "focus-column-first" => Some(Action::FocusColumnFirst),
-        "focus_column_last" | "focus-column-last" => Some(Action::FocusColumnLast),
-        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst),
-        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast),
+        "focus_column_first" | "focus-column-first" => Some(Action::FocusColumnFirst {}),
+        "focus_column_last" | "focus-column-last" => Some(Action::FocusColumnLast {}),
+        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst {}),
+        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast {}),
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
-            Some(Action::MoveColumnToMonitorLeft)
+            Some(Action::MoveColumnToMonitorLeft {})
         }
         "move_column_to_monitor_right" | "move-column-to-monitor-right" => {
-            Some(Action::MoveColumnToMonitorRight)
+            Some(Action::MoveColumnToMonitorRight {})
         }
         "move_column_to_monitor_down" | "move-column-to-monitor-down" => {
-            Some(Action::MoveColumnToMonitorDown)
+            Some(Action::MoveColumnToMonitorDown {})
         }
         "move_column_to_monitor_up" | "move-column-to-monitor-up" => {
-            Some(Action::MoveColumnToMonitorUp)
+            Some(Action::MoveColumnToMonitorUp {})
         }
         "move_workspace_to_monitor_left" | "move-workspace-to-monitor-left" => {
-            Some(Action::MoveWorkspaceToMonitorLeft)
+            Some(Action::MoveWorkspaceToMonitorLeft {})
         }
         "move_workspace_to_monitor_right" | "move-workspace-to-monitor-right" => {
-            Some(Action::MoveWorkspaceToMonitorRight)
+            Some(Action::MoveWorkspaceToMonitorRight {})
         }
         "move_workspace_to_monitor_down" | "move-workspace-to-monitor-down" => {
-            Some(Action::MoveWorkspaceToMonitorDown)
+            Some(Action::MoveWorkspaceToMonitorDown {})
         }
         "move_workspace_to_monitor_up" | "move-workspace-to-monitor-up" => {
-            Some(Action::MoveWorkspaceToMonitorUp)
+            Some(Action::MoveWorkspaceToMonitorUp {})
         }
-        "move_workspace_down" | "move-workspace-down" => Some(Action::MoveWorkspaceDown),
-        "move_workspace_up" | "move-workspace-up" => Some(Action::MoveWorkspaceUp),
+        "move_workspace_down" | "move-workspace-down" => Some(Action::MoveWorkspaceDown {}),
+        "move_workspace_up" | "move-workspace-up" => Some(Action::MoveWorkspaceUp {}),
         "consume_or_expel_window_left" | "consume-or-expel-window-left" => {
-            Some(Action::ConsumeOrExpelWindowLeft)
+            Some(Action::ConsumeOrExpelWindowLeft { id: None })
         }
         "consume_or_expel_window_right" | "consume-or-expel-window-right" => {
-            Some(Action::ConsumeOrExpelWindowRight)
+            Some(Action::ConsumeOrExpelWindowRight { id: None })
         }
         "switch_preset_window_height" | "switch-preset-window-height" => {
-            Some(Action::SwitchPresetWindowHeight)
+            Some(Action::SwitchPresetWindowHeight { id: None })
         }
         "switch_preset_window_height_back" | "switch-preset-window-height-back" => {
-            Some(Action::SwitchPresetWindowHeightBack)
+            Some(Action::SwitchPresetWindowHeightBack { id: None })
         }
-        "reset_window_height" | "reset-window-height" => Some(Action::ResetWindowHeight),
+        "reset_window_height" | "reset-window-height" => {
+            Some(Action::ResetWindowHeight { id: None })
+        }
         "expand_column_to_available_width" | "expand-column-to-available-width" => {
-            Some(Action::ExpandColumnToAvailableWidth)
+            Some(Action::ExpandColumnToAvailableWidth {})
         }
-        "center_visible_columns" | "center-visible-columns" => Some(Action::CenterVisibleColumns),
+        "center_visible_columns" | "center-visible-columns" => {
+            Some(Action::CenterVisibleColumns {})
+        }
         "switch_focus_between_floating_and_tiling" | "switch-focus-between-floating-and-tiling" => {
-            Some(Action::SwitchFocusBetweenFloatingAndTiling)
+            Some(Action::SwitchFocusBetweenFloatingAndTiling {})
         }
-        "set_column_width" | "set-column-width" => {
-            Some(Action::SetColumnWidth(parse_size_change(value)?))
-        }
-        "set_window_height" | "set-window-height" => {
-            Some(Action::SetWindowHeight(parse_size_change(value)?))
-        }
-        "set_window_width" | "set-window-width" => {
-            Some(Action::SetWindowWidth(parse_size_change(value)?))
-        }
+        "set_column_width" | "set-column-width" => Some(Action::SetColumnWidth {
+            change: parse_size_change(value)?,
+        }),
+        "set_window_height" | "set-window-height" => Some(Action::SetWindowHeight {
+            id: None,
+            change: parse_size_change(value)?,
+        }),
+        "set_window_width" | "set-window-width" => Some(Action::SetWindowWidth {
+            id: None,
+            change: parse_size_change(value)?,
+        }),
         "quit" => {
             let skip = table
                 .get::<bool>("skip_confirmation")
                 .map_err(|e| format!("{e}"))
                 .unwrap_or(false);
-            Some(Action::Quit(skip))
+            Some(Action::Quit {
+                skip_confirmation: skip,
+            })
         }
         "repeat"
         | "cooldown_ms"

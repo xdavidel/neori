@@ -957,7 +957,9 @@ neori.window_rule {
     // Focusing workspace 2 by index moves focus to the second monitor, and the cursor
     // has to follow. This is the `Mod+2` path.
     f.neori_state().do_action(
-        Action::FocusWorkspace(WorkspaceReference::Index(ws2 as u8)),
+        Action::FocusWorkspace {
+            reference: WorkspaceReference::Index(ws2 as u8),
+        },
         false,
     );
 
@@ -969,7 +971,7 @@ neori.window_rule {
     // Going back to the previous workspace lands on the first monitor again, so the
     // cursor has to follow back. This is the `Mod+Tab` path.
     f.neori_state()
-        .do_action(Action::FocusWorkspacePrevious, false);
+        .do_action(Action::FocusWorkspacePrevious {}, false);
 
     assert!(
         cursor_is_on(&mut f, &output1),

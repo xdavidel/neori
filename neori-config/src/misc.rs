@@ -63,9 +63,9 @@ impl Default for ShakeToFind {
 
 impl ShakeToFind {
     /// Applies the fields set in `part`, leaving the rest unchanged.
-    pub fn apply_part(&mut self, part: &ShakeToFindPart) {
+    pub fn apply_part(&mut self, part: &ShakeToFindToSet) {
         if let Some(enable) = part.enable {
-            self.enable = enable.0;
+            self.enable = enable;
         }
         if let Some(v) = part.size_multiplier {
             self.size_multiplier = v;
@@ -101,22 +101,10 @@ pub struct CursorPart {
     pub xcursor_size: Option<u8>,
     pub hide_when_typing: Option<Flag>,
     pub hide_after_inactive_ms: Option<u32>,
-    pub shake_to_find: Option<ShakeToFindPart>,
+    pub shake_to_find: Option<ShakeToFindToSet>,
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct ShakeToFindPart {
-    pub enable: Option<Flag>,
-    pub size_multiplier: Option<f64>,
-    pub size: Option<u8>,
-    pub timeout_ms: Option<u32>,
-    pub animation_ms: Option<u32>,
-    pub window_ms: Option<u32>,
-    pub min_reversals: Option<u32>,
-    pub min_step: Option<f64>,
-    pub reversal_angle_deg: Option<f64>,
-}
+pub use neori_ipc::ShakeToFindToSet;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScreenshotPath(pub Option<String>);

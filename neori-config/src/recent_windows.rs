@@ -109,27 +109,7 @@ impl From<MruBind> for Bind {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruDirection {
-    #[default]
-    Forward,
-    Backward,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruScope {
-    #[default]
-    All,
-    Output,
-    Workspace,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum MruFilter {
-    #[default]
-    All,
-    AppId,
-}
+pub use neori_ipc::{MruDirection, MruFilter, MruScope};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MruAction {

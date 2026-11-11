@@ -183,10 +183,42 @@ pub struct PickedColor {
     pub rgb: [f64; 3],
 }
 
+/// Direction to advance the most-recently-used window switcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MruDirection {
+    /// Advance to the next window.
+    #[default]
+    Forward,
+    /// Advance to the previous window.
+    Backward,
+}
+
+/// Scope of the most-recently-used window switcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MruScope {
+    /// Consider windows on all outputs and workspaces.
+    #[default]
+    All,
+    /// Consider windows on the current output.
+    Output,
+    /// Consider windows on the current workspace.
+    Workspace,
+}
+
+/// Filter for the most-recently-used window switcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MruFilter {
+    /// Consider all windows.
+    #[default]
+    All,
+    /// Consider only windows with the same app ID.
+    AppId,
+}
+
 /// Actions that neori can perform.
-// Variants in this enum should match the spelling of the ones in neori-config. Most, but not all,
-// variants from neori-config should be present here.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// This enum is shared by the config and the IPC. Variants marked with `#[serde(skip)]` are only
+// usable from the config file, not over IPC.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "clap", derive(clap::Parser))]
 #[cfg_attr(feature = "clap", command(subcommand_value_name = "ACTION"))]
 #[cfg_attr(feature = "clap", command(subcommand_help_heading = "Actions"))]
@@ -960,6 +992,136 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         path: Option<String>,
     },
+
+    /// Switch to a different virtual terminal.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    ChangeVt(i32),
+    /// Suspend the compositor.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    Suspend,
+    /// Confirm a screenshot from the screenshot UI.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    ConfirmScreenshot {
+        /// Whether to also write the screenshot to disk.
+        write_to_disk: bool,
+    },
+    /// Cancel the screenshot UI.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    CancelScreenshot,
+    /// Toggle the screenshot UI's pointer visibility.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    ScreenshotTogglePointer,
+    /// Focus the column to the left, or the window under the mouse.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    FocusColumnLeftUnderMouse,
+    /// Focus the column to the right, or the window under the mouse.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    FocusColumnRightUnderMouse,
+    /// Focus the workspace below, or the workspace under the mouse.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    FocusWorkspaceDownUnderMouse,
+    /// Focus the workspace above, or the workspace under the mouse.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    FocusWorkspaceUpUnderMouse,
+    /// Advance the most-recently-used window switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruAdvance {
+        /// Direction to advance in.
+        direction: MruDirection,
+        /// Scope to consider.
+        scope: Option<MruScope>,
+        /// Filter to apply.
+        filter: Option<MruFilter>,
+    },
+    /// Confirm the most-recently-used window switcher's selection.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruConfirm,
+    /// Cancel the most-recently-used window switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruCancel,
+    /// Close the current window and continue in the most-recently-used switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruCloseCurrentWindow,
+    /// Select the first window in the most-recently-used switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruFirst,
+    /// Select the last window in the most-recently-used switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruLast,
+    /// Set the scope of the most-recently-used window switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruSetScope(MruScope),
+    /// Cycle the scope of the most-recently-used switcher.
+    ///
+    /// This action is only usable from the config file, not over IPC.
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    MruCycleScope,
 }
 
 /// Change in window or column size.
@@ -2272,5 +2434,60 @@ mod tests {
         assert_eq!(settings.window_ms, Some(800));
         assert_eq!(settings.min_step, Some(6.5));
         assert_eq!(settings.size_multiplier, None);
+    }
+
+    #[test]
+    fn existing_action_json_is_unchanged() {
+        // These variants are part of the public IPC API; their JSON must stay stable.
+        let cases = [
+            (Action::PowerOffMonitors {}, r#"{"PowerOffMonitors":{}}"#),
+            (
+                Action::CloseWindow { id: Some(42) },
+                r#"{"CloseWindow":{"id":42}}"#,
+            ),
+            (
+                Action::FocusWorkspace {
+                    reference: WorkspaceReferenceArg::Index(2),
+                },
+                r#"{"FocusWorkspace":{"reference":{"Index":2}}}"#,
+            ),
+            (
+                Action::Spawn {
+                    command: vec![String::from("kitty")],
+                },
+                r#"{"Spawn":{"command":["kitty"]}}"#,
+            ),
+            (
+                Action::MoveWindowToWorkspace {
+                    window_id: None,
+                    reference: WorkspaceReferenceArg::Name(String::from("web")),
+                    focus: true,
+                },
+                r#"{"MoveWindowToWorkspace":{"window_id":null,"reference":{"Name":"web"},"focus":true}}"#,
+            ),
+        ];
+
+        for (action, expected) in cases {
+            let json = serde_json::to_string(&action).unwrap();
+            assert_eq!(json, expected);
+            let round_trip: Action = serde_json::from_str(&json).unwrap();
+            assert_eq!(round_trip, action);
+        }
+    }
+
+    #[test]
+    fn config_only_actions_cannot_be_deserialized() {
+        // Config-only variants are #[serde(skip)] and must not be usable over IPC.
+        for json in [
+            r#""Suspend""#,
+            r#"{"ChangeVt":1}"#,
+            r#"{"ConfirmScreenshot":{"write_to_disk":true}}"#,
+            r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<Action>(json).is_err(),
+                "config-only action unexpectedly parsed from {json}",
+            );
+        }
     }
 }

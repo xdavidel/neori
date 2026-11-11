@@ -691,7 +691,7 @@ impl State {
         }
 
         match action {
-            Action::Quit(skip_confirmation) => {
+            Action::Quit { skip_confirmation } => {
                 if !skip_confirmation && self.neori.exit_confirm_dialog.show() {
                     self.neori.queue_redraw_all();
                     return;
@@ -710,37 +710,41 @@ impl State {
                 // Suspend may not deliver the key releases, so clear the state.
                 self.neori.suppressed_keys.clear();
             }
-            Action::PowerOffMonitors => {
+            Action::PowerOffMonitors {} => {
                 self.neori.deactivate_monitors(&mut self.backend);
             }
-            Action::PowerOnMonitors => {
+            Action::PowerOnMonitors {} => {
                 self.neori.activate_monitors(&mut self.backend);
             }
-            Action::ToggleDebugTint => {
+            Action::ToggleDebugTint {} => {
                 self.backend.toggle_debug_tint();
                 self.neori.queue_redraw_all();
             }
-            Action::DebugToggleOpaqueRegions => {
+            Action::DebugToggleOpaqueRegions {} => {
                 self.neori.debug_draw_opaque_regions = !self.neori.debug_draw_opaque_regions;
                 self.neori.queue_redraw_all();
             }
-            Action::DebugToggleDamage => {
+            Action::DebugToggleDamage {} => {
                 self.neori.debug_toggle_damage();
             }
-            Action::Spawn(command) => {
+            Action::Spawn { command } => {
                 let (token, _) = self.neori.activation_state.create_external_token(None);
                 spawn(command, Some(token.clone()));
             }
-            Action::SpawnSh(command) => {
+            Action::SpawnSh { command } => {
                 let (token, _) = self.neori.activation_state.create_external_token(None);
                 spawn_sh(command, Some(token.clone()));
             }
-            Action::DoScreenTransition(delay_ms) => {
+            Action::DoScreenTransition { delay_ms } => {
                 self.backend.with_primary_renderer(|renderer| {
                     self.neori.do_screen_transition(renderer, delay_ms);
                 });
             }
-            Action::ScreenshotScreen(write_to_disk, show_pointer, path) => {
+            Action::ScreenshotScreen {
+                write_to_disk,
+                show_pointer,
+                path,
+            } => {
                 let active = self.neori.layout.active_output().cloned();
                 if let Some(active) = active {
                     self.backend.with_primary_renderer(|renderer| {
@@ -774,11 +778,19 @@ impl State {
                 self.neori.screenshot_ui.toggle_pointer();
                 self.neori.queue_redraw_all();
             }
-            Action::Screenshot(show_cursor, path) => {
+            Action::Screenshot {
+                show_pointer: show_cursor,
+                path,
+            } => {
                 self.open_screenshot_ui(show_cursor, path);
                 self.neori.cancel_mru();
             }
-            Action::ScreenshotWindow(write_to_disk, show_pointer, path) => {
+            Action::ScreenshotWindow {
+                id: None,
+                write_to_disk,
+                show_pointer,
+                path,
+            } => {
                 let focus = self.neori.layout.focus_with_output();
                 if let Some((mapped, output)) = focus {
                     self.backend.with_primary_renderer(|renderer| {
@@ -795,8 +807,8 @@ impl State {
                     });
                 }
             }
-            Action::ScreenshotWindowById {
-                id,
+            Action::ScreenshotWindow {
+                id: Some(id),
                 write_to_disk,
                 show_pointer,
                 path,
@@ -819,7 +831,7 @@ impl State {
                     });
                 }
             }
-            Action::ToggleKeyboardShortcutsInhibit => {
+            Action::ToggleKeyboardShortcutsInhibit {} => {
                 if let Some(inhibitor) = self.neori.keyboard_focus.surface().and_then(|surface| {
                     self.neori
                         .keyboard_shortcuts_inhibiting_surfaces
@@ -832,12 +844,12 @@ impl State {
                     }
                 }
             }
-            Action::CloseWindow => {
+            Action::CloseWindow { id: None } => {
                 if let Some(mapped) = self.neori.layout.focus() {
                     mapped.toplevel().send_close();
                 }
             }
-            Action::CloseWindowById(id) => {
+            Action::CloseWindow { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -847,7 +859,7 @@ impl State {
                     mapped.toplevel().send_close();
                 }
             }
-            Action::FullscreenWindow => {
+            Action::FullscreenWindow { id: None } => {
                 let focus = self.neori.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {
                     self.neori.layout.toggle_fullscreen(&window);
@@ -855,7 +867,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FullscreenWindowById(id) => {
+            Action::FullscreenWindow { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -868,7 +880,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::ToggleWindowedFullscreen => {
+            Action::ToggleWindowedFullscreen { id: None } => {
                 let focus = self.neori.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {
                     self.neori.layout.toggle_windowed_fullscreen(&window);
@@ -876,7 +888,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::ToggleWindowedFullscreenById(id) => {
+            Action::ToggleWindowedFullscreen { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -889,7 +901,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FocusWindow(id) => {
+            Action::FocusWindow { id } => {
                 let window = self
                     .neori
                     .layout
@@ -900,14 +912,14 @@ impl State {
                     self.focus_window(&window);
                 }
             }
-            Action::FocusWindowInColumn(index) => {
+            Action::FocusWindowInColumn { index } => {
                 self.neori.layout.focus_window_in_column(index);
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowPrevious => {
+            Action::FocusWindowPrevious {} => {
                 let current = self.neori.layout.focus().map(|win| win.id());
                 if let Some(window) = self
                     .neori
@@ -924,7 +936,7 @@ impl State {
                     self.focus_window(&window);
                 }
             }
-            Action::SwitchLayout(action) => {
+            Action::SwitchLayout { layout: action } => {
                 let keyboard = &self.neori.seat.get_keyboard().unwrap();
                 keyboard.with_xkb_state(self, |mut state| match action {
                     LayoutSwitchTarget::Next => state.cycle_next_layout(),
@@ -939,7 +951,7 @@ impl State {
                     }
                 });
             }
-            Action::MoveColumnLeft => {
+            Action::MoveColumnLeft {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_left();
                 } else {
@@ -950,7 +962,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnRight => {
+            Action::MoveColumnRight {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_right();
                 } else {
@@ -961,19 +973,19 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToFirst => {
+            Action::MoveColumnToFirst {} => {
                 self.neori.layout.move_column_to_first();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToLast => {
+            Action::MoveColumnToLast {} => {
                 self.neori.layout.move_column_to_last();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnLeftOrToMonitorLeft => {
+            Action::MoveColumnLeftOrToMonitorLeft {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_left();
                 } else if let Some(output) = self.neori.output_left() {
@@ -992,7 +1004,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnRightOrToMonitorRight => {
+            Action::MoveColumnRightOrToMonitorRight {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_right();
                 } else if let Some(output) = self.neori.output_right() {
@@ -1011,7 +1023,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowDown => {
+            Action::MoveWindowDown {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_down();
                 } else {
@@ -1022,7 +1034,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowUp => {
+            Action::MoveWindowUp {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_up();
                 } else {
@@ -1033,7 +1045,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowDownOrToWorkspaceDown => {
+            Action::MoveWindowDownOrToWorkspaceDown {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_down();
                 } else {
@@ -1043,7 +1055,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowUpOrToWorkspaceUp => {
+            Action::MoveWindowUpOrToWorkspaceUp {} => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_up();
                 } else {
@@ -1053,13 +1065,13 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ConsumeOrExpelWindowLeft => {
+            Action::ConsumeOrExpelWindowLeft { id: None } => {
                 self.neori.layout.consume_or_expel_window_left(None);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ConsumeOrExpelWindowLeftById(id) => {
+            Action::ConsumeOrExpelWindowLeft { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1075,13 +1087,13 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::ConsumeOrExpelWindowRight => {
+            Action::ConsumeOrExpelWindowRight { id: None } => {
                 self.neori.layout.consume_or_expel_window_right(None);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ConsumeOrExpelWindowRightById(id) => {
+            Action::ConsumeOrExpelWindowRight { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1097,7 +1109,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FocusColumnLeft => {
+            Action::FocusColumnLeft {} => {
                 self.neori.layout.focus_left();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
@@ -1117,7 +1129,7 @@ impl State {
                     self.neori.queue_redraw(&output);
                 }
             }
-            Action::FocusColumnRight => {
+            Action::FocusColumnRight {} => {
                 self.neori.layout.focus_right();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
@@ -1137,42 +1149,42 @@ impl State {
                     self.neori.queue_redraw(&output);
                 }
             }
-            Action::FocusColumnFirst => {
+            Action::FocusColumnFirst {} => {
                 self.neori.layout.focus_column_first();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumnLast => {
+            Action::FocusColumnLast {} => {
                 self.neori.layout.focus_column_last();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumnRightOrFirst => {
+            Action::FocusColumnRightOrFirst {} => {
                 self.neori.layout.focus_column_right_or_first();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumnLeftOrLast => {
+            Action::FocusColumnLeftOrLast {} => {
                 self.neori.layout.focus_column_left_or_last();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumn(index) => {
+            Action::FocusColumn { index } => {
                 self.neori.layout.focus_column(index);
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowOrMonitorUp => {
+            Action::FocusWindowOrMonitorUp {} => {
                 if let Some(output) = self.neori.output_up() {
                     if self.neori.layout.focus_window_up_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
@@ -1190,7 +1202,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowOrMonitorDown => {
+            Action::FocusWindowOrMonitorDown {} => {
                 if let Some(output) = self.neori.output_down() {
                     if self.neori.layout.focus_window_down_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
@@ -1208,7 +1220,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumnOrMonitorLeft => {
+            Action::FocusColumnOrMonitorLeft {} => {
                 if let Some(output) = self.neori.output_left() {
                     if self.neori.layout.focus_column_left_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
@@ -1226,7 +1238,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusColumnOrMonitorRight => {
+            Action::FocusColumnOrMonitorRight {} => {
                 if let Some(output) = self.neori.output_right() {
                     if self.neori.layout.focus_column_right_or_output(&output)
                         && !self.maybe_warp_cursor_to_focus_centered()
@@ -1244,103 +1256,107 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowDown => {
+            Action::FocusWindowDown {} => {
                 self.neori.layout.focus_down();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowUp => {
+            Action::FocusWindowUp {} => {
                 self.neori.layout.focus_up();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowDownOrColumnLeft => {
+            Action::FocusWindowDownOrColumnLeft {} => {
                 self.neori.layout.focus_down_or_left();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowDownOrColumnRight => {
+            Action::FocusWindowDownOrColumnRight {} => {
                 self.neori.layout.focus_down_or_right();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowUpOrColumnLeft => {
+            Action::FocusWindowUpOrColumnLeft {} => {
                 self.neori.layout.focus_up_or_left();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowUpOrColumnRight => {
+            Action::FocusWindowUpOrColumnRight {} => {
                 self.neori.layout.focus_up_or_right();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowOrWorkspaceDown => {
+            Action::FocusWindowOrWorkspaceDown {} => {
                 self.neori.layout.focus_window_or_workspace_down();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowOrWorkspaceUp => {
+            Action::FocusWindowOrWorkspaceUp {} => {
                 self.neori.layout.focus_window_or_workspace_up();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowTop => {
+            Action::FocusWindowTop {} => {
                 self.neori.layout.focus_window_top();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowBottom => {
+            Action::FocusWindowBottom {} => {
                 self.neori.layout.focus_window_bottom();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowDownOrTop => {
+            Action::FocusWindowDownOrTop {} => {
                 self.neori.layout.focus_window_down_or_top();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWindowUpOrBottom => {
+            Action::FocusWindowUpOrBottom {} => {
                 self.neori.layout.focus_window_up_or_bottom();
                 self.maybe_warp_cursor_to_focus();
                 self.neori.layer_shell_on_demand_focus = None;
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowToWorkspaceDown(focus) => {
+            Action::MoveWindowToWorkspaceDown { focus } => {
                 self.neori.layout.move_to_workspace_down(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowToWorkspaceUp(focus) => {
+            Action::MoveWindowToWorkspaceUp { focus } => {
                 self.neori.layout.move_to_workspace_up(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowToWorkspace(reference, focus) => {
+            Action::MoveWindowToWorkspace {
+                window_id: None,
+                reference,
+                focus,
+            } => {
                 if let Some((target_output, index)) =
                     self.neori.find_output_and_workspace_index(reference)
                 {
@@ -1378,8 +1394,8 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MoveWindowToWorkspaceById {
-                window_id: id,
+            Action::MoveWindowToWorkspace {
+                window_id: Some(id),
                 reference,
                 focus,
             } => {
@@ -1432,19 +1448,19 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToWorkspaceDown(focus) => {
+            Action::MoveColumnToWorkspaceDown { focus } => {
                 self.neori.layout.move_column_to_workspace_down(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToWorkspaceUp(focus) => {
+            Action::MoveColumnToWorkspaceUp { focus } => {
                 self.neori.layout.move_column_to_workspace_up(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToWorkspace(reference, focus) => {
+            Action::MoveColumnToWorkspace { reference, focus } => {
                 if let Some((target_output, index)) =
                     self.neori.find_output_and_workspace_index(reference)
                 {
@@ -1474,13 +1490,13 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MoveColumnToIndex(idx) => {
+            Action::MoveColumnToIndex { index: idx } => {
                 self.neori.layout.move_column_to_index(idx);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusWorkspaceDown => {
+            Action::FocusWorkspaceDown {} => {
                 let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_down();
                 self.warp_cursor_if_active_output_changed(output_before);
@@ -1497,7 +1513,7 @@ impl State {
                     self.neori.queue_redraw(&output);
                 }
             }
-            Action::FocusWorkspaceUp => {
+            Action::FocusWorkspaceUp {} => {
                 let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_up();
                 self.warp_cursor_if_active_output_changed(output_before);
@@ -1514,7 +1530,7 @@ impl State {
                     self.neori.queue_redraw(&output);
                 }
             }
-            Action::FocusWorkspace(reference) => {
+            Action::FocusWorkspace { reference } => {
                 if let Some((_target_output, index)) =
                     self.neori.find_output_and_workspace_index(reference)
                 {
@@ -1542,7 +1558,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FocusWorkspacePrevious => {
+            Action::FocusWorkspacePrevious {} => {
                 let output_before = self.neori.layout.active_output().cloned();
                 self.neori.layout.switch_workspace_previous();
                 self.warp_cursor_if_active_output_changed(output_before);
@@ -1551,24 +1567,30 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWorkspaceDown => {
+            Action::MoveWorkspaceDown {} => {
                 self.neori.layout.move_workspace_down();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWorkspaceUp => {
+            Action::MoveWorkspaceUp {} => {
                 self.neori.layout.move_workspace_up();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWorkspaceToIndex(new_idx) => {
+            Action::MoveWorkspaceToIndex {
+                index: new_idx,
+                reference: None,
+            } => {
                 self.neori
                     .layout
                     .move_workspace_to_idx(None, new_idx as u32);
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWorkspaceToIndexByRef { new_idx, reference } => {
+            Action::MoveWorkspaceToIndex {
+                index: new_idx,
+                reference: Some(reference),
+            } => {
                 if let Some(res) = self.neori.find_output_and_workspace_index(reference) {
                     self.neori
                         .layout
@@ -1577,32 +1599,40 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::SetWorkspaceName(name) => {
+            Action::SetWorkspaceName {
+                name,
+                workspace: None,
+            } => {
                 self.neori.layout.set_workspace_name(name, None);
             }
-            Action::SetWorkspaceNameByRef { name, reference } => {
+            Action::SetWorkspaceName {
+                name,
+                workspace: Some(reference),
+            } => {
                 self.neori.layout.set_workspace_name(name, Some(reference));
             }
-            Action::UnsetWorkspaceName => {
+            Action::UnsetWorkspaceName { reference: None } => {
                 self.neori.layout.unset_workspace_name(None);
             }
-            Action::UnsetWorkSpaceNameByRef(reference) => {
+            Action::UnsetWorkspaceName {
+                reference: Some(reference),
+            } => {
                 self.neori.layout.unset_workspace_name(Some(reference));
             }
-            Action::ConsumeWindowIntoColumn => {
+            Action::ConsumeWindowIntoColumn {} => {
                 self.neori.layout.consume_into_column();
                 // This does not cause immediate focus or window size change, so warping mouse to
                 // focus won't do anything here.
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ExpelWindowFromColumn => {
+            Action::ExpelWindowFromColumn {} => {
                 self.neori.layout.expel_from_column();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwapWindowRight => {
+            Action::SwapWindowRight {} => {
                 self.neori
                     .layout
                     .swap_window_in_direction(ScrollDirection::Right);
@@ -1610,7 +1640,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwapWindowLeft => {
+            Action::SwapWindowLeft {} => {
                 self.neori
                     .layout
                     .swap_window_in_direction(ScrollDirection::Left);
@@ -1618,31 +1648,31 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleColumnTabbedDisplay => {
+            Action::ToggleColumnTabbedDisplay {} => {
                 self.neori.layout.toggle_column_tabbed_display();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SetColumnDisplay(display) => {
+            Action::SetColumnDisplay { display } => {
                 self.neori.layout.set_column_display(display);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwitchPresetColumnWidth => {
+            Action::SwitchPresetColumnWidth {} => {
                 self.neori.layout.toggle_width(true);
             }
-            Action::SwitchPresetColumnWidthBack => {
+            Action::SwitchPresetColumnWidthBack {} => {
                 self.neori.layout.toggle_width(false);
             }
-            Action::SwitchPresetWindowWidth => {
+            Action::SwitchPresetWindowWidth { id: None } => {
                 self.neori.layout.toggle_window_width(None, true);
             }
-            Action::SwitchPresetWindowWidthBack => {
+            Action::SwitchPresetWindowWidthBack { id: None } => {
                 self.neori.layout.toggle_window_width(None, false);
             }
-            Action::SwitchPresetWindowWidthById(id) => {
+            Action::SwitchPresetWindowWidth { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1653,7 +1683,7 @@ impl State {
                     self.neori.layout.toggle_window_width(Some(&window), true);
                 }
             }
-            Action::SwitchPresetWindowWidthBackById(id) => {
+            Action::SwitchPresetWindowWidthBack { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1664,13 +1694,13 @@ impl State {
                     self.neori.layout.toggle_window_width(Some(&window), false);
                 }
             }
-            Action::SwitchPresetWindowHeight => {
+            Action::SwitchPresetWindowHeight { id: None } => {
                 self.neori.layout.toggle_window_height(None, true);
             }
-            Action::SwitchPresetWindowHeightBack => {
+            Action::SwitchPresetWindowHeightBack { id: None } => {
                 self.neori.layout.toggle_window_height(None, false);
             }
-            Action::SwitchPresetWindowHeightById(id) => {
+            Action::SwitchPresetWindowHeight { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1681,7 +1711,7 @@ impl State {
                     self.neori.layout.toggle_window_height(Some(&window), true);
                 }
             }
-            Action::SwitchPresetWindowHeightBackById(id) => {
+            Action::SwitchPresetWindowHeightBack { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1692,17 +1722,17 @@ impl State {
                     self.neori.layout.toggle_window_height(Some(&window), false);
                 }
             }
-            Action::CenterColumn => {
+            Action::CenterColumn {} => {
                 self.neori.layout.center_column();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::CenterWindow => {
+            Action::CenterWindow { id: None } => {
                 self.neori.layout.center_window(None);
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::CenterWindowById(id) => {
+            Action::CenterWindow { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1715,15 +1745,15 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::CenterVisibleColumns => {
+            Action::CenterVisibleColumns {} => {
                 self.neori.layout.center_visible_columns();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MaximizeColumn => {
+            Action::MaximizeColumn {} => {
                 self.neori.layout.toggle_full_width();
             }
-            Action::MaximizeWindowToEdges => {
+            Action::MaximizeWindowToEdges { id: None } => {
                 let focus = self.neori.layout.focus().map(|m| m.window.clone());
                 if let Some(window) = focus {
                     self.neori.layout.toggle_maximized(&window);
@@ -1731,7 +1761,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MaximizeWindowToEdgesById(id) => {
+            Action::MaximizeWindowToEdges { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -1744,7 +1774,7 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FocusMonitorLeft => {
+            Action::FocusMonitorLeft {} => {
                 if let Some(output) = self.neori.output_left() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1753,7 +1783,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitorRight => {
+            Action::FocusMonitorRight {} => {
                 if let Some(output) = self.neori.output_right() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1762,7 +1792,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitorDown => {
+            Action::FocusMonitorDown {} => {
                 if let Some(output) = self.neori.output_down() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1771,7 +1801,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitorUp => {
+            Action::FocusMonitorUp {} => {
                 if let Some(output) = self.neori.output_up() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1780,7 +1810,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitorPrevious => {
+            Action::FocusMonitorPrevious {} => {
                 if let Some(output) = self.neori.output_previous() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1789,7 +1819,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitorNext => {
+            Action::FocusMonitorNext {} => {
                 if let Some(output) = self.neori.output_next() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1798,7 +1828,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::FocusMonitor(output) => {
+            Action::FocusMonitor { output } => {
                 if let Some(output) = self.neori.output_by_name_match(&output).cloned() {
                     self.neori.layout.focus_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -1807,7 +1837,7 @@ impl State {
                     self.neori.layer_shell_on_demand_focus = None;
                 }
             }
-            Action::MoveWindowToMonitorLeft => {
+            Action::MoveWindowToMonitorLeft {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_left_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1823,7 +1853,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorRight => {
+            Action::MoveWindowToMonitorRight {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_right_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1839,7 +1869,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorDown => {
+            Action::MoveWindowToMonitorDown {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_down_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1855,7 +1885,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorUp => {
+            Action::MoveWindowToMonitorUp {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_up_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1871,7 +1901,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorPrevious => {
+            Action::MoveWindowToMonitorPrevious {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_previous_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1887,7 +1917,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorNext => {
+            Action::MoveWindowToMonitorNext {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_next_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1903,7 +1933,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitor(output) => {
+            Action::MoveWindowToMonitor { id: None, output } => {
                 if let Some(output) = self.neori.output_by_name_match(&output).cloned() {
                     if self.neori.screenshot_ui.is_open() {
                         self.move_cursor_to_output(&output);
@@ -1922,7 +1952,10 @@ impl State {
                     }
                 }
             }
-            Action::MoveWindowToMonitorById { id, output } => {
+            Action::MoveWindowToMonitor {
+                id: Some(id),
+                output,
+            } => {
                 if let Some(output) = self.neori.output_by_name_match(&output).cloned() {
                     let window = self
                         .neori
@@ -1956,7 +1989,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorLeft => {
+            Action::MoveColumnToMonitorLeft {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_left_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1970,7 +2003,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorRight => {
+            Action::MoveColumnToMonitorRight {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_right_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1984,7 +2017,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorDown => {
+            Action::MoveColumnToMonitorDown {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_down_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -1998,7 +2031,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorUp => {
+            Action::MoveColumnToMonitorUp {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_up_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -2012,7 +2045,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorPrevious => {
+            Action::MoveColumnToMonitorPrevious {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_previous_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -2026,7 +2059,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitorNext => {
+            Action::MoveColumnToMonitorNext {} => {
                 if let Some(current_output) = self.neori.screenshot_ui.selection_output() {
                     if let Some(target_output) = self.neori.output_next_of(current_output) {
                         self.move_cursor_to_output(&target_output);
@@ -2040,7 +2073,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveColumnToMonitor(output) => {
+            Action::MoveColumnToMonitor { output } => {
                 if let Some(output) = self.neori.output_by_name_match(&output).cloned() {
                     if self.neori.screenshot_ui.is_open() {
                         self.move_cursor_to_output(&output);
@@ -2054,7 +2087,7 @@ impl State {
                     }
                 }
             }
-            Action::SetColumnWidth(change) => {
+            Action::SetColumnWidth { change } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.set_width(change);
 
@@ -2064,7 +2097,7 @@ impl State {
                     self.neori.layout.set_column_width(change);
                 }
             }
-            Action::SetWindowWidth(change) => {
+            Action::SetWindowWidth { id: None, change } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.set_width(change);
 
@@ -2074,7 +2107,10 @@ impl State {
                     self.neori.layout.set_window_width(None, change);
                 }
             }
-            Action::SetWindowWidthById { id, change } => {
+            Action::SetWindowWidth {
+                id: Some(id),
+                change,
+            } => {
                 let window = self
                     .neori
                     .layout
@@ -2085,7 +2121,7 @@ impl State {
                     self.neori.layout.set_window_width(Some(&window), change);
                 }
             }
-            Action::SetWindowHeight(change) => {
+            Action::SetWindowHeight { id: None, change } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.set_height(change);
 
@@ -2095,7 +2131,10 @@ impl State {
                     self.neori.layout.set_window_height(None, change);
                 }
             }
-            Action::SetWindowHeightById { id, change } => {
+            Action::SetWindowHeight {
+                id: Some(id),
+                change,
+            } => {
                 let window = self
                     .neori
                     .layout
@@ -2106,10 +2145,10 @@ impl State {
                     self.neori.layout.set_window_height(Some(&window), change);
                 }
             }
-            Action::ResetWindowHeight => {
+            Action::ResetWindowHeight { id: None } => {
                 self.neori.layout.reset_window_height(None);
             }
-            Action::ResetWindowHeightById(id) => {
+            Action::ResetWindowHeight { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -2120,10 +2159,10 @@ impl State {
                     self.neori.layout.reset_window_height(Some(&window));
                 }
             }
-            Action::ExpandColumnToAvailableWidth => {
+            Action::ExpandColumnToAvailableWidth {} => {
                 self.neori.layout.expand_column_to_available_width();
             }
-            Action::ShowHotkeyOverlay => {
+            Action::ShowHotkeyOverlay {} => {
                 if self.neori.hotkey_overlay.show() {
                     self.neori.queue_redraw_all();
 
@@ -2131,7 +2170,7 @@ impl State {
                     self.neori.a11y_announce_hotkey_overlay();
                 }
             }
-            Action::MoveWorkspaceToMonitorLeft => {
+            Action::MoveWorkspaceToMonitorLeft {} => {
                 if let Some(output) = self.neori.output_left() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2139,7 +2178,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorRight => {
+            Action::MoveWorkspaceToMonitorRight {} => {
                 if let Some(output) = self.neori.output_right() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2147,7 +2186,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorDown => {
+            Action::MoveWorkspaceToMonitorDown {} => {
                 if let Some(output) = self.neori.output_down() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2155,7 +2194,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorUp => {
+            Action::MoveWorkspaceToMonitorUp {} => {
                 if let Some(output) = self.neori.output_up() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2163,7 +2202,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorPrevious => {
+            Action::MoveWorkspaceToMonitorPrevious {} => {
                 if let Some(output) = self.neori.output_previous() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2171,7 +2210,7 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorNext => {
+            Action::MoveWorkspaceToMonitorNext {} => {
                 if let Some(output) = self.neori.output_next() {
                     self.neori.layout.move_workspace_to_output(&output);
                     if !self.maybe_warp_cursor_to_focus_centered() {
@@ -2179,7 +2218,10 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitor(new_output) => {
+            Action::MoveWorkspaceToMonitor {
+                output: new_output,
+                reference: None,
+            } => {
                 if let Some(new_output) = self.neori.output_by_name_match(&new_output).cloned() {
                     if self.neori.layout.move_workspace_to_output(&new_output)
                         && !self.maybe_warp_cursor_to_focus_centered()
@@ -2188,9 +2230,9 @@ impl State {
                     }
                 }
             }
-            Action::MoveWorkspaceToMonitorByRef {
-                output_name,
-                reference,
+            Action::MoveWorkspaceToMonitor {
+                output: output_name,
+                reference: Some(reference),
             } => {
                 if let Some((output, old_idx)) =
                     self.neori.find_output_and_workspace_index(reference)
@@ -2210,12 +2252,12 @@ impl State {
                     }
                 }
             }
-            Action::ToggleWindowFloating => {
+            Action::ToggleWindowFloating { id: None } => {
                 self.neori.layout.toggle_window_floating(None);
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleWindowFloatingById(id) => {
+            Action::ToggleWindowFloating { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -2228,12 +2270,12 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MoveWindowToFloating => {
+            Action::MoveWindowToFloating { id: None } => {
                 self.neori.layout.set_window_floating(None, true);
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowToFloatingById(id) => {
+            Action::MoveWindowToFloating { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -2246,12 +2288,12 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MoveWindowToTiling => {
+            Action::MoveWindowToTiling { id: None } => {
                 self.neori.layout.set_window_floating(None, false);
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowToTilingById(id) => {
+            Action::MoveWindowToTiling { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -2264,25 +2306,25 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::FocusFloating => {
+            Action::FocusFloating {} => {
                 self.neori.layout.focus_floating();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::FocusTiling => {
+            Action::FocusTiling {} => {
                 self.neori.layout.focus_tiling();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwitchFocusBetweenFloatingAndTiling => {
+            Action::SwitchFocusBetweenFloatingAndTiling {} => {
                 self.neori.layout.switch_focus_floating_tiling();
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveFloatingWindowById { id, x, y } => {
+            Action::MoveFloatingWindow { id, x, y } => {
                 let window = if let Some(id) = id {
                     let window = self
                         .neori
@@ -2304,7 +2346,7 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleWindowRuleOpacity => {
+            Action::ToggleWindowRuleOpacity { id: None } => {
                 let active_window = self
                     .neori
                     .layout
@@ -2318,7 +2360,7 @@ impl State {
                     }
                 }
             }
-            Action::ToggleWindowRuleOpacityById(id) => {
+            Action::ToggleWindowRuleOpacity { id: Some(id) } => {
                 let window = self
                     .neori
                     .layout
@@ -2332,7 +2374,7 @@ impl State {
                     }
                 }
             }
-            Action::SetDynamicCastWindow => {
+            Action::SetDynamicCastWindow { id: None } => {
                 let id = self
                     .neori
                     .layout
@@ -2343,13 +2385,13 @@ impl State {
                     self.set_dynamic_cast_target(CastTarget::Window { id });
                 }
             }
-            Action::SetDynamicCastWindowById(id) => {
+            Action::SetDynamicCastWindow { id: Some(id) } => {
                 let layout = &self.neori.layout;
                 if layout.windows().any(|(_, mapped)| mapped.id().get() == id) {
                     self.set_dynamic_cast_target(CastTarget::Window { id });
                 }
             }
-            Action::SetDynamicCastMonitor(output) => {
+            Action::SetDynamicCastMonitor { output } => {
                 let output = match output {
                     None => self.neori.layout.active_output(),
                     Some(name) => self.neori.output_by_name_match(&name),
@@ -2358,30 +2400,30 @@ impl State {
                     self.set_dynamic_cast_target(CastTarget::output(output));
                 }
             }
-            Action::ClearDynamicCastTarget => {
+            Action::ClearDynamicCastTarget {} => {
                 self.set_dynamic_cast_target(CastTarget::Nothing);
             }
-            Action::StopCast(session_id) => {
+            Action::StopCast { session_id } => {
                 self.neori.stop_cast(CastSessionId::from(session_id));
             }
-            Action::ToggleOverview => {
+            Action::ToggleOverview {} => {
                 self.neori.layout.toggle_overview();
                 self.neori.queue_redraw_all();
             }
-            Action::OpenOverview => {
+            Action::OpenOverview {} => {
                 if self.neori.layout.open_overview() {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::CloseOverview => {
+            Action::CloseOverview {} => {
                 if self.neori.layout.close_overview() {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::EnlargeCursor => {
+            Action::EnlargeCursor {} => {
                 self.neori.enlarge_cursor();
             }
-            Action::SetShakeToFind(part) => {
+            Action::SetShakeToFind { settings: part } => {
                 let cursor = {
                     let mut config = self.neori.config.borrow_mut();
                     config.cursor.shake_to_find.apply_part(&part);
@@ -2391,19 +2433,19 @@ impl State {
                 self.neori.update_cursor_shake();
                 self.neori.queue_redraw_all();
             }
-            Action::SendToScratchpad => {
+            Action::SendToScratchpad {} => {
                 self.neori.layout.send_to_scratchpad();
                 self.neori.queue_redraw_all();
             }
-            Action::RemoveFromScratchpad => {
+            Action::RemoveFromScratchpad {} => {
                 self.neori.layout.remove_from_scratchpad();
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleScratchpad => {
+            Action::ToggleScratchpad {} => {
                 self.neori.layout.toggle_scratchpad();
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleWindowUrgent(id) => {
+            Action::ToggleWindowUrgent { id } => {
                 let window = self
                     .neori
                     .layout
@@ -2415,7 +2457,7 @@ impl State {
                 }
                 self.neori.queue_redraw_all();
             }
-            Action::SetWindowUrgent(id) => {
+            Action::SetWindowUrgent { id } => {
                 let window = self
                     .neori
                     .layout
@@ -2426,7 +2468,7 @@ impl State {
                 }
                 self.neori.queue_redraw_all();
             }
-            Action::UnsetWindowUrgent(id) => {
+            Action::UnsetWindowUrgent { id } => {
                 let window = self
                     .neori
                     .layout
@@ -2437,7 +2479,7 @@ impl State {
                 }
                 self.neori.queue_redraw_all();
             }
-            Action::LoadConfigFile(path) => {
+            Action::LoadConfigFile { path } => {
                 if let Some(watcher) = &self.neori.config_file_watcher {
                     watcher.load_config(path);
                 }
@@ -4750,9 +4792,9 @@ fn find_configured_switch_action(
         (Switch::TabletMode, SwitchState::On) => &bindings.tablet_mode_on,
         _ => unreachable!(),
     };
-    switch_action
-        .as_ref()
-        .map(|switch_action| Action::Spawn(switch_action.spawn.clone()))
+    switch_action.as_ref().map(|switch_action| Action::Spawn {
+        command: switch_action.spawn.clone(),
+    })
 }
 
 fn modifiers_from_state(mods: ModifiersState) -> Modifiers {
@@ -4853,53 +4895,54 @@ fn should_reset_pointer_inactivity_timer<I: InputBackend>(event: &InputEvent<I>)
 fn allowed_when_locked(action: &Action) -> bool {
     matches!(
         action,
-        Action::Quit(_)
-            | Action::ChangeVt(_)
+        Action::Quit {
+            skip_confirmation: _
+        } | Action::ChangeVt(_)
             | Action::Suspend
-            | Action::PowerOffMonitors
-            | Action::PowerOnMonitors
-            | Action::SwitchLayout(_)
-            | Action::ToggleKeyboardShortcutsInhibit
+            | Action::PowerOffMonitors {}
+            | Action::PowerOnMonitors {}
+            | Action::SwitchLayout { layout: _ }
+            | Action::ToggleKeyboardShortcutsInhibit {}
     )
 }
 
 fn allowed_during_screenshot(action: &Action) -> bool {
     matches!(
         action,
-        Action::Quit(_)
+        Action::Quit { skip_confirmation: _ }
             | Action::ChangeVt(_)
             | Action::Suspend
-            | Action::PowerOffMonitors
-            | Action::PowerOnMonitors
+            | Action::PowerOffMonitors {}
+            | Action::PowerOnMonitors {}
             // Intended for binds such as volume up/down, lock the screen, etc.
-            | Action::Spawn(_)
-            | Action::SpawnSh(_)
+            | Action::Spawn { command: _ }
+            | Action::SpawnSh { command: _ }
             // The screenshot UI can handle these.
-            | Action::MoveColumnLeft
-            | Action::MoveColumnLeftOrToMonitorLeft
-            | Action::MoveColumnRight
-            | Action::MoveColumnRightOrToMonitorRight
-            | Action::MoveWindowUp
-            | Action::MoveWindowUpOrToWorkspaceUp
-            | Action::MoveWindowDown
-            | Action::MoveWindowDownOrToWorkspaceDown
-            | Action::MoveColumnToMonitorLeft
-            | Action::MoveColumnToMonitorRight
-            | Action::MoveColumnToMonitorUp
-            | Action::MoveColumnToMonitorDown
-            | Action::MoveColumnToMonitorPrevious
-            | Action::MoveColumnToMonitorNext
-            | Action::MoveColumnToMonitor(_)
-            | Action::MoveWindowToMonitorLeft
-            | Action::MoveWindowToMonitorRight
-            | Action::MoveWindowToMonitorUp
-            | Action::MoveWindowToMonitorDown
-            | Action::MoveWindowToMonitorPrevious
-            | Action::MoveWindowToMonitorNext
-            | Action::MoveWindowToMonitor(_)
-            | Action::SetWindowWidth(_)
-            | Action::SetWindowHeight(_)
-            | Action::SetColumnWidth(_)
+            | Action::MoveColumnLeft {}
+            | Action::MoveColumnLeftOrToMonitorLeft {}
+            | Action::MoveColumnRight {}
+            | Action::MoveColumnRightOrToMonitorRight {}
+            | Action::MoveWindowUp {}
+            | Action::MoveWindowUpOrToWorkspaceUp {}
+            | Action::MoveWindowDown {}
+            | Action::MoveWindowDownOrToWorkspaceDown {}
+            | Action::MoveColumnToMonitorLeft {}
+            | Action::MoveColumnToMonitorRight {}
+            | Action::MoveColumnToMonitorUp {}
+            | Action::MoveColumnToMonitorDown {}
+            | Action::MoveColumnToMonitorPrevious {}
+            | Action::MoveColumnToMonitorNext {}
+            | Action::MoveColumnToMonitor { output: _ }
+            | Action::MoveWindowToMonitorLeft {}
+            | Action::MoveWindowToMonitorRight {}
+            | Action::MoveWindowToMonitorUp {}
+            | Action::MoveWindowToMonitorDown {}
+            | Action::MoveWindowToMonitorPrevious {}
+            | Action::MoveWindowToMonitorNext {}
+            | Action::MoveWindowToMonitor { id: None, output: _ }
+            | Action::SetWindowWidth { id: None, change: _ }
+            | Action::SetWindowHeight { id: None, change: _ }
+            | Action::SetColumnWidth { change: _ }
     )
 }
 
@@ -4913,12 +4956,12 @@ fn hardcoded_overview_bind(raw: Keysym, mods: ModifiersState) -> Option<Bind> {
     let action = match raw {
         Keysym::Escape | Keysym::Return => {
             repeat = false;
-            Action::ToggleOverview
+            Action::ToggleOverview {}
         }
-        Keysym::Left => Action::FocusColumnLeft,
-        Keysym::Right => Action::FocusColumnRight,
-        Keysym::Up => Action::FocusWindowOrWorkspaceUp,
-        Keysym::Down => Action::FocusWindowOrWorkspaceDown,
+        Keysym::Left => Action::FocusColumnLeft {},
+        Keysym::Right => Action::FocusColumnRight {},
+        Keysym::Up => Action::FocusWindowOrWorkspaceUp {},
+        Keysym::Down => Action::FocusWindowOrWorkspaceDown {},
         _ => {
             return None;
         }
@@ -5362,7 +5405,7 @@ mod tests {
                 trigger: Trigger::Keysym(close_keysym),
                 modifiers: Modifiers::COMPOSITOR | Modifiers::CTRL,
             },
-            action: Action::CloseWindow,
+            action: Action::CloseWindow { id: None },
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5426,7 +5469,7 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow,
+                action: Action::CloseWindow { id: None },
                 ..
             }))
         ));
@@ -5460,7 +5503,7 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow,
+                action: Action::CloseWindow { id: None },
                 ..
             }))
         ));
@@ -5480,7 +5523,7 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow,
+                action: Action::CloseWindow { id: None },
                 ..
             }))
         ));
@@ -5527,7 +5570,7 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow,
+                action: Action::CloseWindow { id: None },
                 ..
             }))
         ));
@@ -5548,7 +5591,7 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::q),
                     modifiers: Modifiers::COMPOSITOR,
                 },
-                action: Action::CloseWindow,
+                action: Action::CloseWindow { id: None },
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5560,7 +5603,7 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::h),
                     modifiers: Modifiers::SUPER,
                 },
-                action: Action::FocusColumnLeft,
+                action: Action::FocusColumnLeft {},
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5572,7 +5615,7 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::j),
                     modifiers: Modifiers::empty(),
                 },
-                action: Action::FocusWindowDown,
+                action: Action::FocusWindowDown {},
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5584,7 +5627,7 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::k),
                     modifiers: Modifiers::COMPOSITOR | Modifiers::SUPER,
                 },
-                action: Action::FocusWindowUp,
+                action: Action::FocusWindowUp {},
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5596,7 +5639,7 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::l),
                     modifiers: Modifiers::SUPER | Modifiers::ALT,
                 },
-                action: Action::FocusColumnRight,
+                action: Action::FocusColumnRight {},
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5734,7 +5777,7 @@ mod tests {
                 trigger: Trigger::Keycode(53),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::CloseWindow,
+            action: Action::CloseWindow { id: None },
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5797,7 +5840,7 @@ mod tests {
                 trigger: Trigger::Keycode(53),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::CloseWindow,
+            action: Action::CloseWindow { id: None },
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5809,7 +5852,9 @@ mod tests {
                 trigger: Trigger::Keysym(Keysym::period),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::Spawn(vec!["dmc".into(), "-n".into()]),
+            action: Action::Spawn {
+                command: vec!["dmc".into(), "-n".into()],
+            },
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
