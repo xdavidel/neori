@@ -5,3 +5,6 @@
 
 # insta pending snapshots
 *.pending-snap
+
+# graphify knowledge-graph outputs
+/graphify-out/
