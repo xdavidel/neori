@@ -166,6 +166,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Handle Ctrl+C and other signals.
     neori::utils::signals::listen(&event_loop.handle());
 
+    // Determine if we're starting in headless mode.
+    let headless = env::var("NIRI_BACKEND")
+        .or_else(|_| env::var("NEORI_BACKEND"))
+        .map(|v| v.eq_ignore_ascii_case("headless"))
+        .unwrap_or(false);
+
+    if headless {
+        info!("starting in headless mode");
+    }
+
     // Create the compositor.
     let display = Display::new().unwrap();
 
@@ -177,7 +187,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         event_loop.handle(),
         event_loop.get_signal(),
         display,
-        false,
+        headless,
         true,
         cli.session,
     )

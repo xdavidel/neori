@@ -508,6 +508,99 @@ mod tests {
     }
 
     #[test]
+    fn create_virtual_output_action_parses() {
+        // Full form with all options.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Shift+V", neori.create_virtual_output {
+                name = "sunshine",
+                width = 1920,
+                height = 1080,
+                refresh_rate = 144,
+            })
+            "#,
+        )
+        .unwrap();
+        assert!(actions(&config).contains(&Action::CreateVirtualOutput {
+            name: Some("sunshine".to_string()),
+            width: Some(1920),
+            height: Some(1080),
+            refresh_rate: Some(144),
+        }));
+
+        // No-arg form uses all defaults.
+        let config =
+            Config::parse_mem(r#"neori.bind("Mod+Shift+V", neori.create_virtual_output())"#)
+                .unwrap();
+        assert!(actions(&config).contains(&Action::CreateVirtualOutput {
+            name: None,
+            width: None,
+            height: None,
+            refresh_rate: None,
+        }));
+
+        // kebab-case alias accepted.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Shift+V", neori.create_virtual_output {
+                name = "virt",
+                ["refresh-rate"] = 60,
+            })
+            "#,
+        )
+        .unwrap();
+        assert!(actions(&config).contains(&Action::CreateVirtualOutput {
+            name: Some("virt".to_string()),
+            width: None,
+            height: None,
+            refresh_rate: Some(60),
+        }));
+
+        // String action shorthand.
+        let config =
+            Config::parse_mem(r#"neori.bind("Mod+Shift+V", "create-virtual-output")"#).unwrap();
+        assert!(actions(&config).contains(&Action::CreateVirtualOutput {
+            name: None,
+            width: None,
+            height: None,
+            refresh_rate: None,
+        }));
+    }
+
+    #[test]
+    fn remove_virtual_output_action_parses() {
+        // String arg form.
+        let config =
+            Config::parse_mem(r#"neori.bind("Mod+Shift+R", neori.remove_virtual_output("virt"))"#)
+                .unwrap();
+        assert!(actions(&config).contains(&Action::RemoveVirtualOutput {
+            name: "virt".to_string(),
+        }));
+
+        // Table form with trailing bind metadata.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Shift+R", neori.remove_virtual_output {
+                name = "sunshine",
+                ["repeat"] = false,
+            })
+            "#,
+        )
+        .unwrap();
+        assert!(actions(&config).contains(&Action::RemoveVirtualOutput {
+            name: "sunshine".to_string(),
+        }));
+
+        // String action form ("remove-virtual-output <name>").
+        let config =
+            Config::parse_mem(r#"neori.bind("Mod+Shift+R", "remove-virtual-output virt")"#)
+                .unwrap();
+        assert!(actions(&config).contains(&Action::RemoveVirtualOutput {
+            name: "virt".to_string(),
+        }));
+    }
+
+    #[test]
     fn scratchpad_actions_parse() {
         let config = Config::parse_mem(
             r#"
@@ -1073,6 +1166,29 @@ mod tests {
             config.outputs.0[0].variable_refresh_rate,
             Some(Vrr { on_demand: false })
         );
+    }
+
+    #[test]
+    fn output_create_virtual_flag_parses() {
+        // snake_case
+        let config = Config::parse_mem(
+            r#"neori.output("sunshine", { create_virtual = true, mode = "1920x1080@144.000" })"#,
+        )
+        .unwrap();
+        assert_eq!(config.outputs.0.len(), 1);
+        assert_eq!(config.outputs.0[0].name, "sunshine");
+        assert!(config.outputs.0[0].create_virtual);
+
+        // kebab-case alias
+        let config = Config::parse_mem(
+            r#"neori.output { name = "HEADLESS-1", ["create-virtual"] = true }"#,
+        )
+        .unwrap();
+        assert!(config.outputs.0[0].create_virtual);
+
+        // Default is false.
+        let config = Config::parse_mem(r#"neori.output { name = "eDP-1" }"#).unwrap();
+        assert!(!config.outputs.0[0].create_virtual);
     }
 
     #[test]

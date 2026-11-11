@@ -98,6 +98,25 @@ pub enum Request {
         /// Configuration to apply.
         action: OutputAction,
     },
+    /// Create a new virtual headless output.
+    /// Defaults to 1920x1080 @ 60 Hz when not specified.
+    CreateVirtualOutput {
+        /// Width in pixels.
+        width: Option<u16>,
+        /// Height in pixels.
+        height: Option<u16>,
+        /// Refresh rate in Hz.
+        refresh_rate: Option<u32>,
+        /// Optional output name to use instead of auto-generated `HEADLESS-N`.
+        ///
+        /// When omitted, the compositor will pick a unique name.
+        name: Option<String>,
+    },
+    /// Remove a virtual headless output by name.
+    RemoveVirtualOutput {
+        /// Identifier of the output to remove.
+        name: String,
+    },
     /// Start continuously receiving events from the compositor.
     ///
     /// The compositor should reply with `Reply::Ok(Response::Handled)`, then continuously send
@@ -143,6 +162,8 @@ pub enum Response {
     ///
     /// Map from output name to output info.
     Outputs(HashMap<String, Output>),
+    /// Virtual output successfully created.
+    VirtualOutputCreated(String),
     /// Information about workspaces.
     Workspaces(Vec<Workspace>),
     /// Information about open windows.
@@ -245,6 +266,29 @@ pub enum Action {
         /// Command to run.
         #[cfg_attr(feature = "clap", arg(last = true, required = true))]
         command: String,
+    },
+    /// Create a new virtual (headless) output.
+    ///
+    /// Only supported on the TTY and Headless backends.
+    CreateVirtualOutput {
+        /// Optional output name (defaults to a unique `HEADLESS-N`).
+        #[cfg_attr(feature = "clap", arg(long))]
+        name: Option<String>,
+        /// Width in pixels (defaults to 1920).
+        #[cfg_attr(feature = "clap", arg(long))]
+        width: Option<u16>,
+        /// Height in pixels (defaults to 1080).
+        #[cfg_attr(feature = "clap", arg(long))]
+        height: Option<u16>,
+        /// Refresh rate in Hz (defaults to 60).
+        #[cfg_attr(feature = "clap", arg(long))]
+        refresh_rate: Option<u32>,
+    },
+    /// Remove a virtual (headless) output by name.
+    RemoveVirtualOutput {
+        /// Name of the output to remove.
+        #[cfg_attr(feature = "clap", arg())]
+        name: String,
     },
     /// Do a screen transition.
     DoScreenTransition {

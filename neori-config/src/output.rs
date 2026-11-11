@@ -30,6 +30,7 @@ pub struct Modeline {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Output {
     pub off: bool,
+    pub create_virtual: bool,
     pub name: String,
     pub scale: Option<FloatOrInt<0, 10>>,
     pub transform: Transform,
@@ -63,6 +64,7 @@ impl Default for Output {
     fn default() -> Self {
         Self {
             off: false,
+            create_virtual: false,
             focus_at_startup: false,
             name: String::new(),
             scale: None,

@@ -29,7 +29,7 @@ fn start_ipc(fixture: &mut Fixture) -> PathBuf {
     server.socket_path.clone().unwrap()
 }
 
-fn send_action(fixture: &mut Fixture, path: &Path, action: Action) -> Reply {
+fn send_request(fixture: &mut Fixture, path: &Path, request: Request) -> Reply {
     let path = path.to_owned();
     let client = std::thread::spawn(move || {
         let stream = UnixStream::connect(&path).unwrap();
@@ -40,7 +40,7 @@ fn send_action(fixture: &mut Fixture, path: &Path, action: Action) -> Reply {
             .set_write_timeout(Some(Duration::from_secs(10)))
             .unwrap();
 
-        let mut buf = serde_json::to_string(&Request::Action(action)).unwrap();
+        let mut buf = serde_json::to_string(&request).unwrap();
         buf.push('\n');
         stream
             .try_clone()
@@ -65,6 +65,10 @@ fn send_action(fixture: &mut Fixture, path: &Path, action: Action) -> Reply {
     }
 
     client.join().unwrap()
+}
+
+fn send_action(fixture: &mut Fixture, path: &Path, action: Action) -> Reply {
+    send_request(fixture, path, Request::Action(action))
 }
 
 #[test]
@@ -221,6 +225,142 @@ fn ipc_dispatches_actions_parsed_from_lua_config() {
 
     // At least one of the actions must have an observable effect.
     assert!(fixture.neori().layout.is_overview_open());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ipc_create_and_remove_virtual_output_roundtrip() {
+    let mut fixture = Fixture::new();
+    let path = start_ipc(&mut fixture);
+
+    // CreateVirtualOutput Request → VirtualOutputCreated response.
+    let reply = send_request(
+        &mut fixture,
+        &path,
+        Request::CreateVirtualOutput {
+            name: Some("sunshine".to_string()),
+            width: Some(2560),
+            height: Some(1440),
+            refresh_rate: Some(144),
+        },
+    );
+    let name = match reply {
+        Ok(Response::VirtualOutputCreated(n)) => n,
+        other => panic!("unexpected reply: {other:?}"),
+    };
+    assert_eq!(name, "sunshine");
+
+    // Outputs Request includes the new virtual output.
+    let reply = send_request(&mut fixture, &path, Request::Outputs);
+    let outputs = match reply {
+        Ok(Response::Outputs(o)) => o,
+        other => panic!("unexpected reply: {other:?}"),
+    };
+    let sunshine = outputs.get("sunshine").expect("virtual output not listed");
+    assert_eq!(sunshine.modes.len(), 1);
+    assert_eq!(sunshine.modes[0].width, 2560);
+    assert_eq!(sunshine.modes[0].height, 1440);
+    assert_eq!(sunshine.modes[0].refresh_rate, 144_000);
+
+    // RemoveVirtualOutput Request → Handled.
+    let reply = send_request(
+        &mut fixture,
+        &path,
+        Request::RemoveVirtualOutput {
+            name: "sunshine".to_string(),
+        },
+    );
+    assert!(matches!(reply, Ok(Response::Handled)), "got {reply:?}");
+
+    let reply = send_request(&mut fixture, &path, Request::Outputs);
+    let outputs = match reply {
+        Ok(Response::Outputs(o)) => o,
+        other => panic!("unexpected reply: {other:?}"),
+    };
+    assert!(
+        !outputs.contains_key("sunshine"),
+        "output 'sunshine' should have been removed"
+    );
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ipc_create_virtual_output_rejects_invalid_name() {
+    let mut fixture = Fixture::new();
+    let path = start_ipc(&mut fixture);
+
+    let reply = send_request(
+        &mut fixture,
+        &path,
+        Request::CreateVirtualOutput {
+            name: Some("has space".to_string()),
+            width: None,
+            height: None,
+            refresh_rate: None,
+        },
+    );
+    match reply {
+        Err(err) => assert!(
+            err.contains("invalid character") || err.contains("name"),
+            "unexpected error: {err}"
+        ),
+        Ok(ok) => panic!("expected an error, got {ok:?}"),
+    }
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn ipc_create_virtual_output_via_action_dispatches() {
+    let mut fixture = Fixture::new();
+    let path = start_ipc(&mut fixture);
+
+    // The Action variant exists so Lua binds can trigger virtual-output creation.
+    // Dispatched over IPC it should produce the same effect as Request::CreateVirtualOutput.
+    let reply = send_action(
+        &mut fixture,
+        &path,
+        Action::CreateVirtualOutput {
+            name: Some("from-action".to_string()),
+            width: Some(1920),
+            height: Some(1080),
+            refresh_rate: Some(60),
+        },
+    );
+    assert!(matches!(reply, Ok(Response::Handled)), "got {reply:?}");
+
+    // Give the insert_idle closure a tick to run.
+    fixture.state.server.dispatch();
+
+    assert!(
+        fixture
+            .neori()
+            .global_space
+            .outputs()
+            .any(|o| o.name() == "from-action"),
+        "Action::CreateVirtualOutput should have created the output"
+    );
+
+    // And Action::RemoveVirtualOutput tears it down.
+    let reply = send_action(
+        &mut fixture,
+        &path,
+        Action::RemoveVirtualOutput {
+            name: "from-action".to_string(),
+        },
+    );
+    assert!(matches!(reply, Ok(Response::Handled)), "got {reply:?}");
+    fixture.state.server.dispatch();
+    assert!(
+        !fixture
+            .neori()
+            .global_space
+            .outputs()
+            .any(|o| o.name() == "from-action"),
+        "Action::RemoveVirtualOutput should have removed the output"
+    );
 
     std::fs::remove_file(&path).ok();
 }

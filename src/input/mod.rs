@@ -735,6 +735,38 @@ impl State {
                 let (token, _) = self.neori.activation_state.create_external_token(None);
                 spawn_sh(command, Some(token.clone()));
             }
+            Action::CreateVirtualOutput {
+                name,
+                width,
+                height,
+                refresh_rate,
+            } => {
+                let width = width.unwrap_or(1920);
+                let height = height.unwrap_or(1080);
+                let refresh_rate = refresh_rate.unwrap_or(60);
+                match self.backend.create_virtual_output(
+                    &mut self.neori,
+                    width,
+                    height,
+                    refresh_rate,
+                    name,
+                ) {
+                    Ok(created) => {
+                        info!("created virtual output: {created}");
+                    }
+                    Err(err) => {
+                        warn!("error creating virtual output: {err}");
+                    }
+                }
+            }
+            Action::RemoveVirtualOutput { name } => {
+                if let Err(err) = self
+                    .backend
+                    .remove_virtual_output(&mut self.neori, &name)
+                {
+                    warn!("error removing virtual output '{name}': {err}");
+                }
+            }
             Action::DoScreenTransition { delay_ms } => {
                 self.backend.with_primary_renderer(|renderer| {
                     self.neori.do_screen_transition(renderer, delay_ms);

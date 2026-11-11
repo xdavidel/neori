@@ -499,6 +499,36 @@ fn setup_neori_api(
         neori.set(name, func).map_err(err)?;
     }
 
+    // neori.create_virtual_output(opts) and neori.remove_virtual_output(name | opts) build
+    // action tables usable in neori.bind and neori.on. All options are optional for the
+    // "create" form:
+    //
+    //     neori.create_virtual_output { name = "sunshine", width = 1920, height = 1080,
+    //                                   refresh_rate = 144 }
+    //     neori.remove_virtual_output("sunshine")
+    //     neori.remove_virtual_output { name = "sunshine" }
+    //
+    // Any extra string-keyed fields (hotkey_overlay_title, cooldown_ms, repeat, …) are merged
+    // in as bind metadata, matching `neori.spawn`'s behavior.
+    {
+        let func = lua
+            .create_function(|lua, args: mlua::Variadic<Value>| {
+                create_virtual_output_action(lua, args.into_iter().collect())
+                    .map_err(LuaError::runtime)
+            })
+            .map_err(err)?;
+        neori.set("create_virtual_output", func).map_err(err)?;
+    }
+    {
+        let func = lua
+            .create_function(|lua, args: mlua::Variadic<Value>| {
+                remove_virtual_output_action(lua, args.into_iter().collect())
+                    .map_err(LuaError::runtime)
+            })
+            .map_err(err)?;
+        neori.set("remove_virtual_output", func).map_err(err)?;
+    }
+
     // Whole-section setters: neori.input { ... }, neori.layout { ... } and so on.
     for name in [
         "binds",
@@ -1424,6 +1454,8 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
             .get("name")
             .map_err(|e| format!("output needs name: {e}"))?;
         let off: bool = t.get("off").unwrap_or(false);
+        let create_virtual =
+            value_is_truthy(&table_get_alias(&t, "create_virtual", "create-virtual")?);
         let scale: Option<f64> = t.get("scale").map_err(|e| format!("{e}")).ok();
         let transform_str: Option<String> = t.get("transform").map_err(|e| format!("{e}")).ok();
         let focus_at_startup: bool = t.get("focus_at_startup").unwrap_or(false);
@@ -1572,6 +1604,7 @@ fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
 
         config.outputs.0.push(Output {
             off,
+            create_virtual,
             name,
             scale: scale.map(FloatOrInt),
             transform,
@@ -3055,6 +3088,108 @@ fn spawn_action(lua: &Lua, args: Vec<Value>, shell: bool) -> Result<LuaTable, St
     Ok(action)
 }
 
+/// Keys inside a `create_virtual_output` action table that are action-shaped (width,
+/// height, refresh_rate, name) vs. bind metadata (hotkey_overlay_title, cooldown_ms, …).
+const CREATE_VIRTUAL_OUTPUT_ACTION_KEYS: &[&str] =
+    &["name", "width", "height", "refresh_rate", "refresh-rate"];
+
+/// Builds a `create_virtual_output` action table from Lua args.
+///
+/// Accepts either a single table of options or no arguments at all (defaults). Non-action keys
+/// in the table (string-keyed, not listed in [`CREATE_VIRTUAL_OUTPUT_ACTION_KEYS`]) are merged
+/// in as bind metadata, mirroring `spawn_action`.
+fn create_virtual_output_action(lua: &Lua, args: Vec<Value>) -> Result<LuaTable, String> {
+    let opts = match args.as_slice() {
+        [] => None,
+        [Value::Table(t)] => Some(t.clone()),
+        _ => {
+            return Err(
+                "create_virtual_output expects a single options table or no arguments"
+                    .to_string(),
+            )
+        }
+    };
+
+    let inner = lua.create_table().map_err(|e| e.to_string())?;
+    let action = lua.create_table().map_err(|e| e.to_string())?;
+
+    if let Some(ref opts) = opts {
+        for pair in opts.clone().pairs::<Value, Value>() {
+            let (key, value) = pair.map_err(|e| e.to_string())?;
+            let key_str = match &key {
+                Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
+                _ => None,
+            };
+            if let Some(key_str) = key_str {
+                if CREATE_VIRTUAL_OUTPUT_ACTION_KEYS.contains(&key_str.as_str()) {
+                    // Normalize the kebab-case alias to snake_case.
+                    let normalized = if key_str == "refresh-rate" {
+                        "refresh_rate"
+                    } else {
+                        key_str.as_str()
+                    };
+                    inner.set(normalized, value).map_err(|e| e.to_string())?;
+                } else {
+                    action.set(key, value).map_err(|e| e.to_string())?;
+                }
+            } else {
+                action.set(key, value).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    action
+        .set("create_virtual_output", inner)
+        .map_err(|e| e.to_string())?;
+    Ok(action)
+}
+
+/// Builds a `remove_virtual_output` action table from Lua args.
+///
+/// Accepts either a bare string (`neori.remove_virtual_output("sunshine")`) or a table with a
+/// `name` field and optional metadata.
+fn remove_virtual_output_action(lua: &Lua, args: Vec<Value>) -> Result<LuaTable, String> {
+    let (name, opts) = match args.as_slice() {
+        [Value::String(s)] => (s.to_str().map_err(|e| format!("{e}"))?.to_string(), None),
+        [Value::Table(t)] => {
+            let name = t
+                .get::<Option<String>>("name")
+                .map_err(|e| format!("{e}"))?
+                .ok_or_else(|| {
+                    "remove_virtual_output requires a `name` field in the options table"
+                        .to_string()
+                })?;
+            (name, Some(t.clone()))
+        }
+        _ => {
+            return Err(
+                "remove_virtual_output expects a string name or an options table with `name`"
+                    .to_string(),
+            )
+        }
+    };
+
+    let inner = lua.create_table().map_err(|e| e.to_string())?;
+    inner.set("name", name).map_err(|e| e.to_string())?;
+
+    let action = lua.create_table().map_err(|e| e.to_string())?;
+    if let Some(opts) = opts {
+        for pair in opts.pairs::<Value, Value>() {
+            let (key, value) = pair.map_err(|e| e.to_string())?;
+            if let Value::String(ref s) = key {
+                if s.to_str().map_err(|e| format!("{e}"))? == "name" {
+                    continue;
+                }
+            }
+            action.set(key, value).map_err(|e| e.to_string())?;
+        }
+    }
+    action
+        .set("remove_virtual_output", inner)
+        .map_err(|e| e.to_string())?;
+    Ok(action)
+}
+
 /// Returns whether `t` has at least one string key, i.e. it is used as a map (bind
 /// metadata) rather than a plain argv sequence.
 fn table_is_map(t: &LuaTable) -> Result<bool, String> {
@@ -3262,6 +3397,20 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
                 command: cmd.to_string(),
             }
         }
+        "create_virtual_output" | "create-virtual-output" => Action::CreateVirtualOutput {
+            name: None,
+            width: None,
+            height: None,
+            refresh_rate: None,
+        },
+        _ if let Some(name) = s
+            .strip_prefix("remove-virtual-output ")
+            .or_else(|| s.strip_prefix("remove_virtual_output ")) =>
+        {
+            Action::RemoveVirtualOutput {
+                name: name.to_string(),
+            }
+        }
         _ => return Err(format!("unknown action: {s}")),
     };
     Ok(action)
@@ -3281,6 +3430,61 @@ fn action_from_table_key(
         "spawn_sh" | "spawn-sh" => Some(Action::SpawnSh {
             command: value_to_string(value)?,
         }),
+        "create_virtual_output" | "create-virtual-output" => {
+            let (name, width, height, refresh_rate) = match value {
+                Value::Table(t) => (
+                    t.get::<Option<String>>("name").map_err(|e| format!("{e}"))?,
+                    t.get::<Option<u16>>("width").map_err(|e| format!("{e}"))?,
+                    t.get::<Option<u16>>("height").map_err(|e| format!("{e}"))?,
+                    {
+                        let v: Value =
+                            table_get_alias(t, "refresh_rate", "refresh-rate")?;
+                        match v {
+                            Value::Nil => None,
+                            Value::Integer(i) => Some(i as u32),
+                            Value::Number(n) => Some(n.round() as u32),
+                            other => {
+                                return Err(format!(
+                                    "create_virtual_output.refresh_rate: expected number, got {:?}",
+                                    other
+                                ))
+                            }
+                        }
+                    },
+                ),
+                // Bare `create_virtual_output = true` is shorthand for "all defaults".
+                Value::Nil | Value::Boolean(_) => (None, None, None, None),
+                _ => {
+                    return Err(
+                        "create_virtual_output expects a table of options".to_string()
+                    )
+                }
+            };
+            Some(Action::CreateVirtualOutput {
+                name,
+                width,
+                height,
+                refresh_rate,
+            })
+        }
+        "remove_virtual_output" | "remove-virtual-output" => {
+            let name = match value {
+                Value::String(s) => s.to_str().map_err(|e| format!("{e}"))?.to_string(),
+                Value::Table(t) => t
+                    .get::<Option<String>>("name")
+                    .map_err(|e| format!("{e}"))?
+                    .ok_or_else(|| {
+                        "remove_virtual_output requires a `name`".to_string()
+                    })?,
+                _ => {
+                    return Err(
+                        "remove_virtual_output expects a string name or a table with `name`"
+                            .to_string(),
+                    )
+                }
+            };
+            Some(Action::RemoveVirtualOutput { name })
+        }
         "close_window" | "close-window" => Some(Action::CloseWindow { id: None }),
         "fullscreen_window" | "fullscreen-window" => Some(Action::FullscreenWindow { id: None }),
         "toggle_window_floating" | "toggle-window-floating" => {
