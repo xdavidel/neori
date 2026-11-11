@@ -246,6 +246,16 @@ impl CompositorHandler for State {
 
                         self.neori.queue_redraw(&output);
                     }
+
+                    // Fire the Lua `window-opened` event.
+                    let snapshot = self
+                        .neori
+                        .layout
+                        .find_window_and_output(surface)
+                        .map(|(mapped, _)| crate::script::snapshot_mapped(&self.neori, mapped));
+                    if let Some(snap) = snapshot {
+                        self.fire_window_event("window-opened", snap);
+                    }
                     return;
                 }
 
@@ -268,6 +278,13 @@ impl CompositorHandler for State {
 
                 // This is a commit of a previously-mapped toplevel.
                 let is_mapped = is_mapped(surface);
+
+                // Snapshot before `remove_window` so the `window-closed` Lua handler sees
+                // the window's final workspace/output. `app_id` / `title` are read from
+                // the `Mapped`-side mirror so the role being cleared by the unmap commit
+                // doesn't blank them out.
+                let closed_snapshot =
+                    (!is_mapped).then(|| crate::script::snapshot_mapped(&self.neori, mapped));
 
                 // Must start the close animation before window.on_commit().
                 let transaction = Transaction::new();
@@ -298,6 +315,10 @@ impl CompositorHandler for State {
                     self.neori
                         .layout
                         .remove_window(&window, transaction.clone());
+
+                    if let Some(snap) = closed_snapshot {
+                        self.fire_window_event("window-closed", snap);
+                    }
                     self.add_default_dmabuf_pre_commit_hook(surface);
 
                     // If this is the only instance, then this transaction will complete

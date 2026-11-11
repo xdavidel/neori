@@ -686,7 +686,11 @@ impl State {
     /// between the function and the static Action.
     fn dispatch_bind_inner(&mut self, bind: &Bind) {
         if let Some(fn_ref) = &bind.script_fn {
-            match self.scripting.call_bind_function(fn_ref.id) {
+            // Prime neori.windows() / neori.focused_window() with current state.
+            self.prime_window_cache();
+            let result = self.scripting.call_bind_function(fn_ref.id);
+            self.clear_window_cache();
+            match result {
                 Ok(pending) => {
                     for action in pending {
                         self.do_action(action, bind.allow_when_locked);

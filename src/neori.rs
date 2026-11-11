@@ -338,6 +338,11 @@ pub struct Neori {
     pub bind_repeat_timer: Option<RegistrationToken>,
     pub keyboard_focus: KeyboardFocus,
     pub layer_shell_on_demand_focus: Option<LayerSurface>,
+    /// Id of the most recently focused window, or `None` if nothing was focused.
+    ///
+    /// Used by [`State::maybe_fire_window_focused`] to detect focus transitions and
+    /// invoke `neori.on("window-focused", …)` handlers only on change.
+    pub last_focused_window_id: Option<u64>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
     pub is_fdo_idle_inhibited: Arc<AtomicBool>,
     pub keyboard_shortcuts_inhibiting_surfaces: HashMap<WlSurface, KeyboardShortcutsInhibitor>,
@@ -1497,6 +1502,25 @@ impl State {
 
             // FIXME: can be more granular.
             self.neori.queue_redraw_all();
+        }
+
+        self.maybe_fire_window_focused();
+    }
+
+    /// Fire `neori.on("window-focused", …)` if the focused window changed since the
+    /// last call. The handler gets the newly focused window as its argument; no event
+    /// is fired when focus moves to nothing (yet — a future `window-unfocused` event
+    /// could address that).
+    pub fn maybe_fire_window_focused(&mut self) {
+        let focused_id = self.neori.layout.focus().map(|m| m.id().get());
+        if focused_id == self.neori.last_focused_window_id {
+            return;
+        }
+        self.neori.last_focused_window_id = focused_id;
+
+        if let Some(mapped) = self.neori.layout.focus() {
+            let snap = crate::script::snapshot_mapped(&self.neori, mapped);
+            self.fire_window_event("window-focused", snap);
         }
     }
 
@@ -2766,6 +2790,7 @@ impl Neori {
             seat,
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
+            last_focused_window_id: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
             keyboard_shortcuts_inhibiting_surfaces: HashMap::new(),

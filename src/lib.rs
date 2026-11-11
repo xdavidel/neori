@@ -20,6 +20,7 @@ pub mod neori;
 pub mod protocols;
 pub mod render_helpers;
 pub mod rubber_band;
+pub mod script;
 #[cfg(feature = "xdp-gnome-screencast")]
 pub mod screencasting;
 pub mod ui;

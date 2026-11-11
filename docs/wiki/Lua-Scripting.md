@@ -72,7 +72,7 @@ queued are still dispatched — once they leave the Lua side they're committed.
 ## `neori.on(event, function)` — Lua event handlers
 
 Event handlers accept the same three shapes as `neori.bind`; a Lua function argument
-works today for all seven events.
+works today for all supported events.
 
 ```lua
 neori.on("startup", function()
@@ -94,13 +94,70 @@ neori.on("lid-closed", function()
 end)
 ```
 
-Supported event names: `startup`, `monitor-added`, `monitor-removed`, `lid-open`,
-`lid-closed`, `tablet-mode-on`, `tablet-mode-off`.
+Supported event names and their handler arg:
 
-The arg a handler receives is event-specific:
+| event               | arg                                      |
+|---                  |---                                       |
+| `startup`           | — (no arg)                               |
+| `monitor-added`     | string, the connector's name             |
+| `monitor-removed`   | string, the connector's name             |
+| `lid-open`          | — (no arg)                               |
+| `lid-closed`        | — (no arg)                               |
+| `tablet-mode-on`    | — (no arg)                               |
+| `tablet-mode-off`   | — (no arg)                               |
+| `window-opened`     | `Window` userdata — see the next section |
+| `window-closed`     | `Window` userdata                        |
+| `window-focused`    | `Window` userdata                        |
 
-- `monitor-added` / `monitor-removed`: the output's connector name (string).
-- All other events: no arg.
+## Windows
+
+Inside any Lua callback (bind or event), `neori.windows()` returns a snapshot array of
+the mapped windows, and `neori.focused_window()` returns the focused one or `nil`.
+Window event handlers receive the subject `Window` as their argument.
+
+```lua
+neori.on("window-opened", function(w)
+    print("opened:", w:id(), w:app_id(), w:title())
+    if w:app_id() == "firefox" and w:workspace().name ~= "browser" then
+        neori.action("move-window-to-workspace", 2)
+    end
+end)
+
+neori.on("window-focused", function(w)
+    neori.action("spawn-sh", string.format(
+        "notify-send 'focus' '%s'", w:app_id() or "?"))
+end)
+
+-- Count floating windows on the current output.
+neori.bind("Mod+Alt+C", function()
+    local n = 0
+    for _, w in ipairs(neori.windows()) do
+        if w:is_floating() then n = n + 1 end
+    end
+    neori.action("spawn-sh", "notify-send 'floating: " .. n .. "'")
+end)
+```
+
+### `Window` methods
+
+Every method returns an immutable snapshot of the window at the time the Window
+value was created. Re-fetch via `neori.windows()` / `neori.focused_window()` or a
+subsequent event if you need up-to-date state.
+
+| method              | returns                                                    |
+|---                  |---                                                         |
+| `w:id()`            | stable numeric id (persists across focus/workspace moves)  |
+| `w:app_id()`        | string or `nil`                                            |
+| `w:title()`         | string or `nil`                                            |
+| `w:is_focused()`    | boolean                                                    |
+| `w:is_floating()`   | boolean                                                    |
+| `w:is_fullscreen()` | boolean                                                    |
+| `w:workspace()`     | `{ idx = <number>, name = <string?> }` or `nil`            |
+| `w:output()`        | connector-name string or `nil`                             |
+
+Mutation methods (`w:close()`, `w:focus()`, `w:send_to_workspace(n)`, …) are planned
+for the next round; for now use `neori.action(name, args)` with the matching IPC
+action to mutate state.
 
 ## Reload semantics
 
@@ -111,8 +168,11 @@ new config decides what that chord does now. Same for `neori.on` handlers.
 
 ## Known limitations (today)
 
-- No live window / output / workspace userdata — you can't `window:focus()` yet; use
-  `neori.action("focus-column-right")` and the other declarative actions instead.
+- Window userdata is **read-only snapshots**. Mutation (`w:focus()`, `w:close()`,
+  `w:send_to_workspace(n)`) is planned for the next round; for now, drive it via
+  `neori.action("…")` with the matching IPC action.
+- No `Output` / `Workspace` userdata yet — use `w:output()` / `w:workspace()` and
+  `neori.action("output", { name = "…", … })` for configuration changes.
 - No `neori.timer` — defer work with `neori.action("spawn-sh", "sleep 1 && …")`.
 - Hotkey overlay doesn't show Lua-function binds' custom titles yet.
 - Function callbacks are synchronous on the compositor thread; don't block.

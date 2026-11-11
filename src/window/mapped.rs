@@ -97,6 +97,17 @@ pub struct Mapped {
     /// Whether this window is floating.
     is_floating: bool,
 
+    /// Last-seen `xdg_toplevel.app_id` for this window.
+    ///
+    /// Mirrors the role attribute so `window-closed` (and anything that samples after
+    /// the client's unmap commit, which clears the role) still has the value. Updated
+    /// at map time and on every `app_id_changed` signal.
+    last_known_app_id: Option<String>,
+
+    /// Last-seen `xdg_toplevel.title` for this window, mirrored for the same reason as
+    /// [`Mapped::last_known_app_id`].
+    last_known_title: Option<String>,
+
     /// Whether this window is a target of a window cast.
     is_window_cast_target: bool,
 
@@ -275,6 +286,18 @@ impl Mapped {
     pub fn new(window: Window, rules: ResolvedWindowRules, hook: HookId, config: &Config) -> Self {
         let surface = window.wl_surface().expect("no X11 support");
         let credentials = get_credentials_for_surface(&surface);
+
+        // Mirror the current role values so they survive the client's unmap commit, which
+        // clears them on the role side (see `last_known_app_id` for context).
+        let (initial_app_id, initial_title) = window
+            .toplevel()
+            .map(|toplevel| {
+                crate::utils::with_toplevel_role(toplevel, |role| {
+                    (role.app_id.clone(), role.title.clone())
+                })
+            })
+            .unwrap_or_default();
+
         let mut rv = Self {
             window,
             id: MappedId::next(),
@@ -308,12 +331,38 @@ impl Mapped {
             is_pending_maximized: false,
             uncommitted_maximized: Vec::new(),
             focus_timestamp: None,
+            last_known_app_id: initial_app_id,
+            last_known_title: initial_title,
         };
 
         rv.is_maximized = rv.sizing_mode().is_maximized();
         rv.is_pending_maximized = rv.pending_sizing_mode().is_maximized();
 
         rv
+    }
+
+    /// Returns the last known `xdg_toplevel.app_id` for this window.
+    ///
+    /// Reads a Rust-side mirror; useful when the underlying role data may have been
+    /// cleared (e.g. during unmap handling for the `window-closed` Lua event).
+    pub fn last_known_app_id(&self) -> Option<&str> {
+        self.last_known_app_id.as_deref()
+    }
+
+    /// Returns the last known `xdg_toplevel.title` for this window.
+    pub fn last_known_title(&self) -> Option<&str> {
+        self.last_known_title.as_deref()
+    }
+
+    /// Re-read the role's `app_id` / `title` into the local mirror.
+    ///
+    /// Call from `app_id_changed` / `title_changed` signals.
+    pub fn refresh_last_known_app_id_title(&mut self) {
+        let (app_id, title) = crate::utils::with_toplevel_role(self.toplevel(), |role| {
+            (role.app_id.clone(), role.title.clone())
+        });
+        self.last_known_app_id = app_id;
+        self.last_known_title = title;
     }
 
     pub fn toplevel(&self) -> &ToplevelSurface {

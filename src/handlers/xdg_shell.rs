@@ -900,10 +900,24 @@ impl XdgShellHandler for State {
     }
 
     fn app_id_changed(&mut self, toplevel: ToplevelSurface) {
+        if let Some((mapped, _)) = self
+            .neori
+            .layout
+            .find_window_and_output_mut(toplevel.wl_surface())
+        {
+            mapped.refresh_last_known_app_id_title();
+        }
         self.update_window_rules(&toplevel);
     }
 
     fn title_changed(&mut self, toplevel: ToplevelSurface) {
+        if let Some((mapped, _)) = self
+            .neori
+            .layout
+            .find_window_and_output_mut(toplevel.wl_surface())
+        {
+            mapped.refresh_last_known_app_id_title();
+        }
         self.update_window_rules(&toplevel);
     }
 

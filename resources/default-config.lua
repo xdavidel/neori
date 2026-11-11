@@ -637,6 +637,25 @@ end
 --   end
 -- end)
 
+-- Window events + Window userdata (read-only snapshots):
+-- neori.on("window-opened", function(w)
+--   neori.action("spawn-sh", string.format(
+--     "notify-send 'opened' '%s'", w:app_id() or "?"))
+-- end)
+-- neori.on("window-focused", function(w)
+--   -- Example: auto-send Firefox to the "browser" workspace on focus.
+--   if w:app_id() == "firefox" and w:workspace() and w:workspace().name ~= "browser" then
+--     neori.action("move-window-to-workspace", 2)
+--   end
+-- end)
+-- neori.bind("Mod+Alt+C", function()
+--   local n = 0
+--   for _, w in ipairs(neori.windows()) do
+--     if w:is_floating() then n = n + 1 end
+--   end
+--   neori.action("spawn-sh", "notify-send 'floating:' '" .. n .. "'")
+-- end)
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

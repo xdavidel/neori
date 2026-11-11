@@ -50,6 +50,73 @@ type BindFnRegistry = Arc<Mutex<HashMap<u64, mlua::Function>>>;
 /// The compositor drains it after every Lua callback call and dispatches each action.
 type PendingActions = Arc<Mutex<Vec<Action>>>;
 
+/// Snapshot of a window's state, exposed to Lua as the `Window` userdata.
+///
+/// All fields are captured at the moment the snapshot is built; subsequent compositor
+/// changes do not update a snapshot that has already been handed to Lua. This keeps the
+/// Lua/Rust boundary simple (no lifetime games, no "window gone" errors) at the cost of
+/// requiring users to re-query via `neori.windows()` or wait for the next event.
+#[derive(Debug, Clone, Default)]
+pub struct WindowSnapshot {
+    /// Stable per-window id (`MappedId::get()`). Carries forward to the mutation API
+    /// planned for the next scripting round.
+    pub id: u64,
+    pub app_id: Option<String>,
+    pub title: Option<String>,
+    pub is_focused: bool,
+    pub is_floating: bool,
+    pub is_fullscreen: bool,
+    /// 1-based global index of the workspace the window lives on.
+    pub workspace_idx: Option<u8>,
+    pub workspace_name: Option<String>,
+    /// Connector-style output name the window currently lives on.
+    pub output_name: Option<String>,
+}
+
+/// Cached snapshot of compositor state used by `neori.windows()` and
+/// `neori.focused_window()`. The compositor refreshes it before every Lua callback.
+#[derive(Debug, Default, Clone)]
+pub struct WindowCache {
+    pub windows: Vec<WindowSnapshot>,
+    pub focused: Option<WindowSnapshot>,
+}
+
+type SharedWindowCache = Arc<Mutex<WindowCache>>;
+
+/// Lua `Window` userdata: a snapshot wrapper with read-only accessors.
+#[derive(Debug, Clone)]
+pub struct Window(pub WindowSnapshot);
+
+impl mlua::UserData for Window {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        methods.add_method("id", |_, this, ()| Ok(this.0.id));
+        methods.add_method("app_id", |_, this, ()| Ok(this.0.app_id.clone()));
+        methods.add_method("title", |_, this, ()| Ok(this.0.title.clone()));
+        methods.add_method("is_focused", |_, this, ()| Ok(this.0.is_focused));
+        methods.add_method("is_floating", |_, this, ()| Ok(this.0.is_floating));
+        methods.add_method("is_fullscreen", |_, this, ()| Ok(this.0.is_fullscreen));
+        methods.add_method("workspace", |lua, this, ()| {
+            if this.0.workspace_idx.is_none() && this.0.workspace_name.is_none() {
+                return Ok(mlua::Value::Nil);
+            }
+            let t = lua.create_table()?;
+            if let Some(idx) = this.0.workspace_idx {
+                t.set("idx", idx)?;
+            }
+            if let Some(name) = &this.0.workspace_name {
+                t.set("name", name.clone())?;
+            }
+            Ok(mlua::Value::Table(t))
+        });
+        methods.add_method("output", |_, this, ()| Ok(this.0.output_name.clone()));
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+            let app = this.0.app_id.as_deref().unwrap_or("?");
+            let title = this.0.title.as_deref().unwrap_or("?");
+            Ok(format!("Window(#{}, app_id={app:?}, title={title:?})", this.0.id))
+        });
+    }
+}
+
 /// A persistent Lua host for the compositor.
 ///
 /// Owns a Lua state with the neori config API and keeps the function callbacks registered
@@ -64,6 +131,9 @@ pub struct ScriptHost {
     next_bind_fn_id: Arc<AtomicU64>,
     /// Queue of actions enqueued by Lua via `neori.action`.
     pending_actions: PendingActions,
+    /// Cached compositor state powering `neori.windows()` and
+    /// `neori.focused_window()`. The compositor refreshes it before every Lua call.
+    window_cache: SharedWindowCache,
 }
 
 impl ScriptHost {
@@ -73,13 +143,29 @@ impl ScriptHost {
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let pending_actions = Arc::new(Mutex::new(Vec::new()));
+        let window_cache = Arc::new(Mutex::new(WindowCache::default()));
         Ok(Self {
             lua,
             event_functions,
             bind_functions,
             next_bind_fn_id,
             pending_actions,
+            window_cache,
         })
+    }
+
+    /// Replaces the current window cache with a fresh snapshot.
+    ///
+    /// The compositor calls this right before every Lua callback invocation so
+    /// `neori.windows()` and `neori.focused_window()` see current compositor state.
+    pub fn set_window_cache(&self, cache: WindowCache) {
+        *self.window_cache.lock().unwrap() = cache;
+    }
+
+    /// Clears the window cache. Called after a Lua callback returns so stale state does
+    /// not leak into a later direct-API call that bypasses the cache refresh.
+    pub fn clear_window_cache(&self) {
+        *self.window_cache.lock().unwrap() = WindowCache::default();
     }
 
     /// Runs the config script at `path` in this host.
@@ -100,6 +186,7 @@ impl ScriptHost {
         self.event_functions.lock().unwrap().clear();
         self.bind_functions.lock().unwrap().clear();
         self.pending_actions.lock().unwrap().clear();
+        *self.window_cache.lock().unwrap() = WindowCache::default();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -143,6 +230,7 @@ impl ScriptHost {
             &self.bind_functions,
             &self.next_bind_fn_id,
             &self.pending_actions,
+            &self.window_cache,
             search_dir,
             Arc::clone(&includes),
         )
@@ -420,12 +508,14 @@ fn glob_to_regex(pattern: &str) -> Result<regex::Regex, String> {
 /// The functions write into a separate `data` table that has the same shape as the
 /// `return { ... }` table style. After the script runs, `data` is merged with the return
 /// value (see [`merge_api_data`]) and parsed as usual. Returns the `data` table.
+#[allow(clippy::too_many_arguments)]
 fn setup_neori_api(
     lua: &Lua,
     event_functions: &EventRegistry,
     bind_functions: &BindFnRegistry,
     next_bind_fn_id: &Arc<AtomicU64>,
     pending_actions: &PendingActions,
+    window_cache: &SharedWindowCache,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -627,6 +717,37 @@ fn setup_neori_api(
         neori.set("action", func).map_err(err)?;
     }
 
+    // neori.windows() returns an array of Window userdata snapshotting every mapped
+    // window at the time of the call. The compositor refreshes the backing cache before
+    // every Lua callback so each call sees current state; outside a callback the array
+    // is empty.
+    //
+    // neori.focused_window() returns the focused Window, or nil if nothing is focused.
+    {
+        let cache = Arc::clone(window_cache);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let snapshots = cache.lock().unwrap().windows.clone();
+                let arr = lua.create_table()?;
+                for (i, snap) in snapshots.into_iter().enumerate() {
+                    arr.set(i + 1, Window(snap))?;
+                }
+                Ok(arr)
+            })
+            .map_err(err)?;
+        neori.set("windows", func).map_err(err)?;
+    }
+    {
+        let cache = Arc::clone(window_cache);
+        let func = lua
+            .create_function(move |_lua, ()| {
+                let focused = cache.lock().unwrap().focused.clone();
+                Ok(focused.map(Window))
+            })
+            .map_err(err)?;
+        neori.set("focused_window", func).map_err(err)?;
+    }
+
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and
     // neori.on. `neori.spawn("kitty")` and `neori.spawn { "kitty", "-e", "sh" }` build an
     // argv command; `neori.spawn_sh("cmd | cmd")` builds a shell command. An optional
@@ -778,11 +899,14 @@ fn setup_neori_api(
                     "lid-closed" | "lid_closed" => "lid-closed",
                     "tablet-mode-on" | "tablet_mode_on" => "tablet-mode-on",
                     "tablet-mode-off" | "tablet_mode_off" => "tablet-mode-off",
+                    "window-opened" | "window_opened" => "window-opened",
+                    "window-closed" | "window_closed" => "window-closed",
+                    "window-focused" | "window_focused" => "window-focused",
                     _ => {
                         return Err(LuaError::runtime(format!(
                             "unknown event '{event}' (supported events: startup, monitor-added, \
                              monitor-removed, lid-open, lid-closed, tablet-mode-on, \
-                             tablet-mode-off)"
+                             tablet-mode-off, window-opened, window-closed, window-focused)"
                         )));
                     }
                 };

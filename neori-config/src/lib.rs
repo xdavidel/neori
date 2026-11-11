@@ -52,7 +52,10 @@ pub use crate::layer_rule::LayerRule;
 pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
-pub use crate::parse_lua::ScriptHost;
+pub use crate::parse_lua::{ScriptHost, Window, WindowCache, WindowSnapshot};
+/// Re-exported so downstream crates (compositor, tests) can read Lua values via
+/// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
+pub use mlua;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::utils::FloatOrInt;
 pub use crate::window_rule::{
@@ -505,6 +508,134 @@ mod tests {
     fn enlarge_cursor_action_parses() {
         let config = Config::parse_mem(r#"neori.bind("Mod+Shift+F", "enlarge-cursor")"#).unwrap();
         assert!(actions(&config).contains(&Action::EnlargeCursor {}));
+    }
+
+    #[test]
+    fn window_api_registers_on_neori_table() {
+        // neori.windows(), neori.focused_window(), and the three new events are on
+        // the neori API, not via parse_bind_entry — this test just verifies they parse.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("window-opened",  function(w) end)
+            neori.on("window-closed",  function(w) end)
+            neori.on("window-focused", function(w) end)
+            local n = #neori.windows()
+            local f = neori.focused_window()
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // The handlers are registered under their canonical event names.
+        for ev in ["window-opened", "window-closed", "window-focused"] {
+            // call_event_with returns Ok(empty Vec) for events with no state. The
+            // registration was successful if the call doesn't error.
+            let actions = host
+                .call_event_with::<Window>(ev, Window(WindowSnapshot::default()))
+                .unwrap();
+            // The default snapshot runs through the handler without side effects.
+            assert!(actions.is_empty(), "{ev}: unexpected actions {actions:?}");
+        }
+    }
+
+    #[test]
+    fn window_userdata_methods_return_snapshot_fields() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            captured = {}
+            neori.on("window-focused", function(w)
+                captured.id         = w:id()
+                captured.app_id     = w:app_id()
+                captured.title      = w:title()
+                captured.focused    = w:is_focused()
+                captured.floating   = w:is_floating()
+                captured.fullscreen = w:is_fullscreen()
+                captured.output     = w:output()
+                captured.ws_idx     = w:workspace() and w:workspace().idx or nil
+                captured.ws_name    = w:workspace() and w:workspace().name or nil
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let snap = WindowSnapshot {
+            id: 42,
+            app_id: Some("firefox".to_string()),
+            title: Some("Example — Mozilla Firefox".to_string()),
+            is_focused: true,
+            is_floating: false,
+            is_fullscreen: false,
+            workspace_idx: Some(3),
+            workspace_name: Some("browser".to_string()),
+            output_name: Some("eDP-1".to_string()),
+        };
+        host.call_event_with("window-focused", Window(snap)).unwrap();
+
+        let captured = host
+            .read_global("captured")
+            .expect("captured table missing");
+        let mlua::Value::Table(t) = captured else {
+            panic!("captured is not a table");
+        };
+        assert_eq!(t.get::<u64>("id").unwrap(), 42);
+        assert_eq!(t.get::<String>("app_id").unwrap(), "firefox");
+        assert_eq!(
+            t.get::<String>("title").unwrap(),
+            "Example — Mozilla Firefox"
+        );
+        assert!(t.get::<bool>("focused").unwrap());
+        assert!(!t.get::<bool>("floating").unwrap());
+        assert!(!t.get::<bool>("fullscreen").unwrap());
+        assert_eq!(t.get::<String>("output").unwrap(), "eDP-1");
+        assert_eq!(t.get::<u64>("ws_idx").unwrap(), 3);
+        assert_eq!(t.get::<String>("ws_name").unwrap(), "browser");
+    }
+
+    #[test]
+    fn neori_windows_reads_cached_snapshots() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = 0
+            neori.on("startup", function()
+                for _, w in ipairs(neori.windows()) do
+                    seen = seen + 1
+                end
+                focused_app_id = neori.focused_window() and neori.focused_window():app_id() or nil
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let w1 = WindowSnapshot {
+            id: 1,
+            app_id: Some("a".into()),
+            is_focused: false,
+            ..Default::default()
+        };
+        let w2 = WindowSnapshot {
+            id: 2,
+            app_id: Some("b".into()),
+            is_focused: true,
+            ..Default::default()
+        };
+        host.set_window_cache(WindowCache {
+            windows: vec![w1, w2.clone()],
+            focused: Some(w2),
+        });
+        host.call_event("startup").unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        assert!(matches!(seen, mlua::Value::Integer(2)));
+        let app = host.read_global("focused_app_id").unwrap();
+        let mlua::Value::String(s) = app else {
+            panic!("focused_app_id is not a string");
+        };
+        assert_eq!(s.to_str().unwrap().to_string(), "b");
     }
 
     #[test]
