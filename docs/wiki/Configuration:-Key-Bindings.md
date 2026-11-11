@@ -13,6 +13,10 @@ neori.bind("Mod+Left", "focus-column-left")
 neori.bind("Super+Alt+L", neori.spawn("swaylock"))
 ```
 
+Binds can also take a Lua function — see [Lua Scripting](./Lua-Scripting.md) for the
+runtime API (`neori.bind("key", function() … end)`, `neori.action(name, args)`, Lua event
+handlers).
+
 The hotkey consists of modifiers separated by `+` signs, followed by an XKB key name in the end.
 
 Valid modifiers are:

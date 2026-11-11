@@ -15,12 +15,32 @@ pub struct Binds(pub Vec<Bind>);
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bind {
     pub key: Key,
-    pub action: Action,
+    /// Static action to dispatch when the bind fires.
+    ///
+    /// `None` means the bind only triggers a Lua function via [`Bind::script_fn`]. Both
+    /// may be set simultaneously; in that case the Lua function runs first and its queued
+    /// `neori.action` calls are dispatched before the static action.
+    pub action: Option<Action>,
+    /// Lua function registered with `neori.bind(key, function)`.
+    ///
+    /// The id is looked up in [`crate::ScriptHost`] which owns the actual function value.
+    /// `None` for binds declared without a function callback.
+    pub script_fn: Option<ScriptFn>,
     pub repeat: bool,
     pub cooldown: Option<Duration>,
     pub allow_when_locked: bool,
     pub allow_inhibiting: bool,
     pub hotkey_overlay_title: Option<Option<String>>,
+}
+
+/// Reference to a Lua function stored in [`crate::ScriptHost`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScriptFn {
+    /// Opaque, monotonically-incrementing id assigned at parse time.
+    pub id: u64,
+    /// Optional label for the hotkey overlay, picked from the bind's
+    /// `hotkey_overlay_title` option.
+    pub label: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]

@@ -215,7 +215,11 @@ fn ipc_dispatches_actions_parsed_from_lua_config() {
     // The Lua parser produces the same Action type that IPC uses, so the actions from a
     // config can be sent over IPC directly.
     for bind in &config.binds.0 {
-        let reply = send_action(&mut fixture, &path, bind.action.clone());
+        let Some(action) = bind.action.clone() else {
+            // Lua-function binds dispatch via ScriptFn, not Action; skip over IPC.
+            continue;
+        };
+        let reply = send_action(&mut fixture, &path, action);
         assert!(
             matches!(reply, Ok(Response::Handled)),
             "unexpected reply for {:?}: {reply:?}",

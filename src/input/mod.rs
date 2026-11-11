@@ -649,13 +649,12 @@ impl State {
 
     pub fn handle_bind(&mut self, bind: Bind) {
         let Some(cooldown) = bind.cooldown else {
-            self.do_action(bind.action, bind.allow_when_locked);
+            self.dispatch_bind_inner(&bind);
             return;
         };
 
         // Check this first so that it doesn't trigger the cooldown.
-        if self.neori.is_locked() && !(bind.allow_when_locked || allowed_when_locked(&bind.action))
-        {
+        if self.neori.is_locked() && !(bind.allow_when_locked || bind_allowed_when_locked(&bind)) {
             return;
         }
 
@@ -676,8 +675,31 @@ impl State {
                     .unwrap();
                 entry.insert(token);
 
-                self.do_action(bind.action, bind.allow_when_locked);
+                self.dispatch_bind_inner(&bind);
             }
+        }
+    }
+
+    /// Dispatch the Lua-function part of a bind (if any), then its static Action (if any).
+    ///
+    /// Any `neori.action` calls the Lua function makes are drained and dispatched
+    /// between the function and the static Action.
+    fn dispatch_bind_inner(&mut self, bind: &Bind) {
+        if let Some(fn_ref) = &bind.script_fn {
+            match self.scripting.call_bind_function(fn_ref.id) {
+                Ok(pending) => {
+                    for action in pending {
+                        self.do_action(action, bind.allow_when_locked);
+                    }
+                }
+                Err(err) => {
+                    warn!("Lua bind callback error: {err}");
+                    self.neori.config_error_notification.show();
+                }
+            }
+        }
+        if let Some(action) = bind.action.clone() {
+            self.do_action(action, bind.allow_when_locked);
         }
     }
 
@@ -3015,7 +3037,7 @@ impl State {
                     find_configured_bind(bindings, mod_key, trigger, mods)
                 })
                 .filter(|bind| {
-                    !self.neori.screenshot_ui.is_open() || allowed_during_screenshot(&bind.action)
+                    !self.neori.screenshot_ui.is_open() || bind_allowed_during_screenshot(bind)
                 }) {
                     self.neori.suppressed_buttons.insert(button_code);
                     self.handle_bind(bind.clone());
@@ -3340,7 +3362,8 @@ impl State {
                                     trigger: Trigger::WheelScrollLeft,
                                     modifiers: Modifiers::empty(),
                                 },
-                                action: Action::FocusColumnLeftUnderMouse,
+                                action: Some(Action::FocusColumnLeftUnderMouse),
+                                script_fn: None,
                                 repeat: true,
                                 cooldown: None,
                                 allow_when_locked: false,
@@ -3352,7 +3375,8 @@ impl State {
                                     trigger: Trigger::WheelScrollRight,
                                     modifiers: Modifiers::empty(),
                                 },
-                                action: Action::FocusColumnRightUnderMouse,
+                                action: Some(Action::FocusColumnRightUnderMouse),
+                                script_fn: None,
                                 repeat: true,
                                 cooldown: None,
                                 allow_when_locked: false,
@@ -3372,7 +3396,7 @@ impl State {
                             )
                             .filter(|bind| {
                                 !self.neori.screenshot_ui.is_open()
-                                    || allowed_during_screenshot(&bind.action)
+                                    || bind_allowed_during_screenshot(bind)
                             });
                             let bind_right = find_configured_bind(
                                 bindings,
@@ -3382,7 +3406,7 @@ impl State {
                             )
                             .filter(|bind| {
                                 !self.neori.screenshot_ui.is_open()
-                                    || allowed_during_screenshot(&bind.action)
+                                    || bind_allowed_during_screenshot(bind)
                             });
                             (bind_left, bind_right)
                         };
@@ -3409,7 +3433,8 @@ impl State {
                                 trigger: Trigger::WheelScrollUp,
                                 modifiers: Modifiers::empty(),
                             },
-                            action: Action::FocusWorkspaceUpUnderMouse,
+                            action: Some(Action::FocusWorkspaceUpUnderMouse),
+                            script_fn: None,
                             repeat: true,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
@@ -3421,7 +3446,8 @@ impl State {
                                 trigger: Trigger::WheelScrollDown,
                                 modifiers: Modifiers::empty(),
                             },
-                            action: Action::FocusWorkspaceDownUnderMouse,
+                            action: Some(Action::FocusWorkspaceDownUnderMouse),
+                            script_fn: None,
                             repeat: true,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
@@ -3435,7 +3461,8 @@ impl State {
                                 trigger: Trigger::WheelScrollUp,
                                 modifiers: Modifiers::empty(),
                             },
-                            action: Action::FocusColumnLeftUnderMouse,
+                            action: Some(Action::FocusColumnLeftUnderMouse),
+                            script_fn: None,
                             repeat: true,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
@@ -3447,7 +3474,8 @@ impl State {
                                 trigger: Trigger::WheelScrollDown,
                                 modifiers: Modifiers::empty(),
                             },
-                            action: Action::FocusColumnRightUnderMouse,
+                            action: Some(Action::FocusColumnRightUnderMouse),
+                            script_fn: None,
                             repeat: true,
                             cooldown: Some(Duration::from_millis(50)),
                             allow_when_locked: false,
@@ -3467,13 +3495,13 @@ impl State {
                         )
                         .filter(|bind| {
                             !self.neori.screenshot_ui.is_open()
-                                || allowed_during_screenshot(&bind.action)
+                                || bind_allowed_during_screenshot(bind)
                         });
                         let bind_down =
                             find_configured_bind(bindings, mod_key, Trigger::WheelScrollDown, mods)
                                 .filter(|bind| {
                                     !self.neori.screenshot_ui.is_open()
-                                        || allowed_during_screenshot(&bind.action)
+                                        || bind_allowed_during_screenshot(bind)
                                 });
                         (bind_up, bind_down)
                     };
@@ -3625,13 +3653,13 @@ impl State {
                     )
                     .filter(|bind| {
                         !self.neori.screenshot_ui.is_open()
-                            || allowed_during_screenshot(&bind.action)
+                            || bind_allowed_during_screenshot(bind)
                     });
                     let bind_right =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollRight, mods)
                             .filter(|bind| {
                                 !self.neori.screenshot_ui.is_open()
-                                    || allowed_during_screenshot(&bind.action)
+                                    || bind_allowed_during_screenshot(bind)
                             });
                     drop(config);
 
@@ -3663,13 +3691,13 @@ impl State {
                     )
                     .filter(|bind| {
                         !self.neori.screenshot_ui.is_open()
-                            || allowed_during_screenshot(&bind.action)
+                            || bind_allowed_during_screenshot(bind)
                     });
                     let bind_down =
                         find_configured_bind(bindings, mod_key, Trigger::TouchpadScrollDown, mods)
                             .filter(|bind| {
                                 !self.neori.screenshot_ui.is_open()
-                                    || allowed_during_screenshot(&bind.action)
+                                    || bind_allowed_during_screenshot(bind)
                             });
                     drop(config);
 
@@ -4028,7 +4056,7 @@ impl State {
                         }
                         .filter(|bind| {
                             !self.neori.screenshot_ui.is_open()
-                                || allowed_during_screenshot(&bind.action)
+                                || bind_allowed_during_screenshot(bind)
                         });
                         if let Some(bind) = bind {
                             self.neori.suppressed_buttons.insert(button);
@@ -4656,7 +4684,7 @@ fn should_intercept_key<'a>(
         let mut use_screenshot_ui_action = true;
 
         if let Some(bind) = &final_bind {
-            if allowed_during_screenshot(&bind.action) {
+            if bind_allowed_during_screenshot(bind) {
                 use_screenshot_ui_action = false;
             }
         }
@@ -4669,7 +4697,8 @@ fn should_intercept_key<'a>(
                         // Not entirely correct but it doesn't matter in how we currently use it.
                         modifiers: Modifiers::empty(),
                     },
-                    action,
+                    action: Some(action),
+                    script_fn: None,
                     repeat: true,
                     cooldown: None,
                     allow_when_locked: false,
@@ -4734,7 +4763,8 @@ fn find_bind<'a>(
                 trigger: Trigger::Keysym(modified),
                 modifiers: Modifiers::empty(),
             },
-            action,
+            action: Some(action),
+            script_fn: None,
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -4938,6 +4968,34 @@ fn allowed_when_locked(action: &Action) -> bool {
     )
 }
 
+/// Whether a bind (as a whole) is allowed to fire while the session is locked.
+///
+/// A Lua function callback is NEVER allowed by default — the compositor has no way to
+/// know what the function will do. Users opt in per-bind with `allow_when_locked = true`.
+/// A static action is allowed only if [`allowed_when_locked`] says so.
+fn bind_allowed_when_locked(bind: &Bind) -> bool {
+    if bind.script_fn.is_some() {
+        return false;
+    }
+    match &bind.action {
+        Some(a) => allowed_when_locked(a),
+        None => false,
+    }
+}
+
+/// Whether a bind (as a whole) is allowed to fire while the screenshot UI is open.
+///
+/// Same opt-in rule as [`bind_allowed_when_locked`] for Lua functions.
+fn bind_allowed_during_screenshot(bind: &Bind) -> bool {
+    if bind.script_fn.is_some() {
+        return false;
+    }
+    match &bind.action {
+        Some(a) => allowed_during_screenshot(a),
+        None => false,
+    }
+}
+
 fn allowed_during_screenshot(action: &Action) -> bool {
     matches!(
         action,
@@ -5004,7 +5062,8 @@ fn hardcoded_overview_bind(raw: Keysym, mods: ModifiersState) -> Option<Bind> {
             trigger: Trigger::Keysym(raw),
             modifiers: Modifiers::empty(),
         },
-        action,
+        action: Some(action),
+        script_fn: None,
         repeat,
         cooldown: None,
         allow_when_locked: false,
@@ -5437,7 +5496,8 @@ mod tests {
                 trigger: Trigger::Keysym(close_keysym),
                 modifiers: Modifiers::COMPOSITOR | Modifiers::CTRL,
             },
-            action: Action::CloseWindow { id: None },
+            action: Some(Action::CloseWindow { id: None }),
+            script_fn: None,
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5501,7 +5561,8 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow { id: None },
+                action: Some(Action::CloseWindow { id: None }),
+                script_fn: None,
                 ..
             }))
         ));
@@ -5535,7 +5596,8 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow { id: None },
+                action: Some(Action::CloseWindow { id: None }),
+                script_fn: None,
                 ..
             }))
         ));
@@ -5555,7 +5617,8 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow { id: None },
+                action: Some(Action::CloseWindow { id: None }),
+                script_fn: None,
                 ..
             }))
         ));
@@ -5602,7 +5665,8 @@ mod tests {
         assert!(matches!(
             filter,
             FilterResult::Intercept(Some(Bind {
-                action: Action::CloseWindow { id: None },
+                action: Some(Action::CloseWindow { id: None }),
+                script_fn: None,
                 ..
             }))
         ));
@@ -5623,7 +5687,8 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::q),
                     modifiers: Modifiers::COMPOSITOR,
                 },
-                action: Action::CloseWindow { id: None },
+                action: Some(Action::CloseWindow { id: None }),
+                script_fn: None,
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5635,7 +5700,8 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::h),
                     modifiers: Modifiers::SUPER,
                 },
-                action: Action::FocusColumnLeft {},
+                action: Some(Action::FocusColumnLeft {}),
+                script_fn: None,
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5647,7 +5713,8 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::j),
                     modifiers: Modifiers::empty(),
                 },
-                action: Action::FocusWindowDown {},
+                action: Some(Action::FocusWindowDown {}),
+                script_fn: None,
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5659,7 +5726,8 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::k),
                     modifiers: Modifiers::COMPOSITOR | Modifiers::SUPER,
                 },
-                action: Action::FocusWindowUp {},
+                action: Some(Action::FocusWindowUp {}),
+                script_fn: None,
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5671,7 +5739,8 @@ mod tests {
                     trigger: Trigger::Keysym(Keysym::l),
                     modifiers: Modifiers::SUPER | Modifiers::ALT,
                 },
-                action: Action::FocusColumnRight {},
+                action: Some(Action::FocusColumnRight {}),
+                script_fn: None,
                 repeat: true,
                 cooldown: None,
                 allow_when_locked: false,
@@ -5809,7 +5878,8 @@ mod tests {
                 trigger: Trigger::Keycode(53),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::CloseWindow { id: None },
+            action: Some(Action::CloseWindow { id: None }),
+            script_fn: None,
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5872,7 +5942,8 @@ mod tests {
                 trigger: Trigger::Keycode(53),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::CloseWindow { id: None },
+            action: Some(Action::CloseWindow { id: None }),
+            script_fn: None,
             repeat: true,
             cooldown: None,
             allow_when_locked: false,
@@ -5884,9 +5955,10 @@ mod tests {
                 trigger: Trigger::Keysym(Keysym::period),
                 modifiers: Modifiers::COMPOSITOR,
             },
-            action: Action::Spawn {
+            action: Some(Action::Spawn {
                 command: vec!["dmc".into(), "-n".into()],
-            },
+            }),
+            script_fn: None,
             repeat: true,
             cooldown: None,
             allow_when_locked: false,

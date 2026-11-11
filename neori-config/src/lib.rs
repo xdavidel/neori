@@ -508,6 +508,96 @@ mod tests {
     }
 
     #[test]
+    fn lua_function_bind_parses_as_script_fn() {
+        let (config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function() end)
+            neori.bind("Mod+Alt+K", "close-window")
+            "#,
+        )
+        .config
+        .unwrap();
+
+        assert_eq!(config.binds.0.len(), 2);
+
+        // Exactly one bind should be a Lua-function bind (no static action, has script_fn)
+        // and one should be a string-action bind (has action, no script_fn).
+        let fn_binds: Vec<_> = config
+            .binds
+            .0
+            .iter()
+            .filter(|b| b.script_fn.is_some())
+            .collect();
+        assert_eq!(fn_binds.len(), 1, "expected one function bind");
+        let fn_bind = fn_binds[0];
+        assert!(
+            fn_bind.action.is_none(),
+            "function bind should have no static Action, got {:?}",
+            fn_bind.action
+        );
+        let script_fn = fn_bind.script_fn.as_ref().unwrap();
+        assert!(
+            host.has_bind_function(script_fn.id),
+            "ScriptHost should have the function registered for id {}",
+            script_fn.id
+        );
+
+        // The other bind carries the static Action.
+        let str_bind = config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_none())
+            .expect("string-action bind not found");
+        assert_eq!(str_bind.action, Some(Action::CloseWindow { id: None }));
+    }
+
+    #[test]
+    fn neori_action_enqueues_pending_action() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                neori.action("spawn", { "kitty" })
+                neori.action("close-window")
+                neori.action("focus-column-left")
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // Trigger the Lua function; neori.action queued three actions.
+        // The first bind function registered in this host gets id 1.
+        let actions = host.call_bind_function(1).unwrap();
+        assert_eq!(actions.len(), 3, "got {actions:?}");
+        assert!(matches!(actions[0], Action::Spawn { .. }));
+        assert!(matches!(actions[1], Action::CloseWindow { id: None }));
+        assert!(matches!(actions[2], Action::FocusColumnLeft {}));
+
+        // Draining again yields nothing (consumed).
+        assert!(host.drain_pending_actions().is_empty());
+    }
+
+    #[test]
+    fn lua_function_bind_error_is_surfaced() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                error("intentional")
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let err = host.call_bind_function(1).expect_err("expected error");
+        assert!(err.contains("intentional"), "got {err:?}");
+    }
+
+    #[test]
     fn create_virtual_output_action_parses() {
         // Full form with all options.
         let config = Config::parse_mem(
@@ -746,7 +836,7 @@ mod tests {
     }
 
     fn actions(config: &Config) -> Vec<Action> {
-        config.binds.0.iter().map(|b| b.action.clone()).collect()
+        config.binds.0.iter().filter_map(|b| b.action.clone()).collect()
     }
 
     #[test]
@@ -908,13 +998,13 @@ mod tests {
             .iter()
             .find(|b| {
                 b.action
-                    == Action::Spawn {
+                    == Some(Action::Spawn {
                         command: vec![
                             "brightnessctl".to_string(),
                             "set".to_string(),
                             "+10%".to_string(),
                         ],
-                    }
+                    })
             })
             .unwrap();
         assert!(brightness.allow_when_locked);
@@ -925,9 +1015,9 @@ mod tests {
             .iter()
             .find(|b| {
                 b.action
-                    == Action::Spawn {
+                    == Some(Action::Spawn {
                         command: vec!["terminal-meta".to_string()],
-                    }
+                    })
             })
             .unwrap();
         assert_eq!(
@@ -1321,11 +1411,8 @@ mod tests {
 
     #[test]
     fn neori_api_bind_errors() {
-        let err = Config::parse_mem(r#"neori.bind("Mod+Q", function() end)"#).unwrap_err();
-        assert!(
-            err.main.contains("function actions are not supported yet"),
-            "{err}"
-        );
+        // Lua function callbacks on binds are now supported, so this must parse.
+        Config::parse_mem(r#"neori.bind("Mod+Q", function() end)"#).unwrap();
 
         let err = Config::parse_mem(
             r#"
@@ -1335,6 +1422,14 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.main.contains("duplicate keybind"), "{err}");
+
+        // Non-string/table/function action is still rejected.
+        let err = Config::parse_mem(r#"neori.bind("Mod+Q", 42)"#).unwrap_err();
+        assert!(
+            err.main.contains("action must be")
+                || err.main.contains("no action or Lua function"),
+            "{err}"
+        );
     }
 
     #[test]

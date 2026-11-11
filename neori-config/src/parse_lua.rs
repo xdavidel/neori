@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -39,23 +40,45 @@ pub struct ParseLuaError {
 /// The registry of Lua function callbacks registered via `neori.on(event, function)`.
 type EventRegistry = Arc<Mutex<HashMap<String, Vec<mlua::Function>>>>;
 
+/// The registry of Lua function callbacks registered via `neori.bind(key, function)`.
+///
+/// Keyed by the [`ScriptFn::id`] assigned at parse time.
+type BindFnRegistry = Arc<Mutex<HashMap<u64, mlua::Function>>>;
+
+/// Queue of [`Action`]s that Lua code enqueued via `neori.action(name, args)`.
+///
+/// The compositor drains it after every Lua callback call and dispatches each action.
+type PendingActions = Arc<Mutex<Vec<Action>>>;
+
 /// A persistent Lua host for the compositor.
 ///
 /// Owns a Lua state with the neori config API and keeps the function callbacks registered
-/// through `neori.on(event, function)`. The compositor keeps this alive so that events can
-/// be dispatched to Lua callbacks at runtime.
+/// through `neori.on(event, function)` and `neori.bind(key, function)`. The compositor
+/// keeps this alive so that events and keybinds can be dispatched to Lua callbacks at
+/// runtime.
 pub struct ScriptHost {
     lua: Lua,
     event_functions: EventRegistry,
+    bind_functions: BindFnRegistry,
+    /// Monotonic id counter for [`ScriptFn`] references.
+    next_bind_fn_id: Arc<AtomicU64>,
+    /// Queue of actions enqueued by Lua via `neori.action`.
+    pending_actions: PendingActions,
 }
 
 impl ScriptHost {
     pub fn new() -> Result<Self, String> {
         let lua = Lua::new();
         let event_functions = Arc::new(Mutex::new(HashMap::new()));
+        let bind_functions = Arc::new(Mutex::new(HashMap::new()));
+        let next_bind_fn_id = Arc::new(AtomicU64::new(1));
+        let pending_actions = Arc::new(Mutex::new(Vec::new()));
         Ok(Self {
             lua,
             event_functions,
+            bind_functions,
+            next_bind_fn_id,
+            pending_actions,
         })
     }
 
@@ -75,6 +98,8 @@ impl ScriptHost {
             ParseLuaError { message, includes }
         };
         self.event_functions.lock().unwrap().clear();
+        self.bind_functions.lock().unwrap().clear();
+        self.pending_actions.lock().unwrap().clear();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -115,6 +140,9 @@ impl ScriptHost {
         let api_data = setup_neori_api(
             &self.lua,
             &self.event_functions,
+            &self.bind_functions,
+            &self.next_bind_fn_id,
+            &self.pending_actions,
             search_dir,
             Arc::clone(&includes),
         )
@@ -148,39 +176,75 @@ impl ScriptHost {
 
     /// Calls every Lua function registered for `event`, in registration order.
     ///
-    /// Action handlers for the same event live in `Config` and are dispatched separately
-    /// by the compositor.
-    pub fn call_event(&self, event: &str) -> Result<(), String> {
-        let functions = self.event_functions.lock().unwrap();
-        let Some(functions) = functions.get(event) else {
-            return Ok(());
+    /// Returns any Actions the callbacks enqueued through `neori.action`. Static action
+    /// handlers for the same event live in `Config` and are dispatched separately by the
+    /// compositor.
+    pub fn call_event(&self, event: &str) -> Result<Vec<Action>, String> {
+        let funs = {
+            let registry = self.event_functions.lock().unwrap();
+            match registry.get(event) {
+                Some(fs) => fs.clone(),
+                None => return Ok(Vec::new()),
+            }
         };
-        for f in functions {
+        for f in &funs {
             f.call::<()>(())
                 .map_err(|e| format!("{event} callback error: {e}"))?;
         }
-        Ok(())
+        Ok(self.drain_pending_actions())
     }
 
     /// Like [`ScriptHost::call_event`], but passes `args` to every callback.
-    pub fn call_event_with<A>(&self, event: &str, args: A) -> Result<(), String>
+    pub fn call_event_with<A>(&self, event: &str, args: A) -> Result<Vec<Action>, String>
     where
         A: IntoLuaMulti + Clone,
     {
-        let event_functions = self.event_functions.lock().unwrap();
-        let Some(functions) = event_functions.get(event) else {
-            return Ok(());
+        let funs = {
+            let registry = self.event_functions.lock().unwrap();
+            match registry.get(event) {
+                Some(fs) => fs.clone(),
+                None => return Ok(Vec::new()),
+            }
         };
-        for f in functions {
+        for f in &funs {
             f.call::<()>(args.clone())
                 .map_err(|e| format!("{event} callback error: {e}"))?;
         }
-        Ok(())
+        Ok(self.drain_pending_actions())
     }
 
     /// Reads a global value from the Lua state, for introspection in tests.
     pub fn read_global(&self, key: &str) -> mlua::Result<Value> {
         self.lua.globals().get::<Value>(key)
+    }
+
+    /// Calls the Lua function registered for `id`, in registration order if multiple
+    /// callbacks share the same id (currently each bind has a unique id).
+    ///
+    /// Returns the list of Actions that the function enqueued through `neori.action`.
+    /// The compositor should then dispatch them.
+    pub fn call_bind_function(&self, id: u64) -> Result<Vec<Action>, String> {
+        let fun = {
+            let funs = self.bind_functions.lock().unwrap();
+            match funs.get(&id) {
+                Some(f) => f.clone(),
+                None => return Err(format!("no Lua function registered for bind id {id}")),
+            }
+        };
+        fun.call::<()>(())
+            .map_err(|e| format!("bind callback error: {e}"))?;
+        Ok(self.drain_pending_actions())
+    }
+
+    /// Drains and returns any [`Action`]s that Lua code enqueued via `neori.action`.
+    pub fn drain_pending_actions(&self) -> Vec<Action> {
+        let mut queue = self.pending_actions.lock().unwrap();
+        std::mem::take(&mut *queue)
+    }
+
+    /// Returns whether a bind function is registered for `id`.
+    pub fn has_bind_function(&self, id: u64) -> bool {
+        self.bind_functions.lock().unwrap().contains_key(&id)
     }
 }
 
@@ -359,6 +423,9 @@ fn glob_to_regex(pattern: &str) -> Result<regex::Regex, String> {
 fn setup_neori_api(
     lua: &Lua,
     event_functions: &EventRegistry,
+    bind_functions: &BindFnRegistry,
+    next_bind_fn_id: &Arc<AtomicU64>,
+    pending_actions: &PendingActions,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -435,18 +502,23 @@ fn setup_neori_api(
         neori.set("include", func).map_err(err)?;
     }
 
-    // neori.bind(key, action) with a string or table action. Binds are appended to a
-    // sequence so that definition order is preserved (it matters for the hotkey overlay).
+    // neori.bind(key, action) accepts a string, a table, or a Lua function. Binds are
+    // appended to a sequence so that definition order is preserved (it matters for the
+    // hotkey overlay). A function callback is stored in `bind_functions` keyed by a
+    // monotonic id; the parsed Bind carries that id in `script_fn`.
     {
         let data = data.clone();
+        let bind_functions = Arc::clone(bind_functions);
+        let next_bind_fn_id = Arc::clone(next_bind_fn_id);
         let func = lua
             .create_function(move |lua, (key, action): (String, Value)| {
                 match &action {
-                    Value::String(_) | Value::Table(_) => {}
-                    Value::Function(_) => {
-                        return Err(LuaError::runtime("function actions are not supported yet"));
+                    Value::String(_) | Value::Table(_) | Value::Function(_) => {}
+                    _ => {
+                        return Err(LuaError::runtime(
+                            "action must be a string, a table, or a function",
+                        ))
                     }
-                    _ => return Err(LuaError::runtime("action must be a string or a table")),
                 }
                 key.parse::<Key>()
                     .map_err(|e| LuaError::runtime(format!("invalid keybind '{key}': {e}")))?;
@@ -477,12 +549,82 @@ fn setup_neori_api(
                 }
                 let entry = lua.create_table()?;
                 entry.set("key", key)?;
-                entry.set("action", action)?;
+                match action {
+                    Value::Function(f) => {
+                        let id = next_bind_fn_id.fetch_add(1, Ordering::SeqCst);
+                        bind_functions.lock().unwrap().insert(id, f);
+                        // Encode the Lua function reference as a table action so the
+                        // normal bind-entry parser picks it up via `script_fn_id`.
+                        let fn_table = lua.create_table()?;
+                        fn_table.set("script_fn_id", id)?;
+                        entry.set("action", fn_table)?;
+                    }
+                    other => {
+                        entry.set("action", other)?;
+                    }
+                }
                 binds.push(entry)?;
                 Ok(())
             })
             .map_err(err)?;
         neori.set("bind", func).map_err(err)?;
+    }
+
+    // neori.action(name, args?) dispatches an IPC Action at runtime from inside a Lua
+    // callback. The action is appended to `pending_actions`; the compositor drains it
+    // after the callback returns.
+    //
+    // `name` is any action identifier accepted by `parse_action_string` ("close-window",
+    // "focus-column-left", "focus-workspace", "spawn", "create-virtual-output", …) or by
+    // `action_from_table_key` (the snake/kebab form used in bind tables). `args` is an
+    // optional table; it accepts the same shape as `neori.bind("key", { <name> = <args> })`.
+    //
+    //     neori.action("focus-column-left")
+    //     neori.action("spawn", { "kitty", "-e", "sh" })
+    //     neori.action("focus-workspace", 2)
+    //     neori.action("create-virtual-output", { name = "sunshine", width = 2560 })
+    {
+        let pending_actions = Arc::clone(pending_actions);
+        let func = lua
+            .create_function(move |lua, args: mlua::Variadic<Value>| {
+                let mut iter = args.into_iter();
+                let name = match iter.next() {
+                    Some(Value::String(s)) => s
+                        .to_str()
+                        .map_err(|e| LuaError::runtime(format!("{e}")))?
+                        .to_string(),
+                    Some(_) => {
+                        return Err(LuaError::runtime(
+                            "neori.action: first argument must be a string",
+                        ))
+                    }
+                    None => {
+                        return Err(LuaError::runtime(
+                            "neori.action: expected an action name",
+                        ))
+                    }
+                };
+                let arg = iter.next().unwrap_or(Value::Nil);
+                let extra = iter.next();
+                if extra.is_some() {
+                    return Err(LuaError::runtime(
+                        "neori.action: too many arguments (expected name and optional args)",
+                    ));
+                }
+                let effective_arg = if matches!(arg, Value::Nil) {
+                    Value::Boolean(true)
+                } else {
+                    arg
+                };
+                let wrapper = lua.create_table()?;
+                wrapper.set(name.as_str(), effective_arg.clone())?;
+                let action = resolve_runtime_action(&name, &effective_arg, &wrapper)
+                    .map_err(LuaError::runtime)?;
+                pending_actions.lock().unwrap().push(action);
+                Ok(())
+            })
+            .map_err(err)?;
+        neori.set("action", func).map_err(err)?;
     }
 
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and
@@ -2916,7 +3058,8 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         .parse::<Key>()
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
 
-    let mut action = Action::CloseWindow { id: None };
+    let mut action: Option<Action> = None;
+    let mut script_fn: Option<ScriptFn> = None;
     let mut repeat = true;
     let mut cooldown = None;
     let mut allow_when_locked = false;
@@ -2929,14 +3072,19 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
 
     match &value {
         Value::String(s) => {
-            action = parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?)?;
+            action = Some(parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?)?);
         }
         Value::Table(t) => {
             for pair in t.clone().pairs::<Value, Value>() {
                 let (ak, av) = pair.map_err(|e| format!("bind action error: {e}"))?;
                 let aks = key_str(&ak)?;
+                if aks == "script_fn_id" {
+                    let id = value_to_u64(&av).map_err(|e| format!("script_fn_id: {e}"))?;
+                    script_fn = Some(ScriptFn { id, label: None });
+                    continue;
+                }
                 if let Some(a) = action_from_table_key(t, &aks, &av)? {
-                    action = a;
+                    action = Some(a);
                     continue;
                 }
                 match aks.as_str() {
@@ -2976,8 +3124,23 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         _ => {}
     }
 
-    if matches!(action, Action::ToggleKeyboardShortcutsInhibit {}) {
+    if matches!(action, Some(Action::ToggleKeyboardShortcutsInhibit {})) {
         allow_inhibiting = false;
+    }
+
+    if action.is_none() && script_fn.is_none() {
+        return Err(format!(
+            "bind {key_name}: no action or Lua function provided"
+        ));
+    }
+
+    // Decorate the ScriptFn with the hotkey overlay label when a Lua function bind sets one.
+    if let (Some(fn_ref), true, Some(label)) = (
+        script_fn.as_mut(),
+        has_hotkey_overlay_title,
+        hotkey_overlay_title.clone(),
+    ) {
+        fn_ref.label = Some(label);
     }
 
     match by_keycode {
@@ -3000,6 +3163,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     Ok(Bind {
         key,
         action,
+        script_fn,
         repeat,
         cooldown,
         allow_when_locked,
@@ -3209,6 +3373,35 @@ fn parse_size_change_str(s: &str) -> Result<SizeChange, String> {
 
 fn parse_size_change(value: &Value) -> Result<SizeChange, String> {
     parse_size_change_str(&value_to_string(value)?)
+}
+
+/// Resolves `name` + optional Lua `arg` into a dispatchable [`Action`] at runtime.
+///
+/// Used by `neori.action(name, args)`. Reuses the config-time [`parse_action_string`] and
+/// [`action_from_table_key`] pipeline so the runtime surface matches the declarative one.
+///
+/// `wrapper` is a freshly-built Lua table that holds `{ [name] = effective_arg }`; the
+/// caller provides it because it already has the live Lua context. The caller must set the
+/// `name` key on `wrapper` before calling.
+fn resolve_runtime_action(
+    name: &str,
+    arg: &Value,
+    wrapper: &LuaTable,
+) -> Result<Action, String> {
+    // Nil arg: try the no-argument string form first (handles "focus-column-left",
+    // "close-window", "toggle-overview", "create-virtual-output", …).
+    if matches!(arg, Value::Nil) {
+        if let Ok(action) = parse_action_string(name) {
+            return Ok(action);
+        }
+    }
+
+    if let Some(action) = action_from_table_key(wrapper, name, arg)? {
+        return Ok(action);
+    }
+
+    // Final fallback: the string form (may still fail with "unknown action").
+    parse_action_string(name)
 }
 
 fn parse_action_string(s: &str) -> Result<Action, String> {
