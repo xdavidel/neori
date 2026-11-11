@@ -1,49 +1,345 @@
 -- Neori default configuration using the neori.* config API.
 -- Check the wiki for a full description of the configuration:
 -- https://neori-wm.github.io/neori/Configuration:-Introduction
+--
+-- This file is written so that an EMPTY config behaves identically to this one
+-- when the active settings are removed. The commented examples below show every
+-- option neori supports — uncomment and tweak the ones you want.
+
+--------------------------------------------------------------------------------
+-- Input
+--------------------------------------------------------------------------------
+--
+-- See https://neori-wm.github.io/neori/Configuration:-Input for the full
+-- description of every option.
 
 neori.input {
   keyboard = {
     numlock = true,
+    -- xkb = { layout = "us,ru", options = "grp:win_space_toggle,compose:ralt" },
+    -- repeat_delay = 600,
+    -- repeat_rate = 25,
+    -- track_layout = "global",            -- or "window"
   },
   touchpad = {
     tap = true,
     natural_scroll = true,
+    -- off = false,
+    -- dwt = false,                         -- disable-while-typing
+    -- dwtp = false,                        -- disable-while-trackpointing
+    -- drag = true,
+    -- drag_lock = false,
+    -- click_method = "clickfinger",        -- or "button_areas"
+    -- accel_speed = 0.0,                   -- range -1..1
+    -- accel_profile = "adaptive",          -- or "flat"
+    -- scroll_method = "two_finger",        -- "two_finger"|"edge"|"on_button_down"|"no_scroll"
+    -- scroll_button = 273,                 -- BTN_RIGHT
+    -- scroll_button_lock = false,
+    -- tap_button_map = "left_right_middle", -- or "left_middle_right"
+    -- left_handed = false,
+    -- disabled_on_external_mouse = false,
+    -- middle_emulation = false,
+    -- scroll_factor = { base = 1.0, horizontal = 1.0, vertical = 1.0 },
   },
+  -- mouse = {
+  --   off = false,
+  --   natural_scroll = false,
+  --   accel_speed = 0.0,
+  --   accel_profile = "adaptive",
+  --   middle_emulation = false,
+  --   scroll_factor = { base = 1.0 },
+  -- },
+  -- trackpoint = {
+  --   off = false,
+  --   natural_scroll = false,
+  --   accel_speed = 0.0,
+  --   accel_profile = "adaptive",
+  -- },
+  -- trackball = {
+  --   off = false,
+  --   accel_speed = 0.0,
+  -- },
+  -- tablet = {
+  --   map_to_output = "eDP-1",
+  --   map_to_focused_output = false,
+  --   map_to_focused_window = false,
+  --   left_handed = false,
+  --   -- calibration_matrix = { 1.0, 0.0, 0.0,  0.0, 1.0, 0.0 },
+  -- },
+  -- touch = {
+  --   map_to_output = "eDP-1",
+  -- },
+  -- disable_power_key_handling = false,
+  -- focus_follows_mouse = { max_scroll_amount = "0%" },
+  -- warp_mouse_to_focus = { mode = "center_xy" },   -- or "center_xy_always"
+  -- workspace_auto_back_and_forth = false,
+  -- mod_key = "super",                     -- "ctrl"|"shift"|"alt"|"super"|"iso_level3_shift"|"iso_level5_shift"
+  -- mod_key_nested = "alt",                -- override when running nested in winit
 }
+
+--------------------------------------------------------------------------------
+-- Layout
+--------------------------------------------------------------------------------
 
 neori.layout {
   gaps = 16,
-  center_focused_column = "never",
+  center_focused_column = "never",         -- "never" | "always" | "on_overflow"
   preset_column_widths = {
     { proportion = 1 / 3 },
     { proportion = 0.5 },
     { proportion = 2 / 3 },
   },
   default_column_width = { proportion = 0.5 },
+  -- preset_window_heights = { { proportion = 1/3 }, { proportion = 0.5 }, { proportion = 2/3 } },
+  -- always_center_single_column = false,
+  -- empty_workspace_above_first = false,
+  -- default_column_display = "normal",    -- or "tabbed"
+  -- background_color = "#404040",
+  -- struts = { left = 0, right = 0, top = 0, bottom = 0 },
+
   focus_ring = {
     width = 4,
     active_color = "#7fc8ff",
     inactive_color = "#505050",
+    -- off = false,
+    -- urgent_color = "#9b0000",
+    -- active_gradient = { from = "#80c8ff", to = "#bbddff", angle = 45 },
+    -- inactive_gradient = { from = "#505050", to = "#303030", angle = 90 },
+    -- urgent_gradient = { from = "#9b0000", to = "#550000", angle = 90 },
   },
+
   border = {
     off = true,
     width = 4,
     active_color = "#ffc87f",
     inactive_color = "#505050",
     urgent_color = "#9b0000",
+    -- active_gradient = { from = "#ffc87f", to = "#ff8c00", angle = 45 },
   },
+
   shadow = {
     softness = 30,
     spread = 5,
     offset = { x = 0, y = 5 },
     color = "#0007",
+    -- on = false,
+    -- draw_behind_window = false,
+    -- inactive_color = "#0004",
   },
+
+  -- tab_indicator = {
+  --   hide_when_single_tab = true,
+  --   gap = 5,
+  --   width = 4,
+  --   length = { total_proportion = 0.5 },
+  --   position = "left",                 -- "left"|"right"|"top"|"bottom"
+  --   gaps_between_tabs = 0,
+  --   corner_radius = 0,
+  --   active_color = "#7fc8ff",
+  --   inactive_color = "#505050",
+  -- },
+
+  -- insert_hint = {
+  --   color = "#7fc8ff80",
+  --   -- gradient = { from = "#7fc8ff80", to = "#bbddff80", angle = 45 },
+  -- },
 }
 
-neori.on("startup", neori.spawn("waybar"))
+--------------------------------------------------------------------------------
+-- Appearance: animations, blur
+--------------------------------------------------------------------------------
+
+-- neori.animations {
+--   slowdown = 1.0,
+--   workspace_switch = { kind = { spring = { damping_ratio = 1.0, stiffness = 1000, epsilon = 0.0001 } } },
+--   window_open = { duration_ms = 150, curve = "ease_out_expo" },
+--   window_close = { duration_ms = 150, curve = "ease_out_quad" },
+--   window_movement = { kind = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.0001 } } },
+--   window_resize = { kind = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.0001 } } },
+--   horizontal_view_movement = { kind = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.0001 } } },
+--   config_notification_open_close = { kind = { spring = { damping_ratio = 0.6, stiffness = 1000, epsilon = 0.001 } } },
+--   exit_confirmation_open_close = { kind = { spring = { damping_ratio = 0.6, stiffness = 500, epsilon = 0.01 } } },
+--   screenshot_ui_open = { duration_ms = 200, curve = "ease_out_quad" },
+--   overview_open_close = { kind = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.0001 } } },
+--   recent_windows_close = { kind = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.001 } } },
+--   -- off = true,                       -- disable all animations
+-- }
+
+-- neori.blur {
+--   passes = 3,
+--   offset = 3.0,
+--   noise = 0.02,
+--   saturation = 1.5,
+--   -- off = true,
+-- }
+
+--------------------------------------------------------------------------------
+-- Cursor
+--------------------------------------------------------------------------------
+
+-- neori.cursor {
+--   xcursor_theme = "default",
+--   xcursor_size = 24,
+--   hide_when_typing = false,
+--   hide_after_inactive_ms = 5000,
+--   shake_to_find = {
+--     enable = true,
+--     size_multiplier = 4.0,
+--     -- size = 96,                        -- explicit pixel size (overrides multiplier)
+--     timeout_ms = 1000,
+--     animation_ms = 250,
+--     window_ms = 600,
+--     min_reversals = 4,
+--     min_step = 12.0,
+--     reversal_angle_deg = 120.0,
+--   },
+-- }
+
+--------------------------------------------------------------------------------
+-- Clipboard, config notification, hotkey overlay
+--------------------------------------------------------------------------------
+
+-- neori.clipboard {
+--   disable_primary = false,               -- true: drop PRIMARY selection, keep CLIPBOARD only
+-- }
+
+-- neori.config_notification {
+--   disable_failed = false,                -- true: don't flash the notification on config errors
+-- }
+
+-- neori.hotkey_overlay {
+--   skip_at_startup = false,
+--   hide_not_bound = false,                -- only show binds you've actually set
+-- }
+
+--------------------------------------------------------------------------------
+-- Overview, gestures
+--------------------------------------------------------------------------------
+
+-- neori.overview {
+--   zoom = 0.5,
+--   backdrop_color = "#262626",
+--   workspace_shadow = {
+--     offset = { x = 0, y = 10 },
+--     softness = 40,
+--     spread = 10,
+--     color = "#00000050",
+--     -- off = false,
+--   },
+-- }
+
+-- neori.gestures {
+--   hot_corners = {
+--     -- off = false,
+--     top_left = false,                     -- open overview
+--     top_right = false,
+--     bottom_left = false,
+--     bottom_right = false,
+--   },
+--   dnd_edge_view_scroll = { trigger_width = 30, delay_ms = 100, max_speed = 1500 },
+--   dnd_edge_workspace_switch = { trigger_height = 50, delay_ms = 100, max_speed = 1500 },
+-- }
+
+--------------------------------------------------------------------------------
+-- Recent (most-recently-used) window switcher
+--------------------------------------------------------------------------------
+
+-- neori.recent_windows {
+--   on = true,
+--   debounce_ms = 750,
+--   open_delay_ms = 150,
+--   highlight = {
+--     active_color = "#999999",
+--     urgent_color = "#ff9999",
+--     padding = 30,
+--     corner_radius = 0,
+--   },
+--   previews = { max_height = 480, max_scale = 0.5 },
+-- }
+
+--------------------------------------------------------------------------------
+-- Xwayland satellite, environment, prefer-no-csd, screenshot path
+--------------------------------------------------------------------------------
+
+-- neori.xwayland_satellite {
+--   -- off = true,                         -- disable the Xwayland shim entirely
+--   path = "xwayland-satellite",
+-- }
+
+-- neori.environment {
+--   "DISPLAY",
+--   "XDG_CURRENT_DESKTOP=neori",
+--   "QT_QPA_PLATFORM=wayland",
+--   "MOZ_ENABLE_WAYLAND=1",
+--   "SDL_VIDEODRIVER=wayland",
+-- }
+
+-- neori.prefer_no_csd = true                -- ask toplevels to hide their own title bars
 
 neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png")
+
+--------------------------------------------------------------------------------
+-- Debug (advanced, usually safe to leave off)
+--------------------------------------------------------------------------------
+
+-- neori.debug {
+--   dbus_interfaces_in_non_session_instances = false,
+--   wait_for_frame_completion_before_queueing = false,
+--   enable_overlay_planes = false,
+--   disable_cursor_plane = false,
+--   disable_direct_scanout = false,
+--   force_disable_connectors_on_resume = false,
+--   -- render_drm_device = "/dev/dri/renderD128",
+--   -- ignored_drm_devices = { "/dev/dri/renderD129" },
+--   force_pipewire_invalid_modifier = false,
+--   emulate_zero_presentation_time = false,
+--   disable_resize_throttling = false,
+--   disable_transactions = false,
+--   keep_laptop_panel_on_when_lid_is_closed = false,
+--   disable_monitor_names = false,
+--   skip_cursor_only_updates_during_vrr = false,
+-- }
+
+--------------------------------------------------------------------------------
+-- Outputs
+--------------------------------------------------------------------------------
+--
+-- Configure physical outputs by connector name (e.g. "eDP-1", "DP-3"), or
+-- declare a virtual (headless) one with `create_virtual = true`. Virtual outputs
+-- are useful for Sunshine / Moonlight streaming and for headless workstations;
+-- see https://neori-wm.github.io/neori/Virtual-Outputs.
+
+-- neori.output("eDP-1", {
+--   -- off = false,
+--   mode = "1920x1080@120.030",
+--   scale = 2.0,
+--   transform = "normal",                 -- or "90"|"180"|"270"|"flipped"|"flipped-90"|...
+--   position = { x = 0, y = 0 },
+--   focus_at_startup = true,
+--   variable_refresh_rate = true,         -- true | { on_demand = true }
+--   -- max_bpc = 10,
+--   -- background_color = "#001100",
+--   -- backdrop_color = "#000000",
+--   -- hot_corners = { top_left = true },
+--   -- modeline = { ... },
+--   -- layout = { background_color = "#111", ...per-output overrides... },
+-- })
+
+-- neori.output("sunshine", {
+--   create_virtual = true,                -- virtual output created at startup / reload
+--   mode = "1920x1080@144.000",
+-- })
+
+--------------------------------------------------------------------------------
+-- Named workspaces
+--------------------------------------------------------------------------------
+
+-- neori.workspace("browser", { open_on_output = "eDP-1" })
+-- neori.workspace("chat")
+
+--------------------------------------------------------------------------------
+-- Window rules
+--------------------------------------------------------------------------------
 
 -- Work around WezTerm's initial configure bug by letting windows
 -- decide their width for this rule.
@@ -58,12 +354,103 @@ neori.window_rule {
   open_floating = true,
 }
 
+-- Full set of per-rule knobs (see wiki Configuration:-Window-Rules):
+--
+-- neori.window_rule {
+--   matches = {
+--     { app_id = "^Alacritty$" },
+--     { title = "^scratch$" },             -- rules are OR'd across the list
+--   },
+--   excludes = { { app_id = "firefox$" } },
+--   -- open-time options:
+--   open_on_output = "eDP-1",
+--   open_on_workspace = "browser",
+--   open_fullscreen = false,
+--   open_maximized = false,
+--   open_floating = true,
+--   default_column_width = { proportion = 0.5 },
+--   default_window_height = { proportion = 0.5 },
+--   default_column_display = "normal",     -- or "tabbed"
+--   default_floating_position = { x = 100, y = 100, relative_to = "top_left" },
+--   -- appearance overrides:
+--   focus_ring = { active_color = "#ff0" },
+--   border = { active_color = "#ff0" },
+--   shadow = { draw_behind_window = false },
+--   tab_indicator = { active_color = "#ff0" },
+--   geometry_corner_radius = { top_left = 8, top_right = 8, bottom_left = 8, bottom_right = 8 },
+--   clip_to_geometry = false,
+--   draw_border_with_background = false,
+--   -- behavior:
+--   block_out_from = "screencast",         -- or "screen_capture"
+--   min_width = 100, min_height = 100,
+--   max_width = 2000, max_height = 2000,
+--   opacity = 1.0,
+--   variable_refresh_rate = true,
+--   scroll_factor = { base = 1.0 },
+-- }
+
+--------------------------------------------------------------------------------
+-- Layer rules (for layer-shell surfaces: bars, notifications, launchers)
+--------------------------------------------------------------------------------
+
+-- neori.layer_rule {
+--   matches = { { namespace = "^notifications$" } },
+--   -- block_out_from = "screencast",
+--   -- opacity = 1.0,
+--   -- geometry_corner_radius = { top_left = 12, top_right = 12 },
+--   -- shadow = { on = true },
+-- }
+
+--------------------------------------------------------------------------------
+-- Event handlers: startup, monitor-added/-removed, lid, tablet
+--------------------------------------------------------------------------------
+--
+-- Any of these accept a string action ("spawn foo"), a table action
+-- (neori.spawn("foo"), { close_window = true }, …), or a Lua function. Lua
+-- functions get a connector-name string for the monitor events; see
+-- https://neori-wm.github.io/neori/Lua-Scripting for the runtime API.
+
+neori.on("startup", neori.spawn("waybar"))
+-- neori.on("startup", neori.spawn_sh("sleep 1 && mako"))
+-- neori.on("startup", function()
+--   neori.action("create-virtual-output", { name = "sunshine" })
+-- end)
+
+-- neori.on("monitor-added", function(connector)
+--   neori.action("spawn-sh", string.format("notify-send 'output connected' %q", connector))
+-- end)
+-- neori.on("monitor-removed", function(connector)
+--   neori.action("spawn-sh", string.format("notify-send 'output removed' %q", connector))
+-- end)
+
+-- Switch events (also configurable as declarative actions via neori.switch_events).
+-- neori.on("lid-open",       function() neori.action("spawn-sh", "notify-send 'lid open'") end)
+-- neori.on("lid-closed",     function() neori.action("power-off-monitors") end)
+-- neori.on("tablet-mode-on", function() neori.action("spawn-sh", "notify-send 'tablet mode on'")  end)
+-- neori.on("tablet-mode-off",function() neori.action("spawn-sh", "notify-send 'tablet mode off'") end)
+
+-- Declarative switch_events section (alternative to neori.on for lid/tablet).
+-- neori.switch_events {
+--   lid_closed = "spawn-sh notify-send lid-closed",
+--   lid_open   = "spawn-sh notify-send lid-open",
+--   tablet_mode_on  = "spawn-sh notify-send tablet-on",
+--   tablet_mode_off = "spawn-sh notify-send tablet-off",
+-- }
+
+--------------------------------------------------------------------------------
+-- Key bindings
+--------------------------------------------------------------------------------
+--
 -- Keys consist of modifiers separated by + signs, followed by an XKB key
 -- name in the end. "Mod" is a special modifier equal to Super when running
 -- on a TTY, and to Alt when running as a winit window.
 --
 -- Most actions bound here can also be invoked programmatically with
 -- `neori msg action do-something`.
+--
+-- The third form -- a Lua function -- lets you dispatch actions dynamically
+-- via `neori.action(name, args)`. See the "Lua function callbacks" section at
+-- the bottom of this file.
 
 -- Mod-Shift-/, which is usually the same as Mod-?, shows important hotkeys.
 neori.bind("Mod+Shift+Slash", "show_hotkey_overlay")
@@ -200,3 +587,59 @@ for i = 1, 10 do
   neori.bind("Mod+" .. n, { focus_workspace = index })
   neori.bind("Mod+Shift+" .. n, { move_column_to_workspace = index })
 end
+
+--------------------------------------------------------------------------------
+-- Virtual output control (headless + Sunshine / Moonlight streaming)
+--------------------------------------------------------------------------------
+--
+-- See Virtual-Outputs.md for Sunshine integration, headless workstation setup,
+-- and the drain-windows-on-remove pattern.
+
+-- neori.bind("Mod+Alt+V",       neori.create_virtual_output { name = "sunshine", width = 1920, height = 1080, refresh_rate = 144 })
+-- neori.bind("Mod+Alt+Shift+V", neori.remove_virtual_output("sunshine"))
+
+--------------------------------------------------------------------------------
+-- Lua function callbacks and neori.action
+--------------------------------------------------------------------------------
+--
+-- Any neori.bind / neori.on handler can be a Lua function. From inside that
+-- function, call neori.action(name, args) to dispatch any IPC action; the
+-- queued actions run in order right after the function returns.
+--
+-- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and the
+-- known limitations (no live Window/Output userdata yet, no timers yet,
+-- function binds don't appear in the hotkey overlay with their title).
+
+-- A function bind that composes two actions:
+-- neori.bind("Mod+Alt+G", function()
+--   neori.action("focus_column_first")
+--   neori.action("maximize_column")
+-- end)
+
+-- Function callback that decides at runtime what to do:
+-- neori.bind("Mod+Alt+B", function()
+--   local hour = tonumber(os.date("%H"))
+--   if hour >= 20 or hour < 7 then
+--     neori.action("spawn-sh", "brightnessctl set 20%")
+--   else
+--     neori.action("spawn-sh", "brightnessctl set 80%")
+--   end
+-- end)
+
+-- Lua-held state ("scratchpad" pattern):
+-- local scratch_spawned = false
+-- neori.bind("Mod+Grave", function()
+--   if not scratch_spawned then
+--     neori.action("spawn", { "kitty", "--class", "neori-scratch" })
+--     scratch_spawned = true
+--   else
+--     neori.action("toggle_window_floating")
+--   end
+-- end)
+
+-- Includes (load extra Lua files from the same directory):
+-- neori.include("extra-binds.lua")
+-- neori.include("plugins/*.lua")
+
+-- Strict parsing (unknown keys become errors instead of warnings):
+-- neori.strict(true)
