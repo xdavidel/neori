@@ -9,6 +9,7 @@ mod animations;
 mod floating;
 mod fullscreen;
 mod layer_shell;
+mod perf;
 mod remove_output;
 mod scripting;
 mod transactions;
