@@ -343,11 +343,6 @@ pub struct Neori {
     /// Used by [`State::maybe_fire_window_focused`] to detect focus transitions and
     /// invoke `neori.on("window-focused", …)` handlers only on change.
     pub last_focused_window_id: Option<u64>,
-    /// Connector-name of the most recently focused output. Used by
-    /// `ipc_refresh_workspaces` to detect `output-focused` transitions for Lua —
-    /// workspace add/remove/focus are already tracked via the IPC event-stream
-    /// state, but "which output is active" isn't a first-class IPC concept.
-    pub last_focused_output_name: Option<String>,
     /// Last-known active keyboard layout name. Used by
     /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
     /// `layout-changed` Lua event only on change.
@@ -2847,7 +2842,6 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
-            last_focused_output_name: None,
             last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),

@@ -700,17 +700,21 @@ impl State {
         let mut lua_added: Vec<neori_config::WorkspaceSnapshot> = Vec::new();
         let mut lua_removed: Vec<neori_config::WorkspaceSnapshot> = Vec::new();
         let mut lua_focused_changed: Option<neori_config::WorkspaceSnapshot> = None;
-        let active_output_name = self.neori.layout.active_output().map(|o| o.name());
-        let output_focus_changed = active_output_name != self.neori.last_focused_output_name;
-        if output_focus_changed {
-            self.neori
-                .last_focused_output_name
-                .clone_from(&active_output_name);
-        }
+        let new_focused_output_name = self.neori.layout.active_output().map(|o| o.name());
 
-        {
+        let output_focus_changed = {
             let mut state = server.event_stream_state.borrow_mut();
             let state = &mut state.workspaces;
+
+            // Derive "last known" focused output from IPC state (the workspace with
+            // is_focused=true carries the output name). IPC state is also our Lua
+            // last-known state, so we don't need a separate field on Neori.
+            let old_focused_output_name = state
+                .workspaces
+                .values()
+                .find(|w| w.is_focused)
+                .and_then(|w| w.output.clone());
+            let output_focus_changed = new_focused_output_name != old_focused_output_name;
 
             let mut events = Vec::new();
             let layout = &self.neori.layout;
@@ -832,7 +836,9 @@ impl State {
                 state.apply(event.clone());
                 server.send_event(event);
             }
-        }
+
+            output_focus_changed
+        };
 
         // IPC borrows dropped — now fire Lua events.
         for snap in lua_added {
@@ -845,7 +851,7 @@ impl State {
             self.fire_workspace_event("workspace-focused", snap);
         }
         if output_focus_changed {
-            if let Some(name) = active_output_name {
+            if let Some(name) = new_focused_output_name {
                 self.fire_output_focused_event(name);
             }
         }
