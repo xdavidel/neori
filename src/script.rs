@@ -242,14 +242,13 @@ impl State {
             return;
         }
         self.refresh_script_caches();
-        let ipc = self.backend.ipc_outputs();
-        let ipc_outputs = ipc.lock().unwrap().clone();
+        let vrr = lookup_vrr(&self.backend, &output_name);
         let snapshot = self
             .neori
             .global_space
             .outputs()
             .find(|o| o.name() == output_name)
-            .map(|o| output_snapshot(&self.neori, o, &ipc_outputs))
+            .map(|o| output_snapshot(&self.neori, o, vrr))
             .unwrap_or_else(|| OutputSnapshot {
                 name: output_name,
                 ..Default::default()
@@ -307,15 +306,31 @@ pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     host.clear_script_caches();
 }
 
+/// Look up `(vrr_supported, vrr_enabled)` for `output_name` in the backend's
+/// IPC-output mirror. Holds the lock just long enough to read the two bools
+/// — critical because the IPC server thread reads the same mirror.
+pub fn lookup_vrr(
+    backend: &crate::backend::Backend,
+    output_name: &str,
+) -> (bool, bool) {
+    let ipc = backend.ipc_outputs();
+    let guard = ipc.lock().unwrap();
+    guard
+        .values()
+        .find(|o| o.name == output_name)
+        .map(|o| (o.vrr_supported, o.vrr_enabled))
+        .unwrap_or((false, false))
+}
+
 /// Build a snapshot for one compositor output.
 ///
-/// `ipc_outputs` carries the backend-maintained IPC-output mirror; the snapshot
-/// reads VRR flags from it. Taking it as a parameter avoids needing access to
-/// `State::backend` from here.
+/// `vrr` is `(vrr_supported, vrr_enabled)`; callers either pass [`lookup_vrr`]
+/// for a single-output path or iterate the full IPC mirror once for a bulk
+/// build (`build_output_cache`).
 pub fn output_snapshot(
     neori: &Neori,
     output: &SmithayOutput,
-    ipc_outputs: &std::collections::HashMap<crate::backend::OutputId, neori_ipc::Output>,
+    vrr: (bool, bool),
 ) -> OutputSnapshot {
     let props = output.physical_properties();
     let serial = if props.serial_number.is_empty() {
@@ -357,15 +372,11 @@ pub fn output_snapshot(
     let is_focused = neori.layout.active_output() == Some(output);
     let is_virtual = VirtualOutputMarker::is_virtual(output);
 
-    // VRR flags come from the IPC-output mirror. `off` is always false here because
-    // only live outputs are in global_space; disabled outputs are gone from it.
+    // VRR flags come from the IPC-output mirror (passed in). `off` is always
+    // false here because only live outputs are in global_space; disabled
+    // outputs are gone from it.
     let name = output.name();
-    let (vrr_supported, vrr_enabled) = ipc_outputs
-        .values()
-        .find(|o| o.name == name)
-        .map(|o| (o.vrr_supported, o.vrr_enabled))
-        .unwrap_or((false, false));
-    // If the output is in the iteration (we're inside global_space.outputs()), it's on.
+    let (vrr_supported, vrr_enabled) = vrr;
     let off = false;
 
     OutputSnapshot {
@@ -395,7 +406,13 @@ pub fn build_output_cache(
     let mut outputs: Vec<OutputSnapshot> = Vec::new();
     let mut focused_snapshot: Option<OutputSnapshot> = None;
     for output in neori.global_space.outputs() {
-        let snap = output_snapshot(neori, output, ipc_outputs);
+        let name = output.name();
+        let vrr = ipc_outputs
+            .values()
+            .find(|o| o.name == name)
+            .map(|o| (o.vrr_supported, o.vrr_enabled))
+            .unwrap_or((false, false));
+        let snap = output_snapshot(neori, output, vrr);
         if focused_output.as_ref() == Some(output) {
             focused_snapshot = Some(snap.clone());
         }

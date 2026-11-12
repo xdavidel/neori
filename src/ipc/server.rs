@@ -665,27 +665,37 @@ impl State {
         // because the cache can be cold from startup / reload.
         self.scripting.set_keyboard_layout(Some(name.clone()));
 
-        let Some(server) = &self.neori.ipc_server else {
-            return;
-        };
+        // Did the layout change since last call? In the happy path IPC's own
+        // state.keyboard_layouts.current_idx is the source of truth. On the
+        // degraded IPC-absent path (IpcServer::start failed) we fall back to
+        // the Neori-side mirror so Lua `layout-changed` still fires.
+        let changed = match &self.neori.ipc_server {
+            Some(server) => {
+                let mut state = server.event_stream_state.borrow_mut();
+                let state = &mut state.keyboard_layouts;
 
-        let changed = {
-            let mut state = server.event_stream_state.borrow_mut();
-            let state = &mut state.keyboard_layouts;
-
-            if state.keyboard_layouts.as_ref().unwrap().current_idx == idx {
-                false
-            } else {
-                let event = Event::KeyboardLayoutSwitched { idx };
-                state.apply(event.clone());
-                server.send_event(event);
-                true
+                if state.keyboard_layouts.as_ref().unwrap().current_idx == idx {
+                    false
+                } else {
+                    let event = Event::KeyboardLayoutSwitched { idx };
+                    state.apply(event.clone());
+                    server.send_event(event);
+                    true
+                }
+            }
+            None => {
+                if self.neori.last_keyboard_layout_idx_fallback == Some(idx) {
+                    false
+                } else {
+                    self.neori.last_keyboard_layout_idx_fallback = Some(idx);
+                    true
+                }
             }
         };
 
-        // Fire Lua `layout-changed` on the same diff the IPC path just acted on.
-        // idx is a bijection with (layout slot, config), so idx unchanged implies
-        // name unchanged — no separate name diff needed.
+        // Fire Lua `layout-changed` on the same diff. idx is a bijection with
+        // (layout slot, config), so idx unchanged implies name unchanged — no
+        // separate name diff needed.
         if changed {
             self.fire_layout_changed_event(name);
         }

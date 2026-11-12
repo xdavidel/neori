@@ -348,6 +348,10 @@ pub struct Neori {
     /// (hotplug, default-monitor focus, direct calls). Collapsing window-focused
     /// to the per-refresh cadence would lose intermediate focus transitions.
     pub last_focused_window_id: Option<u64>,
+    /// Fallback for the `layout-changed` Lua diff when `ipc_server` is `None`
+    /// (IPC server failed to start). In the happy path IPC's own
+    /// `state.keyboard_layouts.current_idx` is the source of truth.
+    pub last_keyboard_layout_idx_fallback: Option<u8>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
     pub is_fdo_idle_inhibited: Arc<AtomicBool>,
     pub keyboard_shortcuts_inhibiting_surfaces: HashMap<WlSurface, KeyboardShortcutsInhibitor>,
@@ -1630,13 +1634,13 @@ impl State {
         // Build a snapshot for the output that triggered this event (if it still
         // exists in global_space — for monitor-removed we pass the last-known data if
         // the output is already gone).
-        let ipc_outputs = self.backend.ipc_outputs().lock().unwrap().clone();
+        let vrr = crate::script::lookup_vrr(&self.backend, connector);
         let snapshot = self
             .neori
             .global_space
             .outputs()
             .find(|o| o.name() == connector)
-            .map(|o| crate::script::output_snapshot(&self.neori, o, &ipc_outputs))
+            .map(|o| crate::script::output_snapshot(&self.neori, o, vrr))
             .unwrap_or_else(|| neori_config::OutputSnapshot {
                 name: connector.to_string(),
                 ..Default::default()
@@ -2845,6 +2849,7 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
+            last_keyboard_layout_idx_fallback: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
             keyboard_shortcuts_inhibiting_surfaces: HashMap::new(),
