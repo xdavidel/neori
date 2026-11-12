@@ -1,10 +1,13 @@
 //! Tests for the Lua scripting runtime API: function callbacks on binds, `neori.action`,
 //! and error containment.
 
+use neori_config::binds::Bind;
 use neori_config::Config;
 use smithay::backend::input::KeyState;
 use smithay::input::keyboard::{Keysym, ModifiersState};
+use wayland_client::protocol::wl_surface::WlSurface as ClientWlSurface;
 
+use super::client::ClientId;
 use super::*;
 
 /// Build a [`Fixture`] from a Lua config snippet, panicking on parse errors.
@@ -428,6 +431,402 @@ fn window_focused_debounces_on_identical_focus() {
     assert!(
         matches!(count_after, neori_config::mlua::Value::Integer(1)),
         "window-focused should not re-fire when focus is unchanged, got {count_after:?}"
+    );
+}
+
+#[test]
+fn window_close_method_closes_the_window() {
+    // A Lua function bind that calls w:close() on the focused window should queue a
+    // CloseWindow action with the window's id, which the compositor then dispatches —
+    // closing the actual window.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            if w then w:close() end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    window.xdg_toplevel.set_app_id("to-close".to_string());
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    // The window is open.
+    assert_eq!(f.neori().layout.windows().count(), 1);
+
+    // Fire the bind. It enqueues Action::CloseWindow via neori.action-style path.
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+
+    // The compositor sent a close request to the client. The client receives it,
+    // acknowledges, and unmaps — roundtrip to drive that handshake.
+    f.double_roundtrip(id);
+    let window = f.client(id).window(&surface);
+    assert!(
+        window.close_requested,
+        "Action::CloseWindow should have reached the client"
+    );
+}
+
+#[test]
+fn window_send_to_workspace_moves_the_window() {
+    // Calling w:send_to_workspace(2) from a Lua bind should fire
+    // Action::MoveWindowToWorkspace which puts the window on workspace 2.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            if w then w:send_to_workspace(2) end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    // Window starts on workspace 1.
+    let initial_ws = f
+        .neori()
+        .layout
+        .workspaces()
+        .enumerate()
+        .find_map(|(idx, (_, _, ws))| {
+            if ws
+                .windows()
+                .next()
+                .is_some()
+            {
+                Some(idx + 1)
+            } else {
+                None
+            }
+        })
+        .expect("window should be on some workspace");
+    assert_eq!(initial_ws, 1, "window should start on workspace 1");
+
+    // Fire the bind. Action::MoveWindowToWorkspace runs.
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+
+    // The window should now be on a workspace with idx >= 2.
+    let after_ws = f
+        .neori()
+        .layout
+        .workspaces()
+        .enumerate()
+        .find_map(|(idx, (_, _, ws))| {
+            if ws.windows().next().is_some() {
+                Some(idx + 1)
+            } else {
+                None
+            }
+        })
+        .expect("window should still be on some workspace");
+    assert!(
+        after_ws >= 2,
+        "window should have moved to workspace >= 2, still on {after_ws}"
+    );
+}
+
+#[test]
+fn window_focus_method_refocuses_a_window() {
+    // Open two windows; the second steals focus. Then a Lua bind captures the first
+    // Window from neori.windows() and calls :focus() — the compositor should move
+    // focus back to the first window.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            for _, w in ipairs(neori.windows()) do
+                if w:app_id() == "first" then w:focus() end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let mut ids_by_app = std::collections::HashMap::new();
+    for app in ["first", "second"] {
+        let id = f.add_client();
+        let window = f.client(id).create_window();
+        window.xdg_toplevel.set_app_id(app.to_string());
+        let surface = window.surface.clone();
+        window.commit();
+        f.roundtrip(id);
+        let window = f.client(id).window(&surface);
+        window.attach_new_buffer();
+        window.set_size(200, 200);
+        window.ack_last_and_commit();
+        f.double_roundtrip(id);
+        f.state.server.dispatch();
+        ids_by_app.insert(app, f.neori().layout.focus().unwrap().id().get());
+    }
+    let first_id = ids_by_app["first"];
+    let second_id = ids_by_app["second"];
+    assert_ne!(first_id, second_id);
+    assert_eq!(
+        f.neori().layout.focus().unwrap().id().get(),
+        second_id,
+        "second window should have stolen focus on open",
+    );
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+
+    assert_eq!(
+        f.neori().layout.focus().unwrap().id().get(),
+        first_id,
+        "w:focus() should have moved focus back to the first window"
+    );
+}
+
+#[test]
+fn window_fullscreen_method_sets_fullscreen_state() {
+    // w:fullscreen(true) should drive the window into fullscreen; w:fullscreen(false)
+    // should take it out. We observe this via Mapped::is_fullscreen() on the
+    // compositor side, which is what the user sees through w:is_fullscreen() too.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+F", function()
+            local w = neori.focused_window()
+            if w then w:fullscreen(true) end
+        end)
+        neori.bind("Mod+Alt+G", function()
+            local w = neori.focused_window()
+            if w then w:fullscreen(false) end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    assert!(
+        !f.neori().layout.focus().unwrap().is_fullscreen(),
+        "window should start non-fullscreen"
+    );
+
+    // Fire w:fullscreen(true).
+    let binds: Vec<_> = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .filter(|b| b.script_fn.is_some())
+            .cloned()
+            .collect()
+    };
+    let (set_bind, unset_bind) = (binds[0].clone(), binds[1].clone());
+
+    // Drive an ack+commit cycle: the compositor's FullscreenWindow dispatch sends a
+    // configure, the client acks and commits with a new buffer, then the compositor's
+    // post-commit path flips sizing_mode to fullscreen.
+    let cycle = |f: &mut Fixture, id: ClientId, surface: &ClientWlSurface, bind: Bind| {
+        f.state.server.state.handle_bind(bind);
+        f.state.server.dispatch();
+        f.double_roundtrip(id);
+        let window = f.client(id).window(surface);
+        window.ack_last_and_commit();
+        f.double_roundtrip(id);
+        f.state.server.dispatch();
+    };
+    cycle(&mut f, id, &surface, set_bind);
+    assert!(
+        f.neori().layout.focus().unwrap().is_fullscreen(),
+        "w:fullscreen(true) should have set fullscreen"
+    );
+    cycle(&mut f, id, &surface, unset_bind);
+    assert!(
+        !f.neori().layout.focus().unwrap().is_fullscreen(),
+        "w:fullscreen(false) should have cleared fullscreen"
+    );
+}
+
+#[test]
+fn window_float_method_moves_between_tiling_and_floating() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+F", function()
+            local w = neori.focused_window()
+            if w then w:float(true) end
+        end)
+        neori.bind("Mod+Alt+G", function()
+            local w = neori.focused_window()
+            if w then w:float(false) end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    assert!(
+        !f.neori().layout.focus().unwrap().is_floating(),
+        "window should start tiled"
+    );
+
+    let binds: Vec<_> = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .filter(|b| b.script_fn.is_some())
+            .cloned()
+            .collect()
+    };
+    let (float_bind, tile_bind) = (binds[0].clone(), binds[1].clone());
+
+    f.state.server.state.handle_bind(float_bind);
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+    assert!(
+        f.neori().layout.focus().unwrap().is_floating(),
+        "w:float(true) should have moved window to floating"
+    );
+
+    f.state.server.state.handle_bind(tile_bind);
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+    assert!(
+        !f.neori().layout.focus().unwrap().is_floating(),
+        "w:float(false) should have moved window back to tiling"
+    );
+}
+
+#[test]
+fn window_send_to_output_moves_the_window_between_outputs() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            if w then w:send_to_output("headless-2") end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+
+    // Open a window; by default it lands on the focused output (headless-1).
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let window_id = f.neori().layout.focus().unwrap().id().get();
+    let output_name_for_window = |f: &mut Fixture, win_id: u64| -> Option<String> {
+        for (monitor, _, ws) in f.neori().layout.workspaces() {
+            for w in ws.windows() {
+                if w.id().get() == win_id {
+                    return monitor.map(|m| m.output().name());
+                }
+            }
+        }
+        None
+    };
+    assert_eq!(
+        output_name_for_window(&mut f, window_id).as_deref(),
+        Some("headless-1"),
+        "window should start on headless-1"
+    );
+
+    // Fire w:send_to_output("headless-2").
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+
+    assert_eq!(
+        output_name_for_window(&mut f, window_id).as_deref(),
+        Some("headless-2"),
+        "w:send_to_output should have moved the window to headless-2"
     );
 }
 

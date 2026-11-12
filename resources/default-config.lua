@@ -637,23 +637,78 @@ end
 --   end
 -- end)
 
--- Window events + Window userdata (read-only snapshots):
+-- Window events + Window userdata.
+--
+-- Read-only methods: id(), app_id(), title(), is_focused(), is_floating(),
+-- is_fullscreen(), workspace(), output().
+--
+-- Mutation methods: close(), focus(), fullscreen(true|false|nil),
+-- float(true|false|nil), send_to_workspace(idx|name), send_to_output(name).
+
+-- Send Firefox to the "browser" workspace on open.
 -- neori.on("window-opened", function(w)
---   neori.action("spawn-sh", string.format(
---     "notify-send 'opened' '%s'", w:app_id() or "?"))
--- end)
--- neori.on("window-focused", function(w)
---   -- Example: auto-send Firefox to the "browser" workspace on focus.
---   if w:app_id() == "firefox" and w:workspace() and w:workspace().name ~= "browser" then
---     neori.action("move-window-to-workspace", 2)
+--   if w:app_id() == "firefox" then
+--     w:send_to_workspace("browser")
 --   end
 -- end)
+
+-- Toast on focus change.
+-- neori.on("window-focused", function(w)
+--   neori.action("spawn-sh", string.format(
+--     "notify-send 'focus' '%s'", w:app_id() or "?"))
+-- end)
+
+-- Close every Steam game window with one chord.
+-- neori.bind("Mod+Alt+K", function()
+--   for _, w in ipairs(neori.windows()) do
+--     if (w:app_id() or ""):match("^steam_app_") then
+--       w:close()
+--     end
+--   end
+-- end)
+
+-- Count floating windows and toast the number.
 -- neori.bind("Mod+Alt+C", function()
 --   local n = 0
 --   for _, w in ipairs(neori.windows()) do
 --     if w:is_floating() then n = n + 1 end
 --   end
 --   neori.action("spawn-sh", "notify-send 'floating:' '" .. n .. "'")
+-- end)
+
+-- Jump focus to the first terminal if there is one.
+-- neori.bind("Mod+Alt+Return", function()
+--   for _, w in ipairs(neori.windows()) do
+--     local app = w:app_id() or ""
+--     if app == "kitty" or app == "Alacritty" or app == "foot" then
+--       w:focus()
+--       return
+--     end
+--   end
+-- end)
+
+-- Toggle fullscreen on the focused window.
+-- neori.bind("Mod+Alt+F11", function()
+--   local w = neori.focused_window()
+--   if w then w:fullscreen(not w:is_fullscreen()) end
+-- end)
+
+-- Float Picture-in-Picture players automatically when they open.
+-- neori.on("window-opened", function(w)
+--   if (w:title() or ""):match("Picture%-in%-Picture") then
+--     w:float(true)
+--   end
+-- end)
+
+-- Shove every Slack / Discord / Telegram window onto a side output.
+-- neori.bind("Mod+Alt+S", function()
+--   local side = "HDMI-A-1"   -- replace with your side-monitor connector
+--   for _, w in ipairs(neori.windows()) do
+--     local app = w:app_id() or ""
+--     if app == "Slack" or app == "discord" or app == "org.telegram.desktop" then
+--       w:send_to_output(side)
+--     end
+--   end
 -- end)
 
 -- Includes (load extra Lua files from the same directory):

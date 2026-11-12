@@ -511,6 +511,150 @@ mod tests {
     }
 
     #[test]
+    fn window_mutation_methods_enqueue_actions() {
+        // Every mutation method should push its matching Action onto the pending-actions
+        // queue. call_bind_function drains that queue and returns the collected actions
+        // so we can assert on them here.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                local w = neori.focused_window()
+                w:close()
+                w:focus()
+                w:fullscreen(true)   -- snapshot has is_fullscreen=false, should enqueue
+                w:fullscreen(false)  -- already false in snapshot, no-op
+                w:fullscreen()       -- always enqueue
+                w:float(true)        -- snapshot is_floating=false, enqueues MoveToFloating
+                w:float(false)       -- snapshot is_floating=false, no-op
+                w:send_to_workspace(2)
+                w:send_to_workspace("browser")
+                w:send_to_output("eDP-1")
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // Seed a snapshot: is_fullscreen=false, is_floating=false.
+        let snap = WindowSnapshot {
+            id: 42,
+            is_fullscreen: false,
+            is_floating: false,
+            ..Default::default()
+        };
+        host.set_window_cache(WindowCache {
+            windows: vec![snap.clone()],
+            focused: Some(snap),
+        });
+
+        let actions = host.call_bind_function(1).unwrap();
+        let kinds: Vec<&str> = actions
+            .iter()
+            .map(|a| match a {
+                Action::CloseWindow { .. } => "close",
+                Action::FocusWindow { .. } => "focus",
+                Action::FullscreenWindow { .. } => "fullscreen-toggle",
+                Action::MoveWindowToFloating { .. } => "float-true",
+                Action::MoveWindowToTiling { .. } => "float-false",
+                Action::MoveWindowToWorkspace { reference, .. } => match reference {
+                    neori_ipc::WorkspaceReferenceArg::Index(_) => "workspace-idx",
+                    neori_ipc::WorkspaceReferenceArg::Name(_) => "workspace-name",
+                    neori_ipc::WorkspaceReferenceArg::Id(_) => "workspace-id",
+                },
+                Action::MoveWindowToMonitor { .. } => "monitor",
+                _ => "other",
+            })
+            .collect();
+
+        // Expected: close, focus, fullscreen (set-true), fullscreen (no-arg toggle),
+        // float-true, workspace-idx, workspace-name, monitor.
+        // The two no-op calls (w:fullscreen(false), w:float(false)) must NOT enqueue.
+        assert_eq!(
+            kinds,
+            vec![
+                "close",
+                "focus",
+                "fullscreen-toggle",
+                "fullscreen-toggle",
+                "float-true",
+                "workspace-idx",
+                "workspace-name",
+                "monitor",
+            ],
+            "unexpected enqueued actions: {kinds:?}"
+        );
+
+        // Verify ids / args carry through.
+        for action in &actions {
+            match action {
+                Action::CloseWindow { id } => assert_eq!(*id, Some(42)),
+                Action::FocusWindow { id } => assert_eq!(*id, 42),
+                Action::FullscreenWindow { id } => assert_eq!(*id, Some(42)),
+                Action::MoveWindowToFloating { id } => assert_eq!(*id, Some(42)),
+                Action::MoveWindowToTiling { id } => assert_eq!(*id, Some(42)),
+                Action::MoveWindowToWorkspace {
+                    window_id,
+                    reference,
+                    focus,
+                } => {
+                    assert_eq!(*window_id, Some(42));
+                    assert!(*focus);
+                    match reference {
+                        neori_ipc::WorkspaceReferenceArg::Index(2) => {}
+                        neori_ipc::WorkspaceReferenceArg::Name(name) if name == "browser" => {}
+                        other => panic!("unexpected reference {other:?}"),
+                    };
+                }
+                Action::MoveWindowToMonitor { id, output } => {
+                    assert_eq!(*id, Some(42));
+                    assert_eq!(output, "eDP-1");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn window_mutation_on_stale_id_still_enqueues() {
+        // A Lua config can stash a Window in a local and keep calling methods after the
+        // window is gone. The method must not error — the compositor ignores actions
+        // with unknown ids.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                stashed = stashed or neori.focused_window()
+                stashed:close()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let snap = WindowSnapshot {
+            id: 99,
+            ..Default::default()
+        };
+        host.set_window_cache(WindowCache {
+            windows: vec![snap.clone()],
+            focused: Some(snap),
+        });
+
+        let actions = host.call_bind_function(1).unwrap();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
+
+        // Second call: snapshot isn't refreshed, but Lua `stashed` still holds the
+        // original Window userdata. Call it again — must still enqueue the same action
+        // without erroring.
+        host.set_window_cache(WindowCache::default());
+        let actions = host.call_bind_function(1).unwrap();
+        assert_eq!(actions.len(), 1);
+        assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
+    }
+
+    #[test]
     fn window_api_registers_on_neori_table() {
         // neori.windows(), neori.focused_window(), and the three new events are on
         // the neori API, not via parse_bind_entry — this test just verifies they parse.
@@ -1783,12 +1927,28 @@ mod tests {
     fn on_startup_unknown_event_is_an_error() {
         let err = Config::parse_mem(r#"neori.on("nope", "spawn waybar")"#).unwrap_err();
         assert!(
-            err.main.contains(
-                "unknown event 'nope' (supported events: startup, monitor-added, \
-                 monitor-removed, lid-open, lid-closed, tablet-mode-on, tablet-mode-off)"
-            ),
-            "{err}"
+            err.main.contains("unknown event 'nope'"),
+            "error should name the unknown event: {err}"
         );
+        // The error message enumerates every supported event; spot-check that the
+        // window-* events are listed so stale configs catch typos against the current set.
+        for name in [
+            "startup",
+            "monitor-added",
+            "monitor-removed",
+            "lid-open",
+            "lid-closed",
+            "tablet-mode-on",
+            "tablet-mode-off",
+            "window-opened",
+            "window-closed",
+            "window-focused",
+        ] {
+            assert!(
+                err.main.contains(name),
+                "error should mention supported event {name:?}: {err}"
+            );
+        }
     }
 
     #[test]

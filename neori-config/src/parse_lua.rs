@@ -89,6 +89,7 @@ pub struct Window(pub WindowSnapshot);
 
 impl mlua::UserData for Window {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // Read-only accessors.
         methods.add_method("id", |_, this, ()| Ok(this.0.id));
         methods.add_method("app_id", |_, this, ()| Ok(this.0.app_id.clone()));
         methods.add_method("title", |_, this, ()| Ok(this.0.title.clone()));
@@ -109,11 +110,144 @@ impl mlua::UserData for Window {
             Ok(mlua::Value::Table(t))
         });
         methods.add_method("output", |_, this, ()| Ok(this.0.output_name.clone()));
+
+        // Mutation methods. Each enqueues the matching IPC Action against this
+        // window's stable id; the compositor drains the queue after the callback
+        // returns. Stale ids (window already gone) are silently ignored by the
+        // compositor's dispatch, so it's safe to call these on a Window value
+        // stashed in a Lua local across callbacks.
+
+        methods.add_method("close", |lua, this, ()| {
+            enqueue_action(lua, Action::CloseWindow { id: Some(this.0.id) });
+            Ok(())
+        });
+
+        methods.add_method("focus", |lua, this, ()| {
+            enqueue_action(lua, Action::FocusWindow { id: this.0.id });
+            Ok(())
+        });
+
+        // `w:fullscreen(true)` / `w:fullscreen(false)` / `w:fullscreen()` (toggle).
+        // Set-style calls skip the IPC toggle when the snapshot already matches the
+        // requested state, so they're idempotent in the common case. If the snapshot
+        // was stale (the user stashed `w` across callbacks and state changed), a
+        // mismatched toggle can still land — re-query via neori.focused_window() /
+        // neori.windows() when you need the current state.
+        methods.add_method(
+            "fullscreen",
+            |lua, this, enable: Option<bool>| {
+                if let Some(desired) = enable {
+                    if desired == this.0.is_fullscreen {
+                        return Ok(());
+                    }
+                }
+                enqueue_action(lua, Action::FullscreenWindow { id: Some(this.0.id) });
+                Ok(())
+            },
+        );
+
+        // `w:float(true)` / `w:float(false)` / `w:float()` (toggle). The explicit
+        // MoveWindowToFloating / MoveWindowToTiling IPC actions make this truly
+        // idempotent regardless of snapshot staleness.
+        methods.add_method("float", |lua, this, enable: Option<bool>| {
+            let desired = enable.unwrap_or(!this.0.is_floating);
+            if desired == this.0.is_floating {
+                return Ok(());
+            }
+            let action = if desired {
+                Action::MoveWindowToFloating { id: Some(this.0.id) }
+            } else {
+                Action::MoveWindowToTiling { id: Some(this.0.id) }
+            };
+            enqueue_action(lua, action);
+            Ok(())
+        });
+
+        // `w:send_to_workspace(2)` / `w:send_to_workspace("browser")`.
+        methods.add_method(
+            "send_to_workspace",
+            |lua, this, target: mlua::Value| {
+                let reference = workspace_reference_from_lua(&target)?;
+                enqueue_action(
+                    lua,
+                    Action::MoveWindowToWorkspace {
+                        window_id: Some(this.0.id),
+                        reference,
+                        focus: true,
+                    },
+                );
+                Ok(())
+            },
+        );
+
+        // `w:send_to_output("eDP-1")`.
+        methods.add_method(
+            "send_to_output",
+            |lua, this, output: String| {
+                enqueue_action(
+                    lua,
+                    Action::MoveWindowToMonitor {
+                        id: Some(this.0.id),
+                        output,
+                    },
+                );
+                Ok(())
+            },
+        );
+
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
             let app = this.0.app_id.as_deref().unwrap_or("?");
             let title = this.0.title.as_deref().unwrap_or("?");
             Ok(format!("Window(#{}, app_id={app:?}, title={title:?})", this.0.id))
         });
+    }
+}
+
+/// Enqueue an [`Action`] onto the shared pending-actions queue stashed on the Lua
+/// state via [`Lua::set_app_data`].
+///
+/// A missing app_data is a no-op; it only happens if someone constructs a `Window`
+/// userdata on a Lua state that isn't owned by a [`ScriptHost`], which we don't do
+/// outside of unit tests. In that case the mutation silently drops rather than
+/// erroring from Lua.
+fn enqueue_action(lua: &Lua, action: Action) {
+    if let Some(pending) = lua.app_data_ref::<PendingActions>() {
+        pending.lock().unwrap().push(action);
+    }
+}
+
+/// Convert a Lua value into a [`neori_ipc::WorkspaceReferenceArg`].
+///
+/// Accepts an integer (1-based global workspace index) or a string (workspace name).
+fn workspace_reference_from_lua(
+    value: &mlua::Value,
+) -> mlua::Result<neori_ipc::WorkspaceReferenceArg> {
+    match value {
+        mlua::Value::Integer(i) => {
+            let idx = u8::try_from(*i).map_err(|_| {
+                LuaError::runtime(format!(
+                    "workspace index {i} out of range (expected 0..=255)"
+                ))
+            })?;
+            Ok(neori_ipc::WorkspaceReferenceArg::Index(idx))
+        }
+        mlua::Value::Number(n) => {
+            let n = *n;
+            if n.fract() != 0.0 || n < 0.0 || n > u8::MAX as f64 {
+                return Err(LuaError::runtime(format!(
+                    "workspace index {n} is not a non-negative integer that fits in u8"
+                )));
+            }
+            Ok(neori_ipc::WorkspaceReferenceArg::Index(n as u8))
+        }
+        mlua::Value::String(s) => {
+            let s = s.to_str().map_err(|e| LuaError::runtime(format!("{e}")))?;
+            Ok(neori_ipc::WorkspaceReferenceArg::Name(s.to_string()))
+        }
+        other => Err(LuaError::runtime(format!(
+            "workspace reference must be an integer or a string, got {}",
+            other.type_name()
+        ))),
     }
 }
 
@@ -142,8 +276,14 @@ impl ScriptHost {
         let event_functions = Arc::new(Mutex::new(HashMap::new()));
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
-        let pending_actions = Arc::new(Mutex::new(Vec::new()));
+        let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
         let window_cache = Arc::new(Mutex::new(WindowCache::default()));
+
+        // Stash the pending_actions handle in the Lua state so Window userdata
+        // methods (`w:close()`, `w:focus()`, …) can reach it via `lua.app_data_ref`
+        // without taking a reference to Self.
+        lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
+
         Ok(Self {
             lua,
             event_functions,

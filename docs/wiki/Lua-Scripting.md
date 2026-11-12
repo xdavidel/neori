@@ -118,14 +118,26 @@ Window event handlers receive the subject `Window` as their argument.
 ```lua
 neori.on("window-opened", function(w)
     print("opened:", w:id(), w:app_id(), w:title())
-    if w:app_id() == "firefox" and w:workspace().name ~= "browser" then
-        neori.action("move-window-to-workspace", 2)
+    -- Auto-send Firefox to the "browser" workspace and fullscreen it.
+    if w:app_id() == "firefox" then
+        w:send_to_workspace("browser")
+        w:fullscreen(true)
     end
 end)
 
+-- Toast on focus change.
 neori.on("window-focused", function(w)
     neori.action("spawn-sh", string.format(
         "notify-send 'focus' '%s'", w:app_id() or "?"))
+end)
+
+-- Close every window whose app_id matches a pattern.
+neori.bind("Mod+Alt+K", function()
+    for _, w in ipairs(neori.windows()) do
+        if (w:app_id() or ""):match("^steam_app_") then
+            w:close()
+        end
+    end
 end)
 
 -- Count floating windows on the current output.
@@ -140,9 +152,17 @@ end)
 
 ### `Window` methods
 
-Every method returns an immutable snapshot of the window at the time the Window
-value was created. Re-fetch via `neori.windows()` / `neori.focused_window()` or a
-subsequent event if you need up-to-date state.
+Read-only accessors return an immutable snapshot of the window at the time the
+Window value was created. Re-fetch via `neori.windows()` / `neori.focused_window()`
+or a subsequent event if you need up-to-date state.
+
+Mutation methods enqueue an IPC action against the window's stable id; the
+compositor dispatches them after your callback returns. A stale id (window already
+closed between snapshot time and the method call) is silently ignored by the
+compositor's dispatch, so it's safe to stash a Window in a Lua local and call
+methods on it across callbacks.
+
+**Read-only:**
 
 | method              | returns                                                    |
 |---                  |---                                                         |
@@ -155,9 +175,28 @@ subsequent event if you need up-to-date state.
 | `w:workspace()`     | `{ idx = <number>, name = <string?> }` or `nil`            |
 | `w:output()`        | connector-name string or `nil`                             |
 
-Mutation methods (`w:close()`, `w:focus()`, `w:send_to_workspace(n)`, …) are planned
-for the next round; for now use `neori.action(name, args)` with the matching IPC
-action to mutate state.
+**Mutation:**
+
+| method                        | effect                                                   |
+|---                            |---                                                       |
+| `w:close()`                   | Request client-side close (`Action::CloseWindow`).       |
+| `w:focus()`                   | Focus the window (`Action::FocusWindow`).                |
+| `w:fullscreen(true)`          | Enter fullscreen if not already (`Action::FullscreenWindow`). |
+| `w:fullscreen(false)`         | Exit fullscreen if currently fullscreen.                 |
+| `w:fullscreen()`              | Toggle fullscreen unconditionally.                       |
+| `w:float(true)`               | Move to the floating layout (idempotent).                |
+| `w:float(false)`              | Move to the tiling layout (idempotent).                  |
+| `w:float()`                   | Toggle between floating and tiling based on the snapshot. |
+| `w:send_to_workspace(n)`      | Move to workspace index `n` (1-based).                   |
+| `w:send_to_workspace("name")` | Move to the named workspace.                             |
+| `w:send_to_output("eDP-1")`   | Move to the named output.                                |
+
+Set-style calls (`w:fullscreen(true)`, `w:float(false)`, …) skip the IPC round-trip
+when the snapshot already matches the requested state, so repeated calls in a Lua
+loop don't hammer the compositor. If the snapshot was stale (you stashed `w` and
+state changed between calls), a mismatched fullscreen toggle can still land — the
+float set-style methods use dedicated `MoveWindowToFloating` / `MoveWindowToTiling`
+IPC actions, so they're truly idempotent regardless of staleness.
 
 ## Reload semantics
 
@@ -168,12 +207,13 @@ new config decides what that chord does now. Same for `neori.on` handlers.
 
 ## Known limitations (today)
 
-- Window userdata is **read-only snapshots**. Mutation (`w:focus()`, `w:close()`,
-  `w:send_to_workspace(n)`) is planned for the next round; for now, drive it via
-  `neori.action("…")` with the matching IPC action.
 - No `Output` / `Workspace` userdata yet — use `w:output()` / `w:workspace()` and
   `neori.action("output", { name = "…", … })` for configuration changes.
-- No `neori.timer` — defer work with `neori.action("spawn-sh", "sleep 1 && …")`.
+- Read-only properties on a `Window` are snapshots. A stashed `Window` won't update
+  its `app_id` / `title` / `is_fullscreen` fields when the live window changes; call
+  `neori.focused_window()` / `neori.windows()` again when you need fresh state.
+  Mutation methods (`w:close()`, `w:send_to_workspace()`, …) take effect against
+  the compositor's current state — they don't care whether the snapshot was stale.
 - Hotkey overlay doesn't show Lua-function binds' custom titles yet.
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for
