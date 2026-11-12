@@ -66,21 +66,35 @@ pub fn snapshot_mapped(neori: &Neori, mapped: &Mapped) -> WindowSnapshot {
 pub fn build_window_cache(neori: &Neori) -> WindowCache {
     let focused_mapped = neori.layout.focus().map(Mapped::id);
 
+    // Pre-build a reverse index window-id → (global workspace idx, workspace name)
+    // in one pass over workspaces. The naive per-window version (which the
+    // single-window `snapshot_mapped` still uses) walks every workspace per
+    // lookup — O(windows × workspaces). This batch build is O(windows + workspaces).
+    let mut ws_index: std::collections::HashMap<
+        crate::window::mapped::MappedId,
+        (u8, Option<String>),
+    > = std::collections::HashMap::new();
+    let mut global_idx: u16 = 0;
+    for (_mon, _, ws) in neori.layout.workspaces() {
+        global_idx = global_idx.saturating_add(1);
+        let idx_u8 = u8::try_from(global_idx).unwrap_or(u8::MAX);
+        let ws_name = ws.name().cloned();
+        for window in ws.windows() {
+            ws_index.insert(window.id(), (idx_u8, ws_name.clone()));
+        }
+    }
+
     let mut windows: Vec<WindowSnapshot> = Vec::new();
     let mut focused_snapshot: Option<WindowSnapshot> = None;
 
     for (monitor, mapped) in neori.layout.windows() {
         let (ws_idx, ws_name, out_name) = match monitor {
             Some(mon) => {
-                let output = mon.output();
-                let out_name = Some(output.name());
-
-                // Global workspace index: enumerate workspaces across all monitors in
-                // the order the layout uses, and find this window's workspace.
-                let ws_info = global_workspace_info_for_window(&neori.layout, mapped);
+                let out_name = Some(mon.output().name());
+                let info = ws_index.get(&mapped.id());
                 (
-                    ws_info.as_ref().map(|(idx, _)| *idx),
-                    ws_info.as_ref().and_then(|(_, name)| name.clone()),
+                    info.map(|(idx, _)| *idx),
+                    info.and_then(|(_, name)| name.clone()),
                     out_name,
                 )
             }

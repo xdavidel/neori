@@ -745,15 +745,31 @@ impl State {
             // see every add candidate for Lua even if an earlier structural change
             // already marked need_workspaces_changed. `global_idx` matches the 1-based
             // position-in-walk that Lua `ws:idx()` has always returned.
+            //
+            // Build the full IPC `Workspace` struct for every workspace in the same
+            // pass. If need_workspaces_changed ends true, the fallback event just
+            // wraps this Vec — no second walk of layout.workspaces() needed.
             let mut seen = HashSet::new();
             let mut need_workspaces_changed = false;
             let mut global_idx: u16 = 0;
+            let mut current_workspaces: Vec<Workspace> = Vec::new();
             for (mon, ws_idx, ws) in layout.workspaces() {
                 global_idx = global_idx.saturating_add(1);
                 let id = ws.id().get();
                 seen.insert(id);
 
                 let is_focused_now = Some(id) == focused_ws_id;
+
+                let new_ws = Workspace {
+                    id,
+                    idx: u8::try_from(ws.index()).unwrap_or(u8::MAX),
+                    name: ws.name().cloned(),
+                    output: mon.map(|mon| mon.output_name().clone()),
+                    is_urgent: ws.is_urgent(),
+                    is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
+                    is_focused: is_focused_now,
+                    active_window_id: ws.active_window().map(|win| win.id().get()),
+                };
 
                 let Some(ipc_ws) = state.workspaces.get(&id) else {
                     // A new workspace was added.
@@ -768,30 +784,30 @@ impl State {
                         lua_focused_changed = Some(snap.clone());
                     }
                     lua_added.push(snap);
+                    current_workspaces.push(new_ws);
                     continue;
                 };
 
                 // Check for any changes that we can't signal as individual events.
-                let output_name = mon.map(|mon| mon.output_name());
-                if ipc_ws.idx != u8::try_from(ws.index()).unwrap_or(u8::MAX)
-                    || ipc_ws.name.as_ref() != ws.name()
-                    || ipc_ws.output.as_ref() != output_name
+                if ipc_ws.idx != new_ws.idx
+                    || ipc_ws.name != new_ws.name
+                    || ipc_ws.output != new_ws.output
                 {
                     need_workspaces_changed = true;
                 }
 
-                let active_window_id = ws.active_window().map(|win| win.id().get());
-                if ipc_ws.active_window_id != active_window_id {
+                if ipc_ws.active_window_id != new_ws.active_window_id {
                     events.push(Event::WorkspaceActiveWindowChanged {
                         workspace_id: id,
-                        active_window_id,
+                        active_window_id: new_ws.active_window_id,
                     });
                 }
 
-                // Check if this workspace urgent state changed.
-                let urgent = ws.is_urgent();
-                if urgent != ipc_ws.is_urgent {
-                    events.push(Event::WorkspaceUrgencyChanged { id, urgent });
+                if new_ws.is_urgent != ipc_ws.is_urgent {
+                    events.push(Event::WorkspaceUrgencyChanged {
+                        id,
+                        urgent: new_ws.is_urgent,
+                    });
                 }
 
                 // Check if this workspace became focused.
@@ -803,14 +819,16 @@ impl State {
                         ws,
                         focused_ws_id,
                     ));
+                    current_workspaces.push(new_ws);
                     continue;
                 }
 
-                // Check if this workspace became active.
-                let is_active = mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx);
-                if is_active && !ipc_ws.is_active {
+                // Check if this workspace became active (on its monitor).
+                if new_ws.is_active && !ipc_ws.is_active {
                     events.push(Event::WorkspaceActivated { id, focused: false });
                 }
+
+                current_workspaces.push(new_ws);
             }
 
             // Check if any workspaces were removed. Capture the last-known snapshot for
@@ -832,25 +850,9 @@ impl State {
 
             if need_workspaces_changed {
                 events.clear();
-
-                let workspaces = layout
-                    .workspaces()
-                    .map(|(mon, ws_idx, ws)| {
-                        let id = ws.id().get();
-                        Workspace {
-                            id,
-                            idx: u8::try_from(ws.index()).unwrap_or(u8::MAX),
-                            name: ws.name().cloned(),
-                            output: mon.map(|mon| mon.output_name().clone()),
-                            is_urgent: ws.is_urgent(),
-                            is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
-                            is_focused: Some(id) == focused_ws_id,
-                            active_window_id: ws.active_window().map(|win| win.id().get()),
-                        }
-                    })
-                    .collect();
-
-                events.push(Event::WorkspacesChanged { workspaces });
+                events.push(Event::WorkspacesChanged {
+                    workspaces: current_workspaces,
+                });
             }
 
             for event in events {
