@@ -113,6 +113,7 @@ Supported event names and their handler arg:
 | `workspace-added`    | `Workspace` userdata — the just-created workspace   |
 | `workspace-removed`  | `Workspace` userdata — last-known snapshot of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
+| `layout-changed`     | string — the new active keyboard layout's name      |
 
 Workspace / output lifecycle events fire whenever the compositor notices a
 change (per refresh tick), so a bind that focuses a different workspace,
@@ -247,6 +248,43 @@ Static `window_rule { … }` entries still apply — the Lua handler composes on
 top, and anything it sets wins. The `window-opened` event still fires after
 placement, so you can keep using it for post-placement side effects
 (notifications, focus swaps, …) that don't belong in placement decisions.
+
+## Pointer & keyboard
+
+Inside any Lua callback, `neori.pointer()` returns the current seat pointer
+position as `{ x = …, y = …, output = <connector-name or nil> }`, or `nil` if
+the cache hasn't been seeded yet (shouldn't happen in a running compositor).
+The coordinates are in the compositor's global logical space — the same space
+window / output `position` fields use. `neori.warp(x, y)` queues a cursor warp
+to those coordinates; the compositor drains the queue after the callback
+returns.
+
+```lua
+-- Cursor-follows-focus: snap the pointer to the center of the focused
+-- output whenever the active output changes.
+neori.on("output-focused", function(out)
+    local pos = out:position()
+    if not pos then return end
+    local mode = (out:mode() or ""):match("^(%d+)x(%d+)")
+    -- mode has width/height; if we can't parse it, just center on the origin.
+    local w, h = 0, 0
+    for a, b in (out:mode() or ""):gmatch("(%d+)x(%d+)") do w, h = tonumber(a), tonumber(b) end
+    local scale = out:scale() or 1
+    neori.warp(pos.x + (w / scale) / 2, pos.y + (h / scale) / 2)
+end)
+```
+
+`neori.keyboard_layout()` returns the active xkb layout's name (as it appears
+in the compositor's keymap, e.g. `"English (US)"`, `"Russian"`). The
+`layout-changed` event fires whenever the active layout switches, with the
+new name as its string argument.
+
+```lua
+neori.on("layout-changed", function(name)
+    neori.action("spawn-sh", string.format(
+        "notify-send layout %q", name))
+end)
+```
 
 ## Reload semantics
 

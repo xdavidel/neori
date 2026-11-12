@@ -5,8 +5,8 @@
 //! see a consistent view of the world at each callback boundary.
 
 use neori_config::{
-    Config, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, Window as LuaWindow, WindowCache,
-    WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    Config, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, PointerSnapshot,
+    Window as LuaWindow, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 use smithay::desktop::Window;
 use smithay::output::Output as SmithayOutput;
@@ -135,11 +135,12 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
         self.drain_and_dispatch(event, result);
     }
 
-    /// Refresh the ScriptHost's window, output and workspace caches from current
-    /// compositor state.
+    /// Refresh the ScriptHost's window, output, workspace and pointer caches
+    /// from current compositor state.
     fn refresh_script_caches(&self) {
         let window_cache = build_window_cache(&self.neori);
         self.scripting.set_window_cache(window_cache);
@@ -149,10 +150,16 @@ impl State {
         self.scripting.set_output_cache(output_cache);
         let workspace_cache = build_workspace_cache(&self.neori);
         self.scripting.set_workspace_cache(workspace_cache);
+        if let Some(snapshot) = build_pointer_snapshot(&self.neori) {
+            self.scripting.set_pointer_cache(snapshot);
+        } else {
+            self.scripting.clear_pointer_cache();
+        }
     }
 
     /// Dispatch actions returned from the Lua call plus any pending output ops the
-    /// callback enqueued via `Output` mutation methods. Surfaces Lua errors via the
+    /// callback enqueued via `Output` mutation methods, and any pending cursor
+    /// warps from `neori.warp(x, y)`. Surfaces Lua errors via the
     /// config-error notification.
     fn drain_and_dispatch(
         &mut self,
@@ -172,6 +179,9 @@ impl State {
         }
         for (output, op) in self.scripting.drain_pending_output_ops() {
             self.apply_transient_output_config(&output, op);
+        }
+        for (x, y) in self.scripting.drain_pending_warps() {
+            self.move_cursor(smithay::utils::Point::from((x, y)));
         }
     }
 
@@ -202,6 +212,7 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
         self.drain_and_dispatch("window-opening", result);
         overrides
     }
@@ -215,6 +226,7 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
         self.drain_and_dispatch(event, result);
     }
 
@@ -241,7 +253,26 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
         self.drain_and_dispatch("output-focused", result);
+    }
+
+    /// Fire the `layout-changed` Lua event if the active keyboard layout name
+    /// has changed since the last call. Also keeps the ScriptHost's layout
+    /// cache (`neori.keyboard_layout()`) in sync.
+    pub fn maybe_fire_layout_changed(&mut self, name: String) {
+        self.scripting.set_keyboard_layout(Some(name.clone()));
+        if self.neori.last_keyboard_layout_name.as_deref() == Some(&name) {
+            return;
+        }
+        self.neori.last_keyboard_layout_name = Some(name.clone());
+        self.refresh_script_caches();
+        let result = self.scripting.call_event_with("layout-changed", name);
+        self.scripting.clear_window_cache();
+        self.scripting.clear_output_cache();
+        self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
+        self.drain_and_dispatch("layout-changed", result);
     }
 
     /// Diff current workspace / focused-output state against the last-known state
@@ -312,14 +343,19 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
     }
 
-    /// Drain and dispatch any output ops enqueued by a bind callback via `Output`
-    /// mutation methods. Mirror of the drain step inside `fire_window_event` so
-    /// `dispatch_bind_inner` can call it alongside its action drain.
+    /// Drain and dispatch any output ops / cursor warps enqueued by a bind
+    /// callback via `Output` mutation methods or `neori.warp`. Mirror of the
+    /// drain step inside `fire_window_event` so `dispatch_bind_inner` can call
+    /// it alongside its action drain.
     pub fn drain_pending_output_ops_and_dispatch(&mut self) {
         for (output, op) in self.scripting.drain_pending_output_ops() {
             self.apply_transient_output_config(&output, op);
+        }
+        for (x, y) in self.scripting.drain_pending_warps() {
+            self.move_cursor(smithay::utils::Point::from((x, y)));
         }
     }
 }
@@ -332,6 +368,7 @@ pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     host.clear_window_cache();
     host.clear_output_cache();
     host.clear_workspace_cache();
+    host.clear_pointer_cache();
 }
 
 /// Build a snapshot for one compositor output.
@@ -470,6 +507,31 @@ pub fn build_workspace_cache(neori: &Neori) -> WorkspaceCache {
         workspaces,
         focused: focused_snapshot,
     }
+}
+
+/// Snapshot the current pointer position and the output it sits on.
+///
+/// Returns `None` if no seat pointer exists (shouldn't happen on a running
+/// compositor, but keeps the signature total for callers).
+pub fn build_pointer_snapshot(neori: &Neori) -> Option<PointerSnapshot> {
+    let pointer = neori.seat.get_pointer()?;
+    let loc = pointer.current_location();
+    let output_name = neori
+        .global_space
+        .outputs()
+        .find(|o| {
+            neori
+                .global_space
+                .output_geometry(o)
+                .map(|geo| geo.to_f64().contains(loc))
+                .unwrap_or(false)
+        })
+        .map(|o| o.name());
+    Some(PointerSnapshot {
+        x: loc.x,
+        y: loc.y,
+        output_name,
+    })
 }
 
 /// Convert a Smithay output transform into the string form the Lua `Output:transform()`

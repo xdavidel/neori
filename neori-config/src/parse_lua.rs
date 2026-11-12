@@ -149,6 +149,29 @@ pub struct WorkspaceCache {
 
 type SharedWorkspaceCache = Arc<Mutex<WorkspaceCache>>;
 
+/// Pointer-position snapshot exposed to Lua as `neori.pointer()`. The compositor
+/// refreshes it in `refresh_script_caches` from the seat's current pointer
+/// location, so Lua sees fresh values at every bind / event boundary.
+#[derive(Debug, Default, Clone)]
+pub struct PointerSnapshot {
+    pub x: f64,
+    pub y: f64,
+    /// Connector name of the output the pointer currently sits on, or `None` if
+    /// it's in a gap between outputs (rare — usually it's on exactly one).
+    pub output_name: Option<String>,
+}
+
+type SharedPointerCache = Arc<Mutex<Option<PointerSnapshot>>>;
+
+/// Queue of pending cursor warps enqueued by Lua via `neori.warp(x, y)`. The
+/// compositor drains and dispatches each via `State::move_cursor` after the
+/// callback returns.
+type PendingWarps = Arc<Mutex<Vec<(f64, f64)>>>;
+
+/// Current keyboard layout name exposed to Lua as `neori.keyboard_layout()`.
+/// The compositor keeps this fresh from the seat's xkb state.
+type SharedKeyboardLayout = Arc<Mutex<Option<String>>>;
+
 /// Queue of output configuration operations enqueued by Lua via the `Output`
 /// userdata mutation methods. The compositor drains and dispatches each via
 /// `State::apply_transient_output_config` after the callback returns.
@@ -775,6 +798,15 @@ pub struct ScriptHost {
     /// `Window` userdata `open_*` methods write to the inner struct when the
     /// guard is `Some`, and silently no-op when it's `None`.
     open_overrides: SharedOpenOverrides,
+    /// Current pointer position, refreshed by the compositor before every
+    /// callback. Powers `neori.pointer()`.
+    pointer_cache: SharedPointerCache,
+    /// Cursor warps enqueued by Lua via `neori.warp(x, y)`. The compositor
+    /// drains after the callback returns.
+    pending_warps: PendingWarps,
+    /// Current keyboard layout name, refreshed by the compositor. Powers
+    /// `neori.keyboard_layout()`.
+    keyboard_layout: SharedKeyboardLayout,
 }
 
 impl ScriptHost {
@@ -789,6 +821,9 @@ impl ScriptHost {
         let output_cache = Arc::new(Mutex::new(OutputCache::default()));
         let workspace_cache = Arc::new(Mutex::new(WorkspaceCache::default()));
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
+        let pointer_cache: SharedPointerCache = Arc::new(Mutex::new(None));
+        let pending_warps: PendingWarps = Arc::new(Mutex::new(Vec::new()));
+        let keyboard_layout: SharedKeyboardLayout = Arc::new(Mutex::new(None));
 
         // Stash handles for every runtime queue + cache on the Lua state so userdata
         // methods (`w:close()`, `out:set_scale(…)`, `ws:windows()`, …) can reach
@@ -797,6 +832,7 @@ impl ScriptHost {
         lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
         lua.set_app_data::<SharedWindowCache>(Arc::clone(&window_cache));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
+        lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
 
         Ok(Self {
             lua,
@@ -809,7 +845,34 @@ impl ScriptHost {
             output_cache,
             workspace_cache,
             open_overrides,
+            pointer_cache,
+            pending_warps,
+            keyboard_layout,
         })
+    }
+
+    /// Replace the cached pointer snapshot, called by the compositor just before
+    /// each Lua callback dispatch.
+    pub fn set_pointer_cache(&self, snapshot: PointerSnapshot) {
+        *self.pointer_cache.lock().unwrap() = Some(snapshot);
+    }
+
+    pub fn clear_pointer_cache(&self) {
+        *self.pointer_cache.lock().unwrap() = None;
+    }
+
+    /// Drain pending cursor warps enqueued by Lua via `neori.warp(x, y)`.
+    pub fn drain_pending_warps(&self) -> Vec<(f64, f64)> {
+        std::mem::take(&mut *self.pending_warps.lock().unwrap())
+    }
+
+    /// Replace the cached keyboard layout name.
+    pub fn set_keyboard_layout(&self, name: Option<String>) {
+        *self.keyboard_layout.lock().unwrap() = name;
+    }
+
+    pub fn clear_keyboard_layout(&self) {
+        *self.keyboard_layout.lock().unwrap() = None;
     }
 
     /// Open a `window-opening` dispatch: enables the `w:open_*` methods and
@@ -891,6 +954,9 @@ impl ScriptHost {
         *self.window_cache.lock().unwrap() = WindowCache::default();
         *self.output_cache.lock().unwrap() = OutputCache::default();
         *self.workspace_cache.lock().unwrap() = WorkspaceCache::default();
+        *self.pointer_cache.lock().unwrap() = None;
+        self.pending_warps.lock().unwrap().clear();
+        *self.keyboard_layout.lock().unwrap() = None;
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -937,6 +1003,9 @@ impl ScriptHost {
             &self.window_cache,
             &self.output_cache,
             &self.workspace_cache,
+            &self.pointer_cache,
+            &self.pending_warps,
+            &self.keyboard_layout,
             search_dir,
             Arc::clone(&includes),
         )
@@ -1224,6 +1293,9 @@ fn setup_neori_api(
     window_cache: &SharedWindowCache,
     output_cache: &SharedOutputCache,
     workspace_cache: &SharedWorkspaceCache,
+    pointer_cache: &SharedPointerCache,
+    pending_warps: &PendingWarps,
+    keyboard_layout: &SharedKeyboardLayout,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -1481,6 +1553,58 @@ fn setup_neori_api(
         neori.set("focused_workspace", func).map_err(err)?;
     }
 
+    // neori.pointer() returns { x, y, output } or nil if the cache is unseeded.
+    {
+        let cache = Arc::clone(pointer_cache);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let snapshot = cache.lock().unwrap().clone();
+                match snapshot {
+                    Some(s) => {
+                        let t = lua.create_table()?;
+                        t.set("x", s.x)?;
+                        t.set("y", s.y)?;
+                        if let Some(name) = s.output_name {
+                            t.set("output", name)?;
+                        }
+                        Ok(mlua::Value::Table(t))
+                    }
+                    None => Ok(mlua::Value::Nil),
+                }
+            })
+            .map_err(err)?;
+        neori.set("pointer", func).map_err(err)?;
+    }
+
+    // neori.warp(x, y) enqueues a cursor warp to the given global coordinates.
+    // The compositor drains the queue after the callback returns and dispatches
+    // each warp via `State::move_cursor`.
+    {
+        let queue = Arc::clone(pending_warps);
+        let func = lua
+            .create_function(move |_lua, (x, y): (f64, f64)| {
+                if !x.is_finite() || !y.is_finite() {
+                    return Err(LuaError::runtime(format!(
+                        "neori.warp: non-finite coordinates ({x}, {y})"
+                    )));
+                }
+                queue.lock().unwrap().push((x, y));
+                Ok(())
+            })
+            .map_err(err)?;
+        neori.set("warp", func).map_err(err)?;
+    }
+
+    // neori.keyboard_layout() returns the active layout's name (as it appears in
+    // the keymap), or nil if the cache is unseeded.
+    {
+        let cache = Arc::clone(keyboard_layout);
+        let func = lua
+            .create_function(move |_lua, ()| Ok(cache.lock().unwrap().clone()))
+            .map_err(err)?;
+        neori.set("keyboard_layout", func).map_err(err)?;
+    }
+
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and
     // neori.on. `neori.spawn("kitty")` and `neori.spawn { "kitty", "-e", "sh" }` build an
     // argv command; `neori.spawn_sh("cmd | cmd")` builds a shell command. An optional
@@ -1678,13 +1802,14 @@ fn setup_neori_api(
                     "workspace-added" | "workspace_added" => "workspace-added",
                     "workspace-removed" | "workspace_removed" => "workspace-removed",
                     "output-focused" | "output_focused" => "output-focused",
+                    "layout-changed" | "layout_changed" => "layout-changed",
                     _ => {
                         return Err(LuaError::runtime(format!(
                             "unknown event '{event}' (supported events: startup, monitor-added, \
                              monitor-removed, lid-open, lid-closed, tablet-mode-on, \
                              tablet-mode-off, window-opening, window-opened, window-closed, \
                              window-focused, workspace-focused, workspace-added, \
-                             workspace-removed, output-focused)"
+                             workspace-removed, output-focused, layout-changed)"
                         )));
                     }
                 };

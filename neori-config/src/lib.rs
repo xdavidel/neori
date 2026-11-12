@@ -53,8 +53,8 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    LuaOutput, LuaWorkspace, OpenOverrides, OutputCache, OutputSnapshot, ScriptHost, Window,
-    WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    LuaOutput, LuaWorkspace, OpenOverrides, OutputCache, OutputSnapshot, PointerSnapshot,
+    ScriptHost, Window, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
@@ -794,6 +794,124 @@ mod tests {
         // but either order is acceptable — just assert we see one of them).
         let fw: u64 = t.get("first_window_id").unwrap();
         assert!(fw == 42 || fw == 7, "unexpected first window id {fw}");
+    }
+
+    #[test]
+    fn pointer_and_keyboard_layout_api_returns_cached_values() {
+        // neori.pointer() and neori.keyboard_layout() return nil when the caches
+        // are unseeded, and reflect their contents once set.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = {}
+            neori.on("startup", function()
+                local p = neori.pointer()
+                seen.pointer_nil = p == nil
+                seen.layout_nil = neori.keyboard_layout() == nil
+            end)
+            neori.bind("Mod+Alt+P", function()
+                local p = neori.pointer()
+                if p then
+                    seen.pointer_x = p.x
+                    seen.pointer_y = p.y
+                    seen.pointer_output = p.output
+                end
+                seen.layout = neori.keyboard_layout()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // Cold: pointer() and keyboard_layout() should return nil.
+        host.call_event("startup").unwrap();
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        assert!(t.get::<bool>("pointer_nil").unwrap());
+        assert!(t.get::<bool>("layout_nil").unwrap());
+
+        // Seed caches and drive the bind.
+        host.set_pointer_cache(PointerSnapshot {
+            x: 42.5,
+            y: 17.25,
+            output_name: Some("eDP-1".into()),
+        });
+        host.set_keyboard_layout(Some("English (US)".into()));
+        let _ = host.call_bind_function(1).unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        assert_eq!(t.get::<f64>("pointer_x").unwrap(), 42.5);
+        assert_eq!(t.get::<f64>("pointer_y").unwrap(), 17.25);
+        assert_eq!(t.get::<String>("pointer_output").unwrap(), "eDP-1");
+        assert_eq!(t.get::<String>("layout").unwrap(), "English (US)");
+    }
+
+    #[test]
+    fn warp_enqueues_pending_coordinates() {
+        // neori.warp(x, y) drops onto the warps queue; the compositor would
+        // normally drain via `drain_pending_warps`.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+Z", function()
+                neori.warp(100, 200)
+                neori.warp(300.5, 400.75)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let _ = host.call_bind_function(1).unwrap();
+        let warps = host.drain_pending_warps();
+        assert_eq!(warps, vec![(100.0, 200.0), (300.5, 400.75)]);
+    }
+
+    #[test]
+    fn warp_rejects_non_finite_coordinates() {
+        // Guard: NaN / Inf should yield a Lua error, not silently land in the queue.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+X", function()
+                neori.warp(1/0, 0)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let err = host.call_bind_function(1).unwrap_err();
+        assert!(err.contains("neori.warp"), "unexpected error: {err}");
+        assert!(host.drain_pending_warps().is_empty());
+    }
+
+    #[test]
+    fn layout_changed_event_registers_and_dispatches() {
+        // `layout-changed` takes the new layout name as its string argument.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = nil
+            neori.on("layout-changed", function(name) seen = name end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.call_event_with("layout-changed", "Russian".to_string())
+            .unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::String(s) = seen else {
+            panic!("seen is not a string: {seen:?}");
+        };
+        assert_eq!(s.to_str().unwrap().to_string(), "Russian");
     }
 
     #[test]

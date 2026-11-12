@@ -825,6 +825,36 @@ end
 -- neori.on("workspace-removed", function(ws) print("ws -", ws:idx(), ws:name()) end)
 -- neori.on("output-focused",    function(out) print("output focus:", out:name()) end)
 
+--------------------------------------------------------------------------------
+-- Pointer position + cursor warp.
+--
+-- neori.pointer()      -> { x, y, output } in global logical coordinates, or nil
+-- neori.warp(x, y)     queues a cursor warp (compositor drains after callback)
+
+-- Jump the cursor to the top-left of the active output on demand.
+-- neori.bind("Mod+Alt+Home", function()
+--   local out = neori.focused_output()
+--   if out and out:position() then
+--     neori.warp(out:position().x + 10, out:position().y + 10)
+--   end
+-- end)
+
+-- Toast the pointer's current output each time the active workspace changes.
+-- neori.on("workspace-focused", function(ws)
+--   local p = neori.pointer()
+--   print("ws", ws:idx(), "pointer on", p and p.output or "?")
+-- end)
+
+--------------------------------------------------------------------------------
+-- Keyboard layout.
+--
+-- neori.keyboard_layout() -> current layout name (e.g. "English (US)")
+-- neori.on("layout-changed", function(name) ... end)
+
+-- neori.on("layout-changed", function(name)
+--   neori.action("spawn-sh", string.format("notify-send layout %q", name))
+-- end)
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

@@ -1564,6 +1564,157 @@ fn window_opening_open_on_output_lands_on_target() {
 }
 
 #[test]
+fn pointer_cache_is_refreshed_before_bind_callback() {
+    // A bind callback that reads neori.pointer() should see a non-nil table
+    // reflecting the current seat pointer position.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local p = neori.pointer()
+            if p then
+                seen_x = p.x
+                seen_y = p.y
+                seen_output = p.output
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.state.move_cursor(smithay::utils::Point::from((640.0, 360.0)));
+    f.state.server.dispatch();
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let x = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("seen_x")
+        .unwrap();
+    let y = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("seen_y")
+        .unwrap();
+    assert!(
+        matches!(x, neori_config::mlua::Value::Number(n) if (n - 640.0).abs() < 1e-6),
+        "expected seen_x ≈ 640.0, got {x:?}"
+    );
+    assert!(
+        matches!(y, neori_config::mlua::Value::Number(n) if (n - 360.0).abs() < 1e-6),
+        "expected seen_y ≈ 360.0, got {y:?}"
+    );
+    let output = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("seen_output")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = output else {
+        panic!("seen_output is not a string, got {output:?}");
+    };
+    assert_eq!(s.to_str().unwrap().to_string(), "headless-1");
+}
+
+#[test]
+fn warp_moves_the_cursor() {
+    // neori.warp(x, y) from a bind callback should move the seat pointer there
+    // by the time control returns to the test.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            neori.warp(123.0, 456.0)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.state.move_cursor(smithay::utils::Point::from((0.0, 0.0)));
+    f.state.server.dispatch();
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+
+    let pointer = f
+        .state
+        .server
+        .state
+        .neori
+        .seat
+        .get_pointer()
+        .unwrap()
+        .current_location();
+    assert!((pointer.x - 123.0).abs() < 1e-6, "expected x ≈ 123.0, got {}", pointer.x);
+    assert!((pointer.y - 456.0).abs() < 1e-6, "expected y ≈ 456.0, got {}", pointer.y);
+}
+
+#[test]
+fn keyboard_layout_is_readable_from_lua() {
+    // After the first refresh tick the layout cache should be populated with the
+    // active xkb layout name, visible via neori.keyboard_layout().
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            seen_layout = neori.keyboard_layout()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let layout = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("seen_layout")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = layout else {
+        panic!("seen_layout is not a string, got {layout:?}");
+    };
+    // The default xkb layout is en_US / "English (US)" — be lenient about the exact wording.
+    let name = s.to_str().unwrap().to_string();
+    assert!(!name.is_empty(), "keyboard layout name should be non-empty");
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

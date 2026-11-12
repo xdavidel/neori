@@ -352,6 +352,10 @@ pub struct Neori {
     /// `workspace-removed` and to supply a meaningful payload when a workspace
     /// vanishes between ticks.
     pub last_known_workspaces: HashMap<u64, neori_config::WorkspaceSnapshot>,
+    /// Last-known active keyboard layout name. Used by
+    /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
+    /// `layout-changed` Lua event only on change.
+    pub last_keyboard_layout_name: Option<String>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
     pub is_fdo_idle_inhibited: Arc<AtomicBool>,
     pub keyboard_shortcuts_inhibiting_surfaces: HashMap<WlSurface, KeyboardShortcutsInhibitor>,
@@ -1645,6 +1649,7 @@ impl State {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
+        self.scripting.clear_pointer_cache();
         match result {
             Ok(_) => {}
             Err(err) => warn!("{err}"),
@@ -2842,6 +2847,7 @@ impl Neori {
             last_focused_workspace_id: None,
             last_focused_output_name: None,
             last_known_workspaces: HashMap::new(),
+            last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
             keyboard_shortcuts_inhibiting_surfaces: HashMap::new(),

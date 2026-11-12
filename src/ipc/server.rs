@@ -654,10 +654,15 @@ impl State {
 
     pub fn ipc_refresh_keyboard_layout_index(&mut self) {
         let keyboard = self.neori.seat.get_keyboard().unwrap();
-        let idx = keyboard.with_xkb_state(self, |context| {
+        let (idx, name) = keyboard.with_xkb_state(self, |context| {
             let xkb = context.xkb().lock().unwrap();
-            xkb.active_layout().0 as u8
+            let active = xkb.active_layout();
+            (active.0 as u8, xkb.layout_name(active).to_owned())
         });
+
+        // Lua `neori.keyboard_layout()` cache + `layout-changed` event. Runs
+        // regardless of IPC server presence.
+        self.maybe_fire_layout_changed(name);
 
         let Some(server) = &self.neori.ipc_server else {
             return;
