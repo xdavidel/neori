@@ -352,15 +352,6 @@ pub struct Neori {
     /// `workspace-removed` and to supply a meaningful payload when a workspace
     /// vanishes between ticks.
     pub last_known_workspaces: HashMap<u64, neori_config::WorkspaceSnapshot>,
-    /// Cheap fingerprint `(count, wrapping-sum of ids, focused id)` for the set
-    /// of live workspaces at the end of the last
-    /// [`State::maybe_fire_workspace_events`] call. Used to short-circuit the
-    /// full snapshot rebuild + HashMap diff on ticks where nothing changed —
-    /// the function fires once per event-loop iteration via `refresh`, so the
-    /// common case is "no diff, bail". Workspace IDs are globally unique per
-    /// session, so a focused-output change always carries a focused-id change
-    /// too; no need to include the output name in the fingerprint.
-    pub last_workspace_fingerprint: (u32, u64, Option<u64>),
     /// Last-known active keyboard layout name. Used by
     /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
     /// `layout-changed` Lua event only on change.
@@ -1538,18 +1529,27 @@ impl State {
     /// last call. The handler gets the newly focused window as its argument; no event
     /// is fired when focus moves to nothing (yet — a future `window-unfocused` event
     /// could address that).
+    ///
+    /// Called from `State::update_keyboard_focus`, which itself runs every tick via
+    /// `State::refresh`. The body here is cheap on the no-change path (one Option
+    /// compare) and only chains into `maybe_fire_workspace_events` when window focus
+    /// actually moved — so a quiet tick costs nothing. Workspace changes that *don't*
+    /// move the focused window (focus-workspace-* on an empty workspace, named-workspace
+    /// materialization on reload, monitor hotplug) are picked up by explicit
+    /// `maybe_fire_workspace_events` calls at the `do_action` / `reload_config` /
+    /// `fire_monitor_event` tails instead.
     pub fn maybe_fire_window_focused(&mut self) {
         let focused_id = self.neori.layout.focus().map(|m| m.id().get());
-        if focused_id != self.neori.last_focused_window_id {
-            self.neori.last_focused_window_id = focused_id;
-            if let Some(mapped) = self.neori.layout.focus() {
-                let snap = crate::script::snapshot_mapped(&self.neori, mapped);
-                self.fire_window_event("window-focused", snap);
-            }
+        if focused_id == self.neori.last_focused_window_id {
+            return;
         }
-        // Workspace / output focus and lifecycle events ride the same tick so a
-        // single keyboard-focus refresh covers the common case (moving the window
-        // also moves the workspace / output focus).
+        self.neori.last_focused_window_id = focused_id;
+        if let Some(mapped) = self.neori.layout.focus() {
+            let snap = crate::script::snapshot_mapped(&self.neori, mapped);
+            self.fire_window_event("window-focused", snap);
+        }
+        // Window focus moving across windows almost always implies workspace or output
+        // focus moved too; diff while we're already here.
         self.maybe_fire_workspace_events();
     }
 
@@ -1994,6 +1994,11 @@ impl State {
         // clients will use the new xdg-decoration setting.
 
         self.neori.queue_redraw_all();
+
+        // Named-workspace unname + ensure above may have added or removed workspaces;
+        // let Lua handlers see those lifecycle events now instead of waiting for the
+        // next action/hotplug/focus change to trigger the diff.
+        self.maybe_fire_workspace_events();
     }
 
     pub fn reload_output_config(&mut self) {
@@ -2861,7 +2866,6 @@ impl Neori {
             last_focused_workspace_id: None,
             last_focused_output_name: None,
             last_known_workspaces: HashMap::new(),
-            last_workspace_fingerprint: (0, 0, None),
             last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),

@@ -380,7 +380,9 @@ impl DndGrabHandler for State {
             // Find the output from drop coordinates.
             if let Some((output, _)) = self.neori.output_under(location) {
                 let output = output.clone();
-                self.neori.layout.focus_output(&output);
+                // Go through the State wrapper so Lua `output-focused` fires —
+                // this path is a Wayland protocol handler, not `do_action`.
+                self.focus_output(&output);
             }
         }
     }
