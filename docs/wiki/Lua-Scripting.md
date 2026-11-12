@@ -125,6 +125,67 @@ change (per refresh tick), so a bind that focuses a different workspace,
 plugging in a monitor, or opening a window on a not-yet-materialized workspace
 all generate the matching events.
 
+## Other `neori.*` entry points
+
+Beyond the three runtime hooks above (`bind`, `action`, `on`), `neori.*` exposes the
+programmatic equivalents of the declarative config. These are what `config.lua` uses to
+declare its static setup — they run at parse time, not during callbacks. The compositor
+accepts them anywhere in the script, so you can mix declarative blocks with Lua
+conditionals to build the config dynamically.
+
+### Action-builder helpers
+
+Return an action table suitable for `neori.bind`, `neori.on`, or `neori.action`:
+
+| call                                                           | what it returns                         |
+|---                                                             |---                                      |
+| `neori.spawn("kitty", "-e", "sh")`                             | `spawn` action — exec directly          |
+| `neori.spawn_sh("waybar | logger")`                            | `spawn` action — via `sh -c`            |
+| `neori.create_virtual_output { name = …, width = …, height = …, refresh_rate = … }` | `create-virtual-output` action |
+| `neori.remove_virtual_output("name")` or `{ name = "…" }`      | `remove-virtual-output` action          |
+
+Any extra string-keyed fields on the trailing table (`hotkey_overlay_title`,
+`cooldown_ms`, `["repeat"] = false`, …) are merged in as bind metadata, so
+`neori.bind("Mod+T", neori.spawn("kitty", { hotkey_overlay_title = "Terminal" }))`
+works. See [Virtual Outputs](Virtual-Outputs.md) for the create/remove option shapes.
+
+### Declarative config, from Lua
+
+Every top-level section in the declarative config is also callable as `neori.<section>(table)`,
+and merges into whatever the file has already set. Repeated calls layer: the last write
+wins per field. Entry-collections that take names use the singular form, listed last.
+
+| section setter                                                 | documents                                        |
+|---                                                             |---                                               |
+| `neori.input { … }`                                            | [Configuration: Input](Configuration:-Input.md)  |
+| `neori.layout { … }`                                           | [Configuration: Layout](Configuration:-Layout.md) |
+| `neori.cursor { … }`                                           | [Configuration: Input](Configuration:-Input.md) (cursor subsection) |
+| `neori.binds { … }`                                            | [Configuration: Key Bindings](Configuration:-Key-Bindings.md) |
+| `neori.animations { … }`                                       | [Configuration: Animations](Configuration:-Animations.md) |
+| `neori.gestures { … }`                                         | [Configuration: Gestures](Configuration:-Gestures.md) |
+| `neori.switch_events { … }`                                    | [Configuration: Switch Events](Configuration:-Switch-Events.md) |
+| `neori.recent_windows { … }`                                   | [Configuration: Recent Windows](Configuration:-Recent-Windows.md) |
+| `neori.hotkey_overlay { … }`                                   | [Configuration: Miscellaneous](Configuration:-Miscellaneous.md) |
+| `neori.overview { … }`, `neori.blur { … }`, `neori.clipboard { … }`, `neori.config_notification { … }`, `neori.xwayland_satellite { … }`, `neori.environment { … }`, `neori.debug { … }` | [Configuration: Miscellaneous](Configuration:-Miscellaneous.md) |
+| `neori.prefer_no_csd(true)` / `neori.screenshot_path("…")`     | [Configuration: Miscellaneous](Configuration:-Miscellaneous.md) |
+| `neori.window_rule { … }` (per-rule)                           | [Configuration: Window Rules](Configuration:-Window-Rules.md) |
+| `neori.layer_rule { … }` (per-rule)                            | [Configuration: Layer Rules](Configuration:-Layer-Rules.md) |
+| `neori.output("name", { … })`                                  | [Configuration: Outputs](Configuration:-Outputs.md) |
+| `neori.workspace("name", { … })`                               | [Configuration: Named Workspaces](Configuration:-Named-Workspaces.md) |
+
+The plural `neori.outputs` / `neori.workspaces` / `neori.windows` are **runtime lookup
+functions** — they return the current snapshot arrays and are documented in the sections
+below. There is no `neori.outputs(table)` / `neori.workspaces(table)` section setter;
+declare entries one by one with the singular form instead.
+
+### Parse-time utilities
+
+| call                                                           | what it does                            |
+|---                                                             |---                                      |
+| `neori.set("key", value)`                                      | low-level: write directly into the config data table (escape hatch for a field no section setter covers) |
+| `neori.strict(true)` / `neori.strict(false)` / `neori.strict()` | toggle strict parsing — unknown config keys become errors instead of warnings |
+| `neori.include("other.lua", "snippets/*.lua", "~/dir/")`       | evaluate other Lua files in the same environment; see [Configuration: Include](Configuration:-Include.md) for path rules |
+
 ## Windows
 
 Inside any Lua callback (bind or event), `neori.windows()` returns a snapshot array of
