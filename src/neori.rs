@@ -1646,11 +1646,7 @@ impl State {
             event,
             (connector.to_string(), neori_config::LuaOutput(snapshot)),
         );
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         match result {
             Ok(_) => {}
             Err(err) => warn!("{err}"),

@@ -689,7 +689,7 @@ impl State {
             // Prime neori.windows() / neori.outputs() / focused_* with current state.
             self.prime_window_cache();
             let result = self.scripting.call_bind_function(fn_ref.id);
-            self.clear_window_cache();
+            self.clear_script_caches();
             match result {
                 Ok(pending) => {
                     for action in pending {

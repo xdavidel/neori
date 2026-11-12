@@ -132,11 +132,7 @@ impl State {
         self.refresh_script_caches();
         let window = LuaWindow(snapshot);
         let result = self.scripting.call_event_with(event, window);
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         self.drain_and_dispatch(event, result);
     }
 
@@ -214,11 +210,7 @@ impl State {
             .scripting
             .call_event_with("window-opening", window);
         let overrides = self.scripting.take_open_overrides();
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         self.drain_and_dispatch("window-opening", result);
         overrides
     }
@@ -229,11 +221,7 @@ impl State {
         self.refresh_script_caches();
         let ws = LuaWorkspace(snapshot);
         let result = self.scripting.call_event_with(event, ws);
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         self.drain_and_dispatch(event, result);
     }
 
@@ -257,11 +245,7 @@ impl State {
         let result = self
             .scripting
             .call_event_with("output-focused", LuaOutput(snapshot));
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         self.drain_and_dispatch("output-focused", result);
     }
 
@@ -276,11 +260,7 @@ impl State {
         self.neori.last_keyboard_layout_name = Some(name.clone());
         self.refresh_script_caches();
         let result = self.scripting.call_event_with("layout-changed", name);
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+        self.scripting.clear_script_caches();
         self.drain_and_dispatch("layout-changed", result);
     }
 
@@ -348,12 +328,12 @@ impl State {
         }
     }
 
-    pub fn clear_window_cache(&mut self) {
-        self.scripting.clear_window_cache();
-        self.scripting.clear_output_cache();
-        self.scripting.clear_workspace_cache();
-        self.scripting.clear_pointer_cache();
-        self.scripting.clear_device_cache();
+    /// Clear every Lua-facing cache on the ScriptHost. Mirrors
+    /// [`neori_config::ScriptHost::clear_script_caches`]. Called by the input
+    /// dispatcher after a bind callback returns so the primed caches from
+    /// `prime_window_cache` don't outlive the callback.
+    pub fn clear_script_caches(&mut self) {
+        self.scripting.clear_script_caches();
     }
 
     /// Drain and dispatch any output ops / cursor warps enqueued by a bind
@@ -373,16 +353,12 @@ impl State {
     }
 }
 
-/// Helper so dispatcher code can clear the cache after a callback without naming the
-/// State method directly.
+/// Helper so dispatcher code can clear the Lua caches after a callback without
+/// naming the State method directly.
 #[allow(dead_code)]
 pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     let _ = config;
-    host.clear_window_cache();
-    host.clear_output_cache();
-    host.clear_workspace_cache();
-    host.clear_pointer_cache();
-    host.clear_device_cache();
+    host.clear_script_caches();
 }
 
 /// Build a snapshot for one compositor output.

@@ -982,6 +982,21 @@ impl ScriptHost {
         *self.device_cache.lock().unwrap() = DeviceCache::default();
     }
 
+    /// Clear every Lua-facing cache (window / output / workspace / pointer /
+    /// device) in one call.
+    ///
+    /// The compositor calls this after each callback dispatch so stale snapshots
+    /// from the priming step don't leak into unrelated accessor paths taken
+    /// later in the same tick. Adding a new cache in the future only needs this
+    /// one function updated — every fire site goes through here.
+    pub fn clear_script_caches(&self) {
+        self.clear_window_cache();
+        self.clear_output_cache();
+        self.clear_workspace_cache();
+        self.clear_pointer_cache();
+        self.clear_device_cache();
+    }
+
     /// Drain pending libinput device mutation ops enqueued by `Device:set_*`.
     pub fn drain_pending_device_ops(&self) -> Vec<(String, DeviceOp)> {
         std::mem::take(&mut *self.pending_device_ops.lock().unwrap())
