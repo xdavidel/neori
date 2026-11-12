@@ -352,6 +352,15 @@ pub struct Neori {
     /// `workspace-removed` and to supply a meaningful payload when a workspace
     /// vanishes between ticks.
     pub last_known_workspaces: HashMap<u64, neori_config::WorkspaceSnapshot>,
+    /// Cheap fingerprint `(count, wrapping-sum of ids, focused id)` for the set
+    /// of live workspaces at the end of the last
+    /// [`State::maybe_fire_workspace_events`] call. Used to short-circuit the
+    /// full snapshot rebuild + HashMap diff on ticks where nothing changed —
+    /// the function fires once per event-loop iteration via `refresh`, so the
+    /// common case is "no diff, bail". Workspace IDs are globally unique per
+    /// session, so a focused-output change always carries a focused-id change
+    /// too; no need to include the output name in the fingerprint.
+    pub last_workspace_fingerprint: (u32, u64, Option<u64>),
     /// Last-known active keyboard layout name. Used by
     /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
     /// `layout-changed` Lua event only on change.
@@ -2852,6 +2861,7 @@ impl Neori {
             last_focused_workspace_id: None,
             last_focused_output_name: None,
             last_known_workspaces: HashMap::new(),
+            last_workspace_fingerprint: (0, 0, None),
             last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),

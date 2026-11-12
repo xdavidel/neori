@@ -273,13 +273,41 @@ impl State {
     /// `do_action`, `fire_monitor_event`) so Lua sees focus / lifecycle changes
     /// regardless of what triggered them.
     pub fn maybe_fire_workspace_events(&mut self) {
+        // Fast path: compute a cheap fingerprint over just workspace IDs and
+        // bail if nothing changed. This function fires on every event-loop
+        // tick via `State::refresh`, so the common case is "no diff" — the
+        // old code paid a full snapshot rebuild + N-way HashMap diff + 2 Vec
+        // allocations every tick regardless.
+        //
+        // `(count, wrapping_sum, focused_id)` catches every real change:
+        //   - add / remove: count changes; sum changes too (defense in depth
+        //     for the add-and-remove-in-same-tick case — ids are monotonic
+        //     so the new id is always higher than any removed one, so the
+        //     sum differs);
+        //   - workspace focus change: focused_id changes;
+        //   - output focus change: workspace IDs are globally unique per
+        //     session, so moving focus between outputs also changes the
+        //     globally focused workspace id.
+        let (count, sum_of_ids) = self
+            .neori
+            .layout
+            .workspaces()
+            .fold((0u32, 0u64), |(c, s), (_, _, ws)| {
+                (c + 1, s.wrapping_add(ws.id().get()))
+            });
+        let new_focused_ws = self.neori.layout.active_workspace_id().map(|w| w.get());
+        let fingerprint = (count, sum_of_ids, new_focused_ws);
+        if fingerprint == self.neori.last_workspace_fingerprint {
+            return;
+        }
+        self.neori.last_workspace_fingerprint = fingerprint;
+
         let cache = build_workspace_cache(&self.neori);
         let new_map: std::collections::HashMap<u64, WorkspaceSnapshot> = cache
             .workspaces
             .iter()
             .map(|s| (s.id, s.clone()))
             .collect();
-        let new_focused_ws = cache.focused.as_ref().map(|s| s.id);
         let new_focused_output = self.neori.layout.active_output().map(|o| o.name());
 
         // workspace-added: ids present now that weren't before.
