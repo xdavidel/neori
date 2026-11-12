@@ -660,24 +660,35 @@ impl State {
             (active.0 as u8, xkb.layout_name(active).to_owned())
         });
 
-        // Lua `neori.keyboard_layout()` cache + `layout-changed` event. Runs
-        // regardless of IPC server presence.
-        self.maybe_fire_layout_changed(name);
+        // Always keep the Lua `neori.keyboard_layout()` cache in sync. Cache
+        // refresh is cheap and must happen even when the idx didn't change,
+        // because the cache can be cold from startup / reload.
+        self.scripting.set_keyboard_layout(Some(name.clone()));
 
         let Some(server) = &self.neori.ipc_server else {
             return;
         };
 
-        let mut state = server.event_stream_state.borrow_mut();
-        let state = &mut state.keyboard_layouts;
+        let changed = {
+            let mut state = server.event_stream_state.borrow_mut();
+            let state = &mut state.keyboard_layouts;
 
-        if state.keyboard_layouts.as_ref().unwrap().current_idx == idx {
-            return;
+            if state.keyboard_layouts.as_ref().unwrap().current_idx == idx {
+                false
+            } else {
+                let event = Event::KeyboardLayoutSwitched { idx };
+                state.apply(event.clone());
+                server.send_event(event);
+                true
+            }
+        };
+
+        // Fire Lua `layout-changed` on the same diff the IPC path just acted on.
+        // idx is a bijection with (layout slot, config), so idx unchanged implies
+        // name unchanged — no separate name diff needed.
+        if changed {
+            self.fire_layout_changed_event(name);
         }
-
-        let event = Event::KeyboardLayoutSwitched { idx };
-        state.apply(event.clone());
-        server.send_event(event);
     }
 
     pub fn ipc_refresh_layout(&mut self) {

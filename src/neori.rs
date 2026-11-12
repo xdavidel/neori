@@ -339,14 +339,15 @@ pub struct Neori {
     pub keyboard_focus: KeyboardFocus,
     pub layer_shell_on_demand_focus: Option<LayerSurface>,
     /// Id of the most recently focused window, or `None` if nothing was focused.
-    ///
     /// Used by [`State::maybe_fire_window_focused`] to detect focus transitions and
     /// invoke `neori.on("window-focused", …)` handlers only on change.
+    ///
+    /// Not routed through IPC's own focus diff (unlike workspace events, which
+    /// ride on `ipc_refresh_workspaces`): IPC refresh runs once per tick, but
+    /// `update_keyboard_focus` runs multiple times per tick in some paths
+    /// (hotplug, default-monitor focus, direct calls). Collapsing window-focused
+    /// to the per-refresh cadence would lose intermediate focus transitions.
     pub last_focused_window_id: Option<u64>,
-    /// Last-known active keyboard layout name. Used by
-    /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
-    /// `layout-changed` Lua event only on change.
-    pub last_keyboard_layout_name: Option<String>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
     pub is_fdo_idle_inhibited: Arc<AtomicBool>,
     pub keyboard_shortcuts_inhibiting_surfaces: HashMap<WlSurface, KeyboardShortcutsInhibitor>,
@@ -1520,10 +1521,6 @@ impl State {
     /// last call. The handler gets the newly focused window as its argument; no event
     /// is fired when focus moves to nothing (yet — a future `window-unfocused` event
     /// could address that).
-    ///
-    /// Workspace / output lifecycle + focus events ride on `ipc_refresh_workspaces`
-    /// (src/ipc/server.rs) which already runs per tick for the IPC event stream —
-    /// no separate chain needed here.
     pub fn maybe_fire_window_focused(&mut self) {
         let focused_id = self.neori.layout.focus().map(|m| m.id().get());
         if focused_id == self.neori.last_focused_window_id {
@@ -2842,7 +2839,6 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
-            last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
             keyboard_shortcuts_inhibiting_surfaces: HashMap::new(),

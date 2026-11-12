@@ -249,15 +249,10 @@ impl State {
         self.drain_and_dispatch("output-focused", result);
     }
 
-    /// Fire the `layout-changed` Lua event if the active keyboard layout name
-    /// has changed since the last call. Also keeps the ScriptHost's layout
-    /// cache (`neori.keyboard_layout()`) in sync.
-    pub fn maybe_fire_layout_changed(&mut self, name: String) {
-        self.scripting.set_keyboard_layout(Some(name.clone()));
-        if self.neori.last_keyboard_layout_name.as_deref() == Some(&name) {
-            return;
-        }
-        self.neori.last_keyboard_layout_name = Some(name.clone());
+    /// Fire the Lua `layout-changed` event with the new active keyboard layout
+    /// name. Called from `ipc_refresh_keyboard_layout_index` right after the
+    /// IPC-side diff detects the switch.
+    pub fn fire_layout_changed_event(&mut self, name: String) {
         self.refresh_script_caches();
         let result = self.scripting.call_event_with("layout-changed", name);
         self.scripting.clear_script_caches();
