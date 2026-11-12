@@ -135,10 +135,12 @@ fn global_workspace_info_for_window(
 impl State {
     /// Fire a window-lifecycle event to Lua callbacks.
     ///
-    /// Refreshes the window cache (so `neori.windows()` / `neori.focused_window()` see
-    /// current state) and passes `snapshot` as the single arg to every registered
-    /// `neori.on(event, function(w) … end)` handler. Any `neori.action` queued by the
-    /// callbacks is drained and dispatched.
+    /// Returns early via `has_event_handlers` when no handler is registered —
+    /// no cache refresh, no snapshot cost. Otherwise refreshes the Lua caches
+    /// (so `neori.windows()` / `neori.focused_window()` see current state),
+    /// passes `snapshot` as the single arg to every registered
+    /// `neori.on(event, function(w) … end)` handler, and drains any
+    /// `neori.action` queued by the callbacks.
     ///
     /// Errors from a Lua callback are warn!'d and flash the config-error notification;
     /// they do not propagate.
@@ -153,8 +155,10 @@ impl State {
         self.drain_and_dispatch(event, result);
     }
 
-    /// Refresh the ScriptHost's window, output, workspace and pointer caches
-    /// from current compositor state.
+    /// Refresh every Lua-facing cache (window, output, workspace, pointer,
+    /// device) from current compositor state. Fire helpers gate the call on
+    /// `has_event_handlers` first — no event handler listening means no cache
+    /// rebuild.
     fn refresh_script_caches(&self) {
         let window_cache = build_window_cache(&self.neori);
         self.scripting.set_window_cache(window_cache);
