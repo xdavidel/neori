@@ -16,8 +16,8 @@ use calloop::futures::Scheduler;
 use neori_config::debug::PreviewRender;
 use neori_config::output::MaxBpc;
 use neori_config::{
-    Config, FloatOrInt, Key, Modifiers, OutputName, ScriptHost, TrackLayout, WarpMouseToFocusMode,
-    WorkspaceReference, Xkb,
+    Config, FloatOrInt, Key, Modifiers, OutputName, PrintSink, ScriptHost, TrackLayout,
+    WarpMouseToFocusMode, WorkspaceReference, Xkb,
 };
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::input::Keycode;
@@ -726,6 +726,10 @@ pub struct State {
     pub neori: Neori,
     /// Persistent Lua host for the config, kept alive so `neori.on` callbacks can run.
     pub scripting: ScriptHost,
+    /// Sink for Lua `print(...)` output, opened once in `main` and kept across
+    /// config reloads so the log file stays open. `None` on tests and when the
+    /// log file could not be opened — callers fall back to stdout in that case.
+    pub print_log_sink: Option<PrintSink>,
 }
 
 impl State {
@@ -773,6 +777,7 @@ impl State {
             backend,
             neori,
             scripting: ScriptHost::default(),
+            print_log_sink: None,
         };
 
         // Create any declaratively-configured virtual outputs early, so that options like
@@ -1694,6 +1699,9 @@ impl State {
         };
 
         self.scripting = script_host;
+        if let Some(sink) = &self.print_log_sink {
+            self.scripting.set_print_log(Arc::clone(sink));
+        }
 
         self.neori.config_error_notification.hide();
 

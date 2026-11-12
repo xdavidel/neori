@@ -54,8 +54,8 @@ pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
     DeviceCache, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides,
-    OutputCache, OutputSnapshot, PointerSnapshot, ScriptHost, Window, WindowCache, WindowSnapshot,
-    WorkspaceCache, WorkspaceSnapshot,
+    OutputCache, OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowCache,
+    WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
@@ -877,6 +877,56 @@ mod tests {
         assert!(
             actions.is_empty(),
             "a queued action from a failed startup dispatch leaked into monitor-added: {actions:?}"
+        );
+    }
+
+    #[test]
+    fn print_routes_to_installed_sink() {
+        use std::io::Write;
+        use std::sync::{Arc, Mutex};
+
+        // Shared buffer the test reads back; a tiny Write adapter forwards
+        // bytes into it so we can wrap it as a PrintSink.
+        let captured: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Capture(Arc<Mutex<Vec<u8>>>);
+        impl Write for Capture {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let sink: PrintSink = Arc::new(Mutex::new(
+            Box::new(Capture(Arc::clone(&captured))) as Box<dyn Write + Send>,
+        ));
+
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("startup", function()
+                print("hello", 42, true, nil)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.set_print_log(sink);
+        host.call_event("startup").unwrap();
+
+        let out = String::from_utf8(captured.lock().unwrap().clone()).unwrap();
+        assert!(
+            out.contains("hello\t42\ttrue\tnil"),
+            "expected tab-joined args in output, got: {out:?}"
+        );
+        assert!(out.ends_with('\n'), "line must end with newline: {out:?}");
+        assert!(
+            out.starts_with('['),
+            "line must start with a timestamp bracket: {out:?}"
         );
     }
 

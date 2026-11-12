@@ -2,12 +2,13 @@
 extern crate tracing;
 
 use std::fmt::Write as _;
-use std::fs::File;
-use std::io::{self, Write};
+use std::fs::{self, File};
+use std::io::{self, BufWriter, Write};
 use std::os::fd::FromRawFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::{env, mem};
 
 use calloop::EventLoop;
@@ -25,7 +26,7 @@ use neori::utils::spawning::{
     REMOVE_ENV_RUST_LIB_BACKTRACE,
 };
 use neori::utils::{cause_panic, version, watcher, xwayland, IS_SYSTEMD_SERVICE};
-use neori_config::{Config, ConfigPath, ScriptHost};
+use neori_config::{Config, ConfigPath, PrintSink, ScriptHost};
 use neori_ipc::socket::{NIRI_SOCKET_PATH_ENV, SOCKET_PATH_ENV};
 use sd_notify::NotifyState;
 use smithay::reexports::wayland_server::Display;
@@ -194,6 +195,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .unwrap();
     state.scripting = script_host;
 
+    // Route Lua `print(...)` to a log file under the XDG state dir. If opening
+    // fails we warn once and leave the default stdout fallback in place.
+    match open_lua_print_log() {
+        Ok((sink, path)) => {
+            info!("routing Lua print to {}", path.display());
+            state.scripting.set_print_log(Arc::clone(&sink));
+            state.print_log_sink = Some(sink);
+        }
+        Err(err) => {
+            warn!("could not open Lua print log: {err}");
+        }
+    }
+
     // Set WAYLAND_DISPLAY for children.
     let socket_name = state.neori.socket_name.as_deref().unwrap();
     env::set_var("WAYLAND_DISPLAY", socket_name);
@@ -349,6 +363,26 @@ fn default_config_path() -> Option<PathBuf> {
 
 fn system_config_path() -> PathBuf {
     PathBuf::from("/etc/neori/config.lua")
+}
+
+/// Resolve the Lua `print(...)` log path, open it in append mode, and wrap it
+/// as a [`PrintSink`] ready to install on a [`ScriptHost`].
+///
+/// The file lives under `ProjectDirs::state_dir()` (`~/.local/state/neori` on
+/// Linux), falling back to the data-local dir if XDG state isn't available.
+fn open_lua_print_log() -> Result<(PrintSink, PathBuf), String> {
+    let dirs =
+        ProjectDirs::from("", "", "neori").ok_or_else(|| "home directory unavailable".to_string())?;
+    let dir: &Path = dirs.state_dir().unwrap_or_else(|| dirs.data_local_dir());
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join("lua.log");
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let writer: Box<dyn Write + Send> = Box::new(BufWriter::new(file));
+    Ok((Arc::new(Mutex::new(writer)), path))
 }
 
 fn config_path(cli_path: Option<PathBuf>) -> ConfigPath {

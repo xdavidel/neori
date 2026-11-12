@@ -359,6 +359,32 @@ function callbacks you had registered in the previous instance are dropped. Pres
 key chord that was bound to a Lua function in the old config and nothing happens — the
 new config decides what that chord does now. Same for `neori.on` handlers.
 
+## `print(...)` output
+
+Lua's built-in `print(...)` is overridden to append to a log file instead of the
+process's stdout (which in a Wayland compositor is usually invisible). The file lives at
+
+```
+$XDG_STATE_HOME/neori/lua.log    # typically  ~/.local/state/neori/lua.log
+```
+
+Each line is prefixed with a UTC timestamp (`[YYYY-MM-DD HH:MM:SS.mmmZ]`), followed by
+the arguments tab-separated, exactly as stock `print` would format them. Example:
+
+```
+[2026-11-12 09:17:04.221Z]  hello  42  true  nil
+```
+
+The file is opened append-only and flushed after every `print`, so `tail -f` works
+directly. It is kept open across config reloads — no reopen churn, and the line order
+is stable. If the file can't be opened at startup (missing state dir, permission
+error), neori logs one `WARN` and `print` falls back to stdout so you still see output
+somewhere. No rotation is done; delete or `truncate -s0` the file if it grows.
+
+For structured diagnostics, prefer `error("…")` from a handler — that path goes through
+neori's `tracing` log with severity and context attached, alongside the rest of the
+compositor's log stream.
+
 ## Outputs
 
 Inside any Lua callback, `neori.outputs()` returns an array of `Output` userdata

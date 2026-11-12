@@ -1,9 +1,10 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mlua::prelude::*;
 use mlua::Value;
@@ -39,6 +40,15 @@ pub struct ParseLuaError {
 
 /// The registry of Lua function callbacks registered via `neori.on(event, function)`.
 type EventRegistry = Arc<Mutex<HashMap<String, Vec<mlua::Function>>>>;
+
+/// A sink that captures Lua `print(...)` output. The compositor installs one
+/// at startup pointing at a log file; tests can install an in-memory buffer.
+pub type PrintSink = Arc<Mutex<Box<dyn Write + Send>>>;
+
+/// Shared slot holding the currently installed [`PrintSink`]. The `print`
+/// override reads this on each call so a sink can be installed after the Lua
+/// state has already been built.
+type PrintSinkSlot = Arc<Mutex<Option<PrintSink>>>;
 
 /// The registry of Lua function callbacks registered via `neori.bind(key, function)`.
 ///
@@ -924,6 +934,11 @@ pub struct ScriptHost {
     device_cache: SharedDeviceCache,
     /// Pending libinput mutations enqueued by `Device:set_*` methods.
     pending_device_ops: PendingDeviceOps,
+    /// Sink for Lua `print(...)` output. When `None`, prints go to stdout.
+    /// The `print` override installed in [`ScriptHost::new`] reads this slot on
+    /// every call, so [`set_print_log`](Self::set_print_log) can swap it in at
+    /// any time (including after a config reload).
+    print_sink: PrintSinkSlot,
 }
 
 impl ScriptHost {
@@ -943,6 +958,7 @@ impl ScriptHost {
         let keyboard_layout: SharedKeyboardLayout = Arc::new(Mutex::new(None));
         let device_cache: SharedDeviceCache = Arc::new(Mutex::new(DeviceCache::default()));
         let pending_device_ops: PendingDeviceOps = Arc::new(Mutex::new(Vec::new()));
+        let print_sink: PrintSinkSlot = Arc::new(Mutex::new(None));
 
         // Stash handles for every runtime queue + cache on the Lua state so userdata
         // methods (`w:close()`, `out:set_scale(…)`, `ws:windows()`, …) can reach
@@ -953,6 +969,42 @@ impl ScriptHost {
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
         lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
         lua.set_app_data::<PendingDeviceOps>(Arc::clone(&pending_device_ops));
+
+        // Override Lua's default `print` so it routes to the installed sink
+        // (set later via `set_print_log`) or falls back to stdout. Formats each
+        // line with a UTC timestamp prefix so logs are post-mortem-friendly.
+        {
+            let sink_slot = Arc::clone(&print_sink);
+            let func = lua
+                .create_function(move |lua, args: mlua::Variadic<Value>| {
+                    let tostring: mlua::Function = lua.globals().get("tostring")?;
+                    let mut body = String::new();
+                    for (i, v) in args.into_iter().enumerate() {
+                        if i > 0 {
+                            body.push('\t');
+                        }
+                        let s: mlua::String = tostring.call(v)?;
+                        body.push_str(&s.to_string_lossy());
+                    }
+
+                    let ts = format_utc_timestamp(SystemTime::now());
+                    let line = format!("[{ts}] {body}\n");
+
+                    let sink = sink_slot.lock().unwrap().clone();
+                    if let Some(sink) = sink {
+                        let mut w = sink.lock().unwrap();
+                        let _ = w.write_all(line.as_bytes());
+                        let _ = w.flush();
+                    } else {
+                        let _ = std::io::stdout().write_all(line.as_bytes());
+                    }
+                    Ok(())
+                })
+                .map_err(|e| format!("{e}"))?;
+            lua.globals()
+                .set("print", func)
+                .map_err(|e| format!("{e}"))?;
+        }
 
         Ok(Self {
             lua,
@@ -970,7 +1022,15 @@ impl ScriptHost {
             keyboard_layout,
             device_cache,
             pending_device_ops,
+            print_sink,
         })
+    }
+
+    /// Install a sink for Lua `print(...)` output. Overwrites any previously
+    /// installed sink; pass the same [`PrintSink`] into each new host across
+    /// config reloads to keep the underlying file open.
+    pub fn set_print_log(&self, sink: PrintSink) {
+        *self.print_sink.lock().unwrap() = Some(sink);
     }
 
     /// Replace the cached device snapshots.
@@ -1283,6 +1343,40 @@ impl Default for ScriptHost {
         // Creating a Lua state cannot realistically fail; fall back to a fresh host.
         Self::new().expect("error creating script host")
     }
+}
+
+/// Format a [`SystemTime`] as `YYYY-MM-DD HH:MM:SS.mmm` UTC, no dependencies.
+///
+/// Uses the Hinnant civil-from-days algorithm
+/// (<https://howardhinnant.github.io/date_algorithms.html>). Only used by the
+/// `print` override's timestamp prefix, so precision is capped at milliseconds
+/// and timezone is fixed to UTC.
+fn format_utc_timestamp(now: SystemTime) -> String {
+    let d = now
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO);
+    let secs = d.as_secs() as i64;
+    let millis = d.subsec_millis();
+    let days = secs.div_euclid(86_400);
+    let sod = secs.rem_euclid(86_400) as u32;
+    let hour = sod / 3600;
+    let minute = (sod % 3600) / 60;
+    let second = sod % 60;
+
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = (z - era * 146_097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d_m = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    if m <= 2 {
+        y += 1;
+    }
+
+    format!("{y:04}-{m:02}-{d_m:02} {hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
 pub fn parse_lua(path: &Path, text: &str) -> Result<ParsedConfig, ParseLuaError> {

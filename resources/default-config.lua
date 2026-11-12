@@ -818,6 +818,10 @@ end
 -- Workspace / output lifecycle events. Fire whenever the compositor notices
 -- a change (per refresh tick). workspace-removed fires with the last-known
 -- snapshot of the workspace that just vanished.
+--
+-- Note: `print(...)` output goes to $XDG_STATE_HOME/neori/lua.log (typically
+-- ~/.local/state/neori/lua.log). Tail it with `tail -f`. For diagnostics, an
+-- `error("...")` from a handler goes through neori's tracing log instead.
 -- neori.on("workspace-focused", function(ws)
 --   neori.action("spawn", { "notify-send", "ws", ws:name() or tostring(ws:idx()) })
 -- end)
