@@ -6,6 +6,7 @@
 
 use neori_config::{
     Config, OutputCache, OutputSnapshot, Window as LuaWindow, WindowCache, WindowSnapshot,
+    WorkspaceCache, WorkspaceSnapshot,
 };
 use smithay::desktop::Window;
 use smithay::output::Output as SmithayOutput;
@@ -133,10 +134,12 @@ impl State {
         let result = self.scripting.call_event_with(event, window);
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
+        self.scripting.clear_workspace_cache();
         self.drain_and_dispatch(event, result);
     }
 
-    /// Refresh the ScriptHost's window + output caches from current compositor state.
+    /// Refresh the ScriptHost's window, output and workspace caches from current
+    /// compositor state.
     fn refresh_script_caches(&self) {
         let window_cache = build_window_cache(&self.neori);
         self.scripting.set_window_cache(window_cache);
@@ -144,6 +147,8 @@ impl State {
         let ipc_outputs = ipc.lock().unwrap().clone();
         let output_cache = build_output_cache(&self.neori, &ipc_outputs);
         self.scripting.set_output_cache(output_cache);
+        let workspace_cache = build_workspace_cache(&self.neori);
+        self.scripting.set_workspace_cache(workspace_cache);
     }
 
     /// Dispatch actions returned from the Lua call plus any pending output ops the
@@ -180,6 +185,7 @@ impl State {
     pub fn clear_window_cache(&mut self) {
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
+        self.scripting.clear_workspace_cache();
     }
 
     /// Drain and dispatch any output ops enqueued by a bind callback via `Output`
@@ -199,6 +205,7 @@ pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     let _ = config;
     host.clear_window_cache();
     host.clear_output_cache();
+    host.clear_workspace_cache();
 }
 
 /// Build a snapshot for one compositor output.
@@ -297,6 +304,44 @@ pub fn build_output_cache(
     }
     OutputCache {
         outputs,
+        focused: focused_snapshot,
+    }
+}
+
+/// Build the full workspace cache from the current compositor state.
+///
+/// Walks every workspace in global 1-based order (the same order `Layout::workspaces()`
+/// yields), records the workspace's id, optional name, owning output name, the
+/// MappedIds of its windows, and whether it is the globally focused workspace.
+pub fn build_workspace_cache(neori: &Neori) -> WorkspaceCache {
+    let focused_id = neori.layout.active_workspace_id();
+    let mut workspaces: Vec<WorkspaceSnapshot> = Vec::new();
+    let mut focused_snapshot: Option<WorkspaceSnapshot> = None;
+
+    let mut global_idx: u16 = 0;
+    for (monitor, _per_mon_idx, ws) in neori.layout.workspaces() {
+        global_idx = global_idx.saturating_add(1);
+        let idx_u8 = u8::try_from(global_idx).unwrap_or(u8::MAX);
+        let output_name = monitor.map(|m| m.output().name());
+        let id = ws.id().get();
+        let is_focused = focused_id == Some(ws.id());
+        let window_ids: Vec<u64> = ws.windows().map(|w| w.id().get()).collect();
+        let snap = WorkspaceSnapshot {
+            idx: idx_u8,
+            name: ws.name().cloned(),
+            output_name,
+            is_focused,
+            id,
+            window_ids,
+        };
+        if is_focused {
+            focused_snapshot = Some(snap.clone());
+        }
+        workspaces.push(snap);
+    }
+
+    WorkspaceCache {
+        workspaces,
         focused: focused_snapshot,
     }
 }

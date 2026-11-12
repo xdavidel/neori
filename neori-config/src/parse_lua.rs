@@ -124,6 +124,31 @@ pub struct OutputCache {
 
 type SharedOutputCache = Arc<Mutex<OutputCache>>;
 
+/// Snapshot of a workspace's state, exposed to Lua as the `Workspace` userdata.
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceSnapshot {
+    /// Global 1-based index (same shape as `Window:workspace().idx`).
+    pub idx: u8,
+    pub name: Option<String>,
+    pub output_name: Option<String>,
+    pub is_focused: bool,
+    /// Stable per-session workspace id, mirrored from the compositor's
+    /// `WorkspaceId`. Used by the Window userdata's `w:workspace()` lookup when a
+    /// Lua caller wants to correlate.
+    pub id: u64,
+    /// Ids of windows on this workspace, matching [`WindowSnapshot::id`]. Used by
+    /// `ws:windows()` to filter the shared window cache.
+    pub window_ids: Vec<u64>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct WorkspaceCache {
+    pub workspaces: Vec<WorkspaceSnapshot>,
+    pub focused: Option<WorkspaceSnapshot>,
+}
+
+type SharedWorkspaceCache = Arc<Mutex<WorkspaceCache>>;
+
 /// Queue of output configuration operations enqueued by Lua via the `Output`
 /// userdata mutation methods. The compositor drains and dispatches each via
 /// `State::apply_transient_output_config` after the callback returns.
@@ -369,6 +394,100 @@ fn parse_mode_string_strict(s: &str) -> Result<neori_ipc::ConfiguredMode, String
 /// Parse a transform name into [`neori_ipc::Transform`]. Accepts both kebab-case
 /// ("flipped-90") and camel-case variants, matching the strings the
 /// `Output:transform()` accessor returns.
+/// Lua `Workspace` userdata.
+///
+/// Same snapshot semantics as `Window` and `Output`: all read-only accessors
+/// return the values captured at the moment the Workspace was built. Mutation
+/// methods enqueue IPC `Action`s that target this workspace by its stable id.
+#[derive(Debug, Clone)]
+pub struct LuaWorkspace(pub WorkspaceSnapshot);
+
+impl mlua::UserData for LuaWorkspace {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // Read-only accessors.
+        methods.add_method("idx", |_, this, ()| Ok(this.0.idx));
+        methods.add_method("id", |_, this, ()| Ok(this.0.id));
+        methods.add_method("name", |_, this, ()| Ok(this.0.name.clone()));
+        methods.add_method("output", |_, this, ()| Ok(this.0.output_name.clone()));
+        methods.add_method("is_focused", |_, this, ()| Ok(this.0.is_focused));
+
+        // ws:windows() returns the windows that live on this workspace, filtered
+        // from the compositor-primed window cache.
+        methods.add_method("windows", |lua, this, ()| {
+            let ids: std::collections::HashSet<u64> =
+                this.0.window_ids.iter().copied().collect();
+            let arr = lua.create_table()?;
+            if let Some(cache) = lua.app_data_ref::<SharedWindowCache>() {
+                let locked = cache.lock().unwrap();
+                let mut i = 1;
+                for w in &locked.windows {
+                    if ids.contains(&w.id) {
+                        arr.set(i, Window(w.clone()))?;
+                        i += 1;
+                    }
+                }
+            }
+            Ok(arr)
+        });
+
+        // Mutation methods — each enqueues an Action via the pending_actions queue.
+        methods.add_method("focus", |lua, this, ()| {
+            enqueue_action(
+                lua,
+                Action::FocusWorkspace {
+                    reference: neori_ipc::WorkspaceReferenceArg::Id(this.0.id),
+                },
+            );
+            Ok(())
+        });
+
+        methods.add_method("send_to_output", |lua, this, output: String| {
+            enqueue_action(
+                lua,
+                Action::MoveWorkspaceToMonitor {
+                    output,
+                    reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+                },
+            );
+            Ok(())
+        });
+
+        methods.add_method("set_name", |lua, this, name: String| {
+            enqueue_action(
+                lua,
+                Action::SetWorkspaceName {
+                    name,
+                    workspace: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+                },
+            );
+            Ok(())
+        });
+
+        methods.add_method("unset_name", |lua, this, ()| {
+            enqueue_action(
+                lua,
+                Action::UnsetWorkspaceName {
+                    reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+                },
+            );
+            Ok(())
+        });
+
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+            let name = this
+                .0
+                .name
+                .as_deref()
+                .map(|n| format!("{n:?}"))
+                .unwrap_or_else(|| "nil".into());
+            Ok(format!(
+                "Workspace(idx={}, name={name}, id={})",
+                this.0.idx, this.0.id
+            ))
+        });
+    }
+}
+
 fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
     match s {
         "normal" => Ok(neori_ipc::Transform::Normal),
@@ -578,6 +697,9 @@ pub struct ScriptHost {
     /// Cached compositor state powering `neori.outputs()` and
     /// `neori.focused_output()`.
     output_cache: SharedOutputCache,
+    /// Cached compositor state powering `neori.workspaces()` and
+    /// `neori.focused_workspace()`.
+    workspace_cache: SharedWorkspaceCache,
 }
 
 impl ScriptHost {
@@ -588,14 +710,16 @@ impl ScriptHost {
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
         let pending_output_ops: PendingOutputOps = Arc::new(Mutex::new(Vec::new()));
-        let window_cache = Arc::new(Mutex::new(WindowCache::default()));
+        let window_cache: SharedWindowCache = Arc::new(Mutex::new(WindowCache::default()));
         let output_cache = Arc::new(Mutex::new(OutputCache::default()));
+        let workspace_cache = Arc::new(Mutex::new(WorkspaceCache::default()));
 
-        // Stash the pending-action queues on the Lua state so userdata methods
-        // (Window and Output mutations) can reach them via `lua.app_data_ref`
-        // without taking a reference to Self.
+        // Stash handles for every runtime queue + cache on the Lua state so userdata
+        // methods (`w:close()`, `out:set_scale(…)`, `ws:windows()`, …) can reach
+        // them via `lua.app_data_ref` without taking a reference to Self.
         lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
         lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
+        lua.set_app_data::<SharedWindowCache>(Arc::clone(&window_cache));
 
         Ok(Self {
             lua,
@@ -606,6 +730,7 @@ impl ScriptHost {
             pending_output_ops,
             window_cache,
             output_cache,
+            workspace_cache,
         })
     }
 
@@ -616,6 +741,14 @@ impl ScriptHost {
 
     pub fn clear_output_cache(&self) {
         *self.output_cache.lock().unwrap() = OutputCache::default();
+    }
+
+    pub fn set_workspace_cache(&self, cache: WorkspaceCache) {
+        *self.workspace_cache.lock().unwrap() = cache;
+    }
+
+    pub fn clear_workspace_cache(&self) {
+        *self.workspace_cache.lock().unwrap() = WorkspaceCache::default();
     }
 
     /// Drain and return any pending output configuration ops enqueued via the
@@ -660,6 +793,7 @@ impl ScriptHost {
         self.pending_output_ops.lock().unwrap().clear();
         *self.window_cache.lock().unwrap() = WindowCache::default();
         *self.output_cache.lock().unwrap() = OutputCache::default();
+        *self.workspace_cache.lock().unwrap() = WorkspaceCache::default();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -705,6 +839,7 @@ impl ScriptHost {
             &self.pending_actions,
             &self.window_cache,
             &self.output_cache,
+            &self.workspace_cache,
             search_dir,
             Arc::clone(&includes),
         )
@@ -991,6 +1126,7 @@ fn setup_neori_api(
     pending_actions: &PendingActions,
     window_cache: &SharedWindowCache,
     output_cache: &SharedOutputCache,
+    workspace_cache: &SharedWorkspaceCache,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -1236,6 +1372,18 @@ fn setup_neori_api(
         neori.set("focused_output", func).map_err(err)?;
     }
 
+    // neori.focused_workspace() — paired with neori.workspaces() below.
+    {
+        let cache = Arc::clone(workspace_cache);
+        let func = lua
+            .create_function(move |_lua, ()| {
+                let focused = cache.lock().unwrap().focused.clone();
+                Ok(focused.map(LuaWorkspace))
+            })
+            .map_err(err)?;
+        neori.set("focused_workspace", func).map_err(err)?;
+    }
+
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and
     // neori.on. `neori.spawn("kitty")` and `neori.spawn { "kitty", "-e", "sh" }` build an
     // argv command; `neori.spawn_sh("cmd | cmd")` builds a shell command. An optional
@@ -1282,10 +1430,10 @@ fn setup_neori_api(
 
     // Whole-section setters: neori.input { ... }, neori.layout { ... } and so on.
     //
-    // "outputs" is deliberately absent here: the collision-free spelling for setting
-    // an outputs block is `neori.output("name", { … })` (plural `neori.outputs` is the
-    // runtime lookup function instead). The section setter was previously registered
-    // for `neori.outputs { … }` but no shipped config uses it that way.
+    // "outputs" and "workspaces" are deliberately absent here: the collision-free
+    // spellings for declaring entries are `neori.output("name", { … })` /
+    // `neori.workspace("name", { … })`, and the plural names are runtime lookup
+    // functions instead. Shipped configs always use the singular entry form.
     for name in [
         "binds",
         "input",
@@ -1307,7 +1455,6 @@ fn setup_neori_api(
         "screenshot_path",
         "window_rules",
         "layer_rules",
-        "workspaces",
     ] {
         let data = data.clone();
         let func = lua
@@ -1335,6 +1482,23 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set("outputs", func).map_err(err)?;
+    }
+
+    // neori.workspaces() — same pattern as outputs(). Registered after the section
+    // setter loop (which also owned the "workspaces" name) for the same reason.
+    {
+        let cache = Arc::clone(workspace_cache);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let snapshots = cache.lock().unwrap().workspaces.clone();
+                let arr = lua.create_table()?;
+                for (i, snap) in snapshots.into_iter().enumerate() {
+                    arr.set(i + 1, LuaWorkspace(snap))?;
+                }
+                Ok(arr)
+            })
+            .map_err(err)?;
+        neori.set("workspaces", func).map_err(err)?;
     }
 
     // Entry pushers: neori.window_rule { ... } appends one entry to a section.

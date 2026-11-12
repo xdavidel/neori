@@ -1633,6 +1633,7 @@ impl State {
         );
         self.scripting.clear_window_cache();
         self.scripting.clear_output_cache();
+        self.scripting.clear_workspace_cache();
         match result {
             Ok(_) => {}
             Err(err) => warn!("{err}"),

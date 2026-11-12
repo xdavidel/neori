@@ -282,10 +282,78 @@ All these go through the same IPC `OutputAction` pipeline that `neori msg output
 uses, so anything you can do from the command line you can now do from a Lua
 function.
 
+## Workspaces
+
+Inside any Lua callback, `neori.workspaces()` returns an array of `Workspace`
+userdata (global 1-based ordering — the same shape `w:workspace().idx` carries)
+and `neori.focused_workspace()` returns the currently focused one (or `nil`).
+
+```lua
+-- Rename the active workspace to the focused window's app_id (handy with a
+-- scratchpad / project workflow).
+neori.bind("Mod+Alt+R", function()
+    local ws = neori.focused_workspace()
+    local w  = neori.focused_window()
+    if ws and w and w:app_id() then ws:set_name(w:app_id()) end
+end)
+
+-- Clear the name again.
+neori.bind("Mod+Shift+R", function()
+    local ws = neori.focused_workspace()
+    if ws then ws:unset_name() end
+end)
+
+-- Enumerate workspaces per output and print a tree.
+neori.bind("Mod+Alt+W", function()
+    for _, ws in ipairs(neori.workspaces()) do
+        print(string.format(
+            "%s/ws%d%s%s",
+            ws:output() or "no-output",
+            ws:idx(),
+            ws:name() and (" [" .. ws:name() .. "]") or "",
+            ws:is_focused() and " *" or ""
+        ))
+        for _, w in ipairs(ws:windows()) do
+            print("  ", w:app_id(), w:title())
+        end
+    end
+end)
+```
+
+### `Workspace` methods
+
+Read-only accessors return the snapshot captured at the moment the Workspace was
+constructed. Mutation methods enqueue an `Action`; the compositor drains and
+dispatches them after the callback returns, just like window mutations.
+
+**Read-only:**
+
+| method               | returns                                                           |
+|---                   |---                                                                |
+| `ws:idx()`           | global 1-based index (matches `w:workspace().idx`)                |
+| `ws:id()`            | stable per-session workspace id (unsigned integer)                |
+| `ws:name()`          | string or `nil`                                                   |
+| `ws:output()`        | connector-name string or `nil` (orphaned workspace)               |
+| `ws:is_focused()`    | boolean — is this the globally active workspace?                  |
+| `ws:windows()`       | array of `Window` userdata for the windows on this workspace      |
+
+**Mutation:**
+
+| method                              | effect                                                |
+|---                                  |---                                                    |
+| `ws:focus()`                        | Make this workspace the active one.                   |
+| `ws:send_to_output("HDMI-A-1")`     | Move the workspace onto that output.                  |
+| `ws:set_name("code")`               | Name (or rename) the workspace.                       |
+| `ws:unset_name()`                   | Remove the workspace's name.                          |
+
+Each mutation targets this workspace by its stable `WorkspaceId`, so a stashed
+`Workspace` userdata keeps referring to the same workspace even if its global
+index shifts (e.g. when workspaces on other monitors come and go). If the
+workspace has been destroyed by the time the compositor drains the action, the
+action is ignored — Lua methods never raise for that case.
+
 ## Known limitations (today)
 
-- No `Workspace` userdata yet — use `w:workspace()` (returns `{ idx, name }`) and
-  `neori.action("move-window-to-workspace", n)` for structural changes.
 - Read-only properties on a `Window` are snapshots. A stashed `Window` won't update
   its `app_id` / `title` / `is_fullscreen` fields when the live window changes; call
   `neori.focused_window()` / `neori.windows()` again when you need fresh state.

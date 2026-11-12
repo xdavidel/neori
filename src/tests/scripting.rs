@@ -938,6 +938,296 @@ fn output_set_scale_takes_effect_on_compositor_output() {
 }
 
 #[test]
+fn workspace_set_name_and_unset_name_affect_layout() {
+    // ws:set_name("code") should set the active workspace's name; ws:unset_name() clears it.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local ws = neori.focused_workspace()
+            if ws then ws:set_name("code") end
+        end)
+        neori.bind("Mod+Alt+U", function()
+            local ws = neori.focused_workspace()
+            if ws then ws:unset_name() end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.dispatch();
+
+    // Initially the active workspace is unnamed.
+    let initial_name = f
+        .neori()
+        .layout
+        .active_workspace()
+        .and_then(|ws| ws.name().cloned());
+    assert_eq!(initial_name, None);
+
+    // Fire the first script bind (set_name).
+    let (bind_set, bind_unset) = {
+        let config = f.state.server.state.neori.config.borrow();
+        let mut it = config.binds.0.iter().filter(|b| b.script_fn.is_some());
+        let set = it.next().unwrap().clone();
+        let unset = it.next().unwrap().clone();
+        (set, unset)
+    };
+    f.state.server.state.handle_bind(bind_set);
+    f.state.server.dispatch();
+
+    assert_eq!(
+        f.neori()
+            .layout
+            .active_workspace()
+            .and_then(|ws| ws.name().cloned()),
+        Some("code".to_string()),
+        "ws:set_name should have named the workspace"
+    );
+
+    // Fire the second script bind (unset_name).
+    f.state.server.state.handle_bind(bind_unset);
+    f.state.server.dispatch();
+
+    assert_eq!(
+        f.neori()
+            .layout
+            .active_workspace()
+            .and_then(|ws| ws.name().cloned()),
+        None,
+        "ws:unset_name should have cleared the name"
+    );
+}
+
+#[test]
+fn workspace_focus_method_activates_target_workspace() {
+    // Move window to workspace 2 (which also activates it), then call ws:focus() on
+    // workspace 1 from a Lua bind — the compositor should move the active workspace
+    // back to 1.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            for _, ws in ipairs(neori.workspaces()) do
+                if ws:idx() == 1 then ws:focus() end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    // Open one window so workspace 1 has content, then move it to workspace 2 to
+    // create and activate workspace 2.
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let window_id = f.neori().layout.focus().unwrap().id();
+    f.state.server.state.do_action(
+        neori_config::Action::MoveWindowToWorkspace {
+            window_id: Some(window_id.get()),
+            reference: neori_ipc::WorkspaceReferenceArg::Index(2),
+            focus: true,
+        },
+        false,
+    );
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+
+    // Active workspace should now be the second one.
+    let active_before = {
+        let active_id = f.neori().layout.active_workspace_id();
+        f.neori()
+            .layout
+            .workspaces()
+            .enumerate()
+            .find_map(|(gi, (_, _, ws))| (active_id == Some(ws.id())).then_some(gi + 1))
+    };
+    assert_eq!(
+        active_before,
+        Some(2),
+        "precondition: window move should have activated workspace 2"
+    );
+
+    // Fire the bind; ws:focus() on global idx 1.
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+
+    // Active workspace should now be back to 1.
+    let active_after = {
+        let active_id = f.neori().layout.active_workspace_id();
+        f.neori()
+            .layout
+            .workspaces()
+            .enumerate()
+            .find_map(|(gi, (_, _, ws))| (active_id == Some(ws.id())).then_some(gi + 1))
+    };
+    assert_eq!(
+        active_after,
+        Some(1),
+        "ws:focus should have re-activated workspace 1"
+    );
+}
+
+#[test]
+fn workspace_send_to_output_moves_workspace_between_outputs() {
+    // With two outputs, call ws:send_to_output on the active workspace of headless-1
+    // to move it onto headless-2.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local ws = neori.focused_workspace()
+            if ws then ws:send_to_output("headless-2") end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.dispatch();
+
+    // Open a window so the active workspace has content and isn't scrubbed when
+    // the move happens.
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let active_ws_id = f
+        .neori()
+        .layout
+        .active_workspace_id()
+        .expect("active workspace should exist");
+
+    let find_output = |f: &mut Fixture, want_id| -> Option<String> {
+        for (monitor, _, ws) in f.neori().layout.workspaces() {
+            if ws.id() == want_id {
+                return monitor.map(|m| m.output().name());
+            }
+        }
+        None
+    };
+    assert_eq!(
+        find_output(&mut f, active_ws_id).as_deref(),
+        Some("headless-1"),
+        "precondition: active workspace lives on headless-1"
+    );
+
+    // Fire ws:send_to_output("headless-2").
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+
+    assert_eq!(
+        find_output(&mut f, active_ws_id).as_deref(),
+        Some("headless-2"),
+        "ws:send_to_output should have moved the workspace to headless-2"
+    );
+}
+
+#[test]
+fn neori_workspaces_returns_cached_snapshots_from_bind_callback() {
+    // With two outputs, at least one workspace exists per output, so neori.workspaces()
+    // should see >= 2 workspaces, and focused_workspace():output() should name the
+    // currently focused output.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            ws_count = #neori.workspaces()
+            focused_output = neori.focused_workspace() and neori.focused_workspace():output() or nil
+            focused_idx = neori.focused_workspace() and neori.focused_workspace():idx() or nil
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let count = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("ws_count")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(n) = count else {
+        panic!("ws_count is not an integer, got {count:?}");
+    };
+    assert!(n >= 2, "expected >= 2 workspaces with two outputs, got {n}");
+
+    let focused_output = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focused_output")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = focused_output else {
+        panic!("focused_output is not a string, got {focused_output:?}");
+    };
+    assert_eq!(s.to_str().unwrap().to_string(), "headless-1");
+
+    // focused_idx should be a valid u8 index (1-based).
+    let idx = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focused_idx")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(idx) = idx else {
+        panic!("focused_idx is not an integer, got {idx:?}");
+    };
+    assert!(idx >= 1, "focused_idx should be 1-based, got {idx}");
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

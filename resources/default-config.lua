@@ -607,8 +607,8 @@ end
 -- queued actions run in order right after the function returns.
 --
 -- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and the
--- known limitations (no live Window/Output userdata yet, no timers yet,
--- function binds don't appear in the hotkey overlay with their title).
+-- known limitations (no timers yet, function binds don't appear in the hotkey
+-- overlay with their title).
 
 -- A function bind that composes two actions:
 -- neori.bind("Mod+Alt+G", function()
@@ -755,6 +755,46 @@ end
 --     table.insert(msg, string.format("%s %s @%sx", out:name(), out:mode() or "?", out:scale() or "?"))
 --   end
 --   neori.action("spawn-sh", "notify-send 'outputs' '" .. table.concat(msg, "\\n") .. "'")
+-- end)
+
+--------------------------------------------------------------------------------
+-- Workspace userdata.
+--
+-- Read-only methods: idx(), id(), name(), output(), is_focused(), windows().
+-- Mutation methods:  focus(), send_to_output(name), set_name(s), unset_name().
+--
+-- `neori.workspaces()` returns an array of Workspace in global 1-based order,
+-- `neori.focused_workspace()` returns the currently focused one (or nil).
+-- ws:windows() returns the Window userdata on this workspace (same shape as
+-- `neori.windows()`).
+
+-- Rename the active workspace to the focused window's app_id.
+-- neori.bind("Mod+Alt+R", function()
+--   local ws = neori.focused_workspace()
+--   local w  = neori.focused_window()
+--   if ws and w and w:app_id() then ws:set_name(w:app_id()) end
+-- end)
+
+-- Clear the active workspace's name.
+-- neori.bind("Mod+Shift+R", function()
+--   local ws = neori.focused_workspace()
+--   if ws then ws:unset_name() end
+-- end)
+
+-- Move the active workspace to the other monitor.
+-- neori.bind("Mod+Alt+Left", function()
+--   local ws = neori.focused_workspace()
+--   for _, out in ipairs(neori.outputs()) do
+--     if not out:is_focused() then ws:send_to_output(out:name()) return end
+--   end
+-- end)
+
+-- Jump focus to the workspace named "code" (creating/renaming is manual: use
+-- the entry pusher at config time, or `ws:set_name("code")` at runtime).
+-- neori.bind("Mod+Alt+C", function()
+--   for _, ws in ipairs(neori.workspaces()) do
+--     if ws:name() == "code" then ws:focus() return end
+--   end
 -- end)
 
 -- Includes (load extra Lua files from the same directory):

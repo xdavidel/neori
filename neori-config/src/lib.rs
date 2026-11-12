@@ -53,7 +53,8 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    LuaOutput, OutputCache, OutputSnapshot, ScriptHost, Window, WindowCache, WindowSnapshot,
+    LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, ScriptHost, Window, WindowCache,
+    WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
@@ -694,6 +695,185 @@ mod tests {
             if let neori_ipc::OutputAction::Vrr { vrr } = op {
                 assert!(vrr.vrr);
                 assert!(!vrr.on_demand);
+            }
+        }
+    }
+
+    #[test]
+    fn workspace_api_registers_lookup_functions() {
+        // neori.workspaces() and neori.focused_workspace() should be callable from any
+        // Lua context. Empty / nil when the cache is unseeded.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("startup", function()
+                workspaces_count = #neori.workspaces()
+                focused_name = neori.focused_workspace() and neori.focused_workspace():name() or nil
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.call_event("startup").unwrap();
+
+        let count = host.read_global("workspaces_count").unwrap();
+        assert!(matches!(count, mlua::Value::Integer(0)));
+        let focused = host.read_global("focused_name").unwrap();
+        assert!(matches!(focused, mlua::Value::Nil));
+    }
+
+    #[test]
+    fn workspace_userdata_methods_return_snapshot_fields() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            captured = {}
+            neori.on("startup", function()
+                local ws = neori.focused_workspace()
+                captured.idx = ws:idx()
+                captured.id = ws:id()
+                captured.name = ws:name()
+                captured.output = ws:output()
+                captured.focused = ws:is_focused()
+                captured.window_count = #ws:windows()
+                captured.first_window_id = ws:windows()[1] and ws:windows()[1]:id() or nil
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let ws_snap = WorkspaceSnapshot {
+            idx: 3,
+            name: Some("browser".to_string()),
+            output_name: Some("eDP-1".to_string()),
+            is_focused: true,
+            id: 1234,
+            window_ids: vec![42, 7],
+        };
+        host.set_workspace_cache(WorkspaceCache {
+            workspaces: vec![ws_snap.clone()],
+            focused: Some(ws_snap),
+        });
+        // ws:windows() filters this cache by window_ids.
+        host.set_window_cache(WindowCache {
+            windows: vec![
+                WindowSnapshot {
+                    id: 42,
+                    app_id: Some("firefox".into()),
+                    ..Default::default()
+                },
+                WindowSnapshot {
+                    id: 99,
+                    app_id: Some("vim".into()),
+                    ..Default::default()
+                },
+                WindowSnapshot {
+                    id: 7,
+                    app_id: Some("gimp".into()),
+                    ..Default::default()
+                },
+            ],
+            focused: None,
+        });
+        host.call_event("startup").unwrap();
+
+        let captured = host.read_global("captured").unwrap();
+        let mlua::Value::Table(t) = captured else {
+            panic!("captured is not a table");
+        };
+        assert_eq!(t.get::<u8>("idx").unwrap(), 3);
+        assert_eq!(t.get::<u64>("id").unwrap(), 1234);
+        assert_eq!(t.get::<String>("name").unwrap(), "browser");
+        assert_eq!(t.get::<String>("output").unwrap(), "eDP-1");
+        assert!(t.get::<bool>("focused").unwrap());
+        // 42 and 7 are on the workspace; 99 is not.
+        assert_eq!(t.get::<i64>("window_count").unwrap(), 2);
+        // First match must be 42 (window_ids order: [42, 7]; filter iterates window cache
+        // but either order is acceptable — just assert we see one of them).
+        let fw: u64 = t.get("first_window_id").unwrap();
+        assert!(fw == 42 || fw == 7, "unexpected first window id {fw}");
+    }
+
+    #[test]
+    fn workspace_mutation_methods_enqueue_actions() {
+        // Each mutation method should push its matching Action onto the pending-actions
+        // queue. Drain via call_bind_function.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+W", function()
+                local ws = neori.focused_workspace()
+                ws:focus()
+                ws:send_to_output("HDMI-A-1")
+                ws:set_name("code")
+                ws:unset_name()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let ws_snap = WorkspaceSnapshot {
+            idx: 2,
+            name: None,
+            output_name: Some("eDP-1".to_string()),
+            is_focused: true,
+            id: 777,
+            window_ids: vec![],
+        };
+        host.set_workspace_cache(WorkspaceCache {
+            workspaces: vec![ws_snap.clone()],
+            focused: Some(ws_snap),
+        });
+
+        let actions = host.call_bind_function(1).unwrap();
+        let kinds: Vec<&str> = actions
+            .iter()
+            .map(|a| match a {
+                Action::FocusWorkspace { .. } => "focus",
+                Action::MoveWorkspaceToMonitor { .. } => "to-monitor",
+                Action::SetWorkspaceName { .. } => "set-name",
+                Action::UnsetWorkspaceName { .. } => "unset-name",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec!["focus", "to-monitor", "set-name", "unset-name"],
+            "unexpected enqueued actions: {kinds:?}"
+        );
+
+        for action in &actions {
+            match action {
+                Action::FocusWorkspace { reference } => {
+                    assert!(matches!(
+                        reference,
+                        neori_ipc::WorkspaceReferenceArg::Id(777)
+                    ));
+                }
+                Action::MoveWorkspaceToMonitor { output, reference } => {
+                    assert_eq!(output, "HDMI-A-1");
+                    assert!(matches!(
+                        reference,
+                        Some(neori_ipc::WorkspaceReferenceArg::Id(777))
+                    ));
+                }
+                Action::SetWorkspaceName { name, workspace } => {
+                    assert_eq!(name, "code");
+                    assert!(matches!(
+                        workspace,
+                        Some(neori_ipc::WorkspaceReferenceArg::Id(777))
+                    ));
+                }
+                Action::UnsetWorkspaceName { reference } => {
+                    assert!(matches!(
+                        reference,
+                        Some(neori_ipc::WorkspaceReferenceArg::Id(777))
+                    ));
+                }
+                _ => {}
             }
         }
     }
