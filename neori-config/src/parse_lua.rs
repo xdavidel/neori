@@ -1336,6 +1336,17 @@ impl ScriptHost {
     pub fn has_bind_function(&self, id: u64) -> bool {
         self.bind_functions.lock().unwrap().contains_key(&id)
     }
+
+    /// Returns whether at least one Lua handler is registered for `event`. Lets
+    /// the compositor skip cache priming / snapshot building when no one would
+    /// consume the fire.
+    pub fn has_event_handlers(&self, event: &str) -> bool {
+        self.event_functions
+            .lock()
+            .unwrap()
+            .get(event)
+            .is_some_and(|fs| !fs.is_empty())
+    }
 }
 
 impl Default for ScriptHost {

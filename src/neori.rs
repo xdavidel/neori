@@ -1617,6 +1617,12 @@ impl State {
             self.do_action(action, false);
         }
 
+        // Skip the Lua-specific priming + snapshot build + call when no handler
+        // is registered. The declarative config actions above still run.
+        if !self.scripting.has_event_handlers(event) {
+            return;
+        }
+
         // Prime the output + window caches so neori.outputs() / focused_output() etc.
         // see the just-connected / just-removed state.
         self.prime_window_cache();

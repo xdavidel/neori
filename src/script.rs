@@ -129,6 +129,9 @@ impl State {
     /// Errors from a Lua callback are warn!'d and flash the config-error notification;
     /// they do not propagate.
     pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
+        if !self.scripting.has_event_handlers(event) {
+            return;
+        }
         self.refresh_script_caches();
         let window = LuaWindow(snapshot);
         let result = self.scripting.call_event_with(event, window);
@@ -203,6 +206,9 @@ impl State {
         &mut self,
         snapshot: WindowSnapshot,
     ) -> neori_config::OpenOverrides {
+        if !self.scripting.has_event_handlers("window-opening") {
+            return neori_config::OpenOverrides::default();
+        }
         self.refresh_script_caches();
         self.scripting.begin_open_overrides();
         let window = LuaWindow(snapshot);
@@ -218,6 +224,9 @@ impl State {
     /// Fire a workspace-lifecycle event (`workspace-focused`, `workspace-added`,
     /// `workspace-removed`) to Lua callbacks. Mirrors [`State::fire_window_event`].
     pub fn fire_workspace_event(&mut self, event: &str, snapshot: WorkspaceSnapshot) {
+        if !self.scripting.has_event_handlers(event) {
+            return;
+        }
         self.refresh_script_caches();
         let ws = LuaWorkspace(snapshot);
         let result = self.scripting.call_event_with(event, ws);
@@ -229,6 +238,9 @@ impl State {
     /// output named `output_name`. Falls back to a minimal snapshot (just the name)
     /// if the output is no longer in global_space.
     pub fn fire_output_focused_event(&mut self, output_name: String) {
+        if !self.scripting.has_event_handlers("output-focused") {
+            return;
+        }
         self.refresh_script_caches();
         let ipc = self.backend.ipc_outputs();
         let ipc_outputs = ipc.lock().unwrap().clone();
@@ -253,6 +265,9 @@ impl State {
     /// name. Called from `ipc_refresh_keyboard_layout_index` right after the
     /// IPC-side diff detects the switch.
     pub fn fire_layout_changed_event(&mut self, name: String) {
+        if !self.scripting.has_event_handlers("layout-changed") {
+            return;
+        }
         self.refresh_script_caches();
         let result = self.scripting.call_event_with("layout-changed", name);
         self.scripting.clear_script_caches();
