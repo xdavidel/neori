@@ -1228,6 +1228,207 @@ fn neori_workspaces_returns_cached_snapshots_from_bind_callback() {
 }
 
 #[test]
+fn output_focused_event_fires_on_focus_change() {
+    // Two outputs; focus moves between them. output-focused should fire each
+    // time the active output changes.
+    let mut f = fixture_from_lua(
+        r#"
+        focus_events = 0
+        last_focused = nil
+        neori.on("output-focused", function(out)
+            focus_events = focus_events + 1
+            last_focused = out:name()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.dispatch();
+    f.neori_focus_output(2);
+    f.state.server.dispatch();
+
+    let count = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focus_events")
+        .unwrap();
+    assert!(
+        matches!(count, neori_config::mlua::Value::Integer(n) if n >= 2),
+        "expected at least 2 output-focused events, got {count:?}"
+    );
+    let last = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("last_focused")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = last else {
+        panic!("last_focused is not a string");
+    };
+    assert_eq!(s.to_str().unwrap().to_string(), "headless-2");
+}
+
+#[test]
+fn workspace_focused_event_fires_when_active_workspace_changes() {
+    // Move window to workspace 2 — the active workspace changes, so
+    // workspace-focused should fire with the new workspace snapshot.
+    let mut f = fixture_from_lua(
+        r#"
+        focus_events = 0
+        last_focused_idx = nil
+        neori.on("workspace-focused", function(ws)
+            focus_events = focus_events + 1
+            last_focused_idx = ws:idx()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    // Open a window so there's something to move.
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    // Baseline count from startup focus (workspace 1 was focused when outputs came up).
+    let baseline = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focus_events")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(baseline) = baseline else {
+        panic!("focus_events is not an integer, got {baseline:?}");
+    };
+
+    let window_id = f.neori().layout.focus().unwrap().id();
+    f.state.server.state.do_action(
+        neori_config::Action::MoveWindowToWorkspace {
+            window_id: Some(window_id.get()),
+            reference: neori_ipc::WorkspaceReferenceArg::Index(2),
+            focus: true,
+        },
+        false,
+    );
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let after = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focus_events")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(after) = after else {
+        panic!("focus_events is not an integer, got {after:?}");
+    };
+    assert!(
+        after > baseline,
+        "workspace-focused should have fired on move; baseline={baseline} after={after}"
+    );
+
+    let last_idx = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("last_focused_idx")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(idx) = last_idx else {
+        panic!("last_focused_idx is not an integer, got {last_idx:?}");
+    };
+    assert!(
+        idx >= 2,
+        "latest focused workspace idx should be >= 2 after move, got {idx}"
+    );
+}
+
+#[test]
+fn workspace_added_event_fires_when_new_workspace_appears() {
+    // Opening a window on a not-yet-materialized workspace creates that workspace,
+    // which should fire workspace-added.
+    let mut f = fixture_from_lua(
+        r#"
+        added = 0
+        last_added_idx = nil
+        neori.on("workspace-added", function(ws)
+            added = added + 1
+            last_added_idx = ws:idx()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let baseline = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("added")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(baseline) = baseline else {
+        panic!("added is not an integer, got {baseline:?}");
+    };
+
+    // Move the window to workspace 2 — this creates workspace 2.
+    let window_id = f.neori().layout.focus().unwrap().id();
+    f.state.server.state.do_action(
+        neori_config::Action::MoveWindowToWorkspace {
+            window_id: Some(window_id.get()),
+            reference: neori_ipc::WorkspaceReferenceArg::Index(2),
+            focus: true,
+        },
+        false,
+    );
+    f.state.server.dispatch();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let after = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("added")
+        .unwrap();
+    let neori_config::mlua::Value::Integer(after) = after else {
+        panic!("added is not an integer, got {after:?}");
+    };
+    assert!(
+        after > baseline,
+        "workspace-added should have fired on new-workspace creation; baseline={baseline} after={after}"
+    );
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

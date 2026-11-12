@@ -1576,11 +1576,17 @@ fn setup_neori_api(
                     "window-opened" | "window_opened" => "window-opened",
                     "window-closed" | "window_closed" => "window-closed",
                     "window-focused" | "window_focused" => "window-focused",
+                    "workspace-focused" | "workspace_focused" => "workspace-focused",
+                    "workspace-added" | "workspace_added" => "workspace-added",
+                    "workspace-removed" | "workspace_removed" => "workspace-removed",
+                    "output-focused" | "output_focused" => "output-focused",
                     _ => {
                         return Err(LuaError::runtime(format!(
                             "unknown event '{event}' (supported events: startup, monitor-added, \
                              monitor-removed, lid-open, lid-closed, tablet-mode-on, \
-                             tablet-mode-off, window-opened, window-closed, window-focused)"
+                             tablet-mode-off, window-opened, window-closed, window-focused, \
+                             workspace-focused, workspace-added, workspace-removed, \
+                             output-focused)"
                         )));
                     }
                 };

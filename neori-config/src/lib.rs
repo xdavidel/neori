@@ -797,6 +797,53 @@ mod tests {
     }
 
     #[test]
+    fn workspace_and_output_events_register_on_neori_on() {
+        // The four new event names (`workspace-focused`, `workspace-added`,
+        // `workspace-removed`, `output-focused`) should parse and dispatch a Lua
+        // callback that receives the matching userdata.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = {}
+            neori.on("workspace-focused", function(ws) seen.wf = ws:name() or "nil" end)
+            neori.on("workspace-added",   function(ws) seen.wa = ws:id() end)
+            neori.on("workspace-removed", function(ws) seen.wr = ws:id() end)
+            neori.on("output-focused",    function(out) seen.of = out:name() end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let ws = WorkspaceSnapshot {
+            idx: 1,
+            name: Some("code".to_string()),
+            id: 42,
+            ..Default::default()
+        };
+        host.call_event_with("workspace-focused", LuaWorkspace(ws.clone()))
+            .unwrap();
+        host.call_event_with("workspace-added", LuaWorkspace(ws.clone()))
+            .unwrap();
+        host.call_event_with("workspace-removed", LuaWorkspace(ws))
+            .unwrap();
+        let out = OutputSnapshot {
+            name: "eDP-1".to_string(),
+            ..Default::default()
+        };
+        host.call_event_with("output-focused", LuaOutput(out))
+            .unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        assert_eq!(t.get::<String>("wf").unwrap(), "code");
+        assert_eq!(t.get::<u64>("wa").unwrap(), 42);
+        assert_eq!(t.get::<u64>("wr").unwrap(), 42);
+        assert_eq!(t.get::<String>("of").unwrap(), "eDP-1");
+    }
+
+    #[test]
     fn workspace_mutation_methods_enqueue_actions() {
         // Each mutation method should push its matching Action onto the pending-actions
         // queue. Drain via call_bind_function.

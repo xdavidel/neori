@@ -797,6 +797,16 @@ end
 --   end
 -- end)
 
+-- Workspace / output lifecycle events. Fire whenever the compositor notices
+-- a change (per refresh tick). workspace-removed fires with the last-known
+-- snapshot of the workspace that just vanished.
+-- neori.on("workspace-focused", function(ws)
+--   neori.action("spawn", { "notify-send", "ws", ws:name() or tostring(ws:idx()) })
+-- end)
+-- neori.on("workspace-added",   function(ws) print("ws +", ws:idx(), ws:name()) end)
+-- neori.on("workspace-removed", function(ws) print("ws -", ws:idx(), ws:name()) end)
+-- neori.on("output-focused",    function(out) print("output focus:", out:name()) end)
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

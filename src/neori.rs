@@ -343,6 +343,15 @@ pub struct Neori {
     /// Used by [`State::maybe_fire_window_focused`] to detect focus transitions and
     /// invoke `neori.on("window-focused", …)` handlers only on change.
     pub last_focused_window_id: Option<u64>,
+    /// Id of the most recently focused workspace, for `workspace-focused`.
+    pub last_focused_workspace_id: Option<u64>,
+    /// Connector-name of the most recently focused output, for `output-focused`.
+    pub last_focused_output_name: Option<String>,
+    /// Last-known snapshot of every live workspace, keyed by id. Used by
+    /// [`State::maybe_fire_workspace_events`] to diff for `workspace-added` /
+    /// `workspace-removed` and to supply a meaningful payload when a workspace
+    /// vanishes between ticks.
+    pub last_known_workspaces: HashMap<u64, neori_config::WorkspaceSnapshot>,
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
     pub is_fdo_idle_inhibited: Arc<AtomicBool>,
     pub keyboard_shortcuts_inhibiting_surfaces: HashMap<WlSurface, KeyboardShortcutsInhibitor>,
@@ -1513,15 +1522,17 @@ impl State {
     /// could address that).
     pub fn maybe_fire_window_focused(&mut self) {
         let focused_id = self.neori.layout.focus().map(|m| m.id().get());
-        if focused_id == self.neori.last_focused_window_id {
-            return;
+        if focused_id != self.neori.last_focused_window_id {
+            self.neori.last_focused_window_id = focused_id;
+            if let Some(mapped) = self.neori.layout.focus() {
+                let snap = crate::script::snapshot_mapped(&self.neori, mapped);
+                self.fire_window_event("window-focused", snap);
+            }
         }
-        self.neori.last_focused_window_id = focused_id;
-
-        if let Some(mapped) = self.neori.layout.focus() {
-            let snap = crate::script::snapshot_mapped(&self.neori, mapped);
-            self.fire_window_event("window-focused", snap);
-        }
+        // Workspace / output focus and lifecycle events ride the same tick so a
+        // single keyboard-focus refresh covers the common case (moving the window
+        // also moves the workspace / output focus).
+        self.maybe_fire_workspace_events();
     }
 
     /// Loads the xkb keymap from a file config setting.
@@ -1639,6 +1650,9 @@ impl State {
             Err(err) => warn!("{err}"),
         }
         self.drain_pending_output_ops_and_dispatch();
+        // A monitor hotplug can add/remove workspaces and shift focus; make sure
+        // lifecycle / focus events fire in the same tick.
+        self.maybe_fire_workspace_events();
     }
 
     /// Fires a switch event: executes queued actions from the config, then runs the Lua callbacks
@@ -2825,6 +2839,9 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
+            last_focused_workspace_id: None,
+            last_focused_output_name: None,
+            last_known_workspaces: HashMap::new(),
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
             keyboard_shortcuts_inhibiting_surfaces: HashMap::new(),

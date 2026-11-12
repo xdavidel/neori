@@ -96,18 +96,27 @@ end)
 
 Supported event names and their handler arg:
 
-| event               | arg                                      |
-|---                  |---                                       |
-| `startup`           | — (no arg)                               |
-| `monitor-added`     | string, the connector's name             |
-| `monitor-removed`   | string, the connector's name             |
-| `lid-open`          | — (no arg)                               |
-| `lid-closed`        | — (no arg)                               |
-| `tablet-mode-on`    | — (no arg)                               |
-| `tablet-mode-off`   | — (no arg)                               |
-| `window-opened`     | `Window` userdata — see the next section |
-| `window-closed`     | `Window` userdata                        |
-| `window-focused`    | `Window` userdata                        |
+| event                | arg                                                 |
+|---                   |---                                                  |
+| `startup`            | — (no arg)                                          |
+| `monitor-added`      | string, the connector's name; second arg: `Output`  |
+| `monitor-removed`    | string, the connector's name; second arg: `Output`  |
+| `lid-open`           | — (no arg)                                          |
+| `lid-closed`         | — (no arg)                                          |
+| `tablet-mode-on`     | — (no arg)                                          |
+| `tablet-mode-off`    | — (no arg)                                          |
+| `window-opened`      | `Window` userdata — see the next section            |
+| `window-closed`      | `Window` userdata                                   |
+| `window-focused`     | `Window` userdata                                   |
+| `workspace-focused`  | `Workspace` userdata — the newly active workspace   |
+| `workspace-added`    | `Workspace` userdata — the just-created workspace   |
+| `workspace-removed`  | `Workspace` userdata — last-known snapshot of the destroyed workspace |
+| `output-focused`     | `Output` userdata — the newly active output         |
+
+Workspace / output lifecycle events fire whenever the compositor notices a
+change (per refresh tick), so a bind that focuses a different workspace,
+plugging in a monitor, or opening a window on a not-yet-materialized workspace
+all generate the matching events.
 
 ## Windows
 
@@ -317,6 +326,23 @@ neori.bind("Mod+Alt+W", function()
             print("  ", w:app_id(), w:title())
         end
     end
+end)
+
+-- React to workspace / output focus changes.
+neori.on("workspace-focused", function(ws)
+    neori.action("spawn", { "notify-send", "ws", ws:name() or tostring(ws:idx()) })
+end)
+
+neori.on("workspace-added", function(ws)
+    print("workspace +", ws:idx(), ws:name() or "unnamed", "on", ws:output() or "-")
+end)
+
+neori.on("workspace-removed", function(ws)
+    print("workspace -", ws:idx(), ws:name() or "unnamed")
+end)
+
+neori.on("output-focused", function(out)
+    print("output focus:", out:name())
 end)
 ```
 
