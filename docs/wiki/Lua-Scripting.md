@@ -30,15 +30,20 @@ The compositor:
 3. Catches any Lua error, logs it with `warn!`, and briefly flashes the config-error
    notification. The compositor does not crash.
 
-Because the call is synchronous and on the compositor thread, keep it short — do the
-slow work with `neori.spawn_sh` or in a `cwc.timer`-style helper the config loads via
-`neori.include`. A long-running function blocks input.
+Because the call is synchronous and on the compositor thread, keep it short — do slow
+work by spawning a helper process (`neori.action("spawn", { … })`) instead of blocking in
+Lua. A long-running function blocks input, and there is no Lua-side timer API today.
 
-Bind options such as `allow_when_locked`, `allow_inhibiting`, `repeat`, `cooldown_ms`,
-and `hotkey_overlay_title` don't change meaning on function binds. For safety, a function
-bind is **never** counted as "allowed when locked" by the default allowlist (the
-compositor cannot predict what the function will do) — set `allow_when_locked = true`
-explicitly if you need it.
+Function binds take no per-bind options — the compositor accepts `(key, function)` only.
+The flags that declarative table binds carry (`allow_when_locked`, `allow_inhibiting`,
+`repeat`, `cooldown_ms`, `hotkey_overlay_title`) have no function-bind equivalent today.
+In particular, a function bind is **never** counted as "allowed when locked" or
+"allowed during screenshot" by the default allowlist — the compositor cannot predict
+what the function will do. If you need either, bind a declarative action that already
+has those flags set, and route your custom behaviour through that.
+
+Lua's built-in `print(...)` is overridden to append to a log file; see
+[`print(...)` output](#print-output) below.
 
 ## `neori.action(name, args)` — dispatch an IPC action from Lua
 
@@ -369,7 +374,8 @@ $XDG_STATE_HOME/neori/lua.log    # typically  ~/.local/state/neori/lua.log
 ```
 
 Each line is prefixed with a UTC timestamp (`[YYYY-MM-DD HH:MM:SS.mmmZ]`), followed by
-the arguments tab-separated, exactly as stock `print` would format them. Example:
+the arguments tab-separated, exactly as stock `print` would format them. Example (the
+visible spacing between args is literal `\t`, so `grep -P '\t'` works):
 
 ```
 [2026-11-12 09:17:04.221Z]  hello  42  true  nil
@@ -556,7 +562,8 @@ action is ignored — Lua methods never raise for that case.
   `neori.focused_window()` / `neori.windows()` again when you need fresh state.
   Mutation methods (`w:close()`, `w:send_to_workspace()`, …) take effect against
   the compositor's current state — they don't care whether the snapshot was stale.
-- Hotkey overlay doesn't show Lua-function binds' custom titles yet.
+- Function binds have no way to set a custom hotkey-overlay title — the overlay falls
+  back to a generic label because `neori.bind(key, function)` takes no options table.
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for
   function binds (the compositor can't inspect what the function does).
@@ -629,7 +636,8 @@ end)
 -- A tiny "scratchpad" pattern: toggle a named kitty.
 --
 -- On the first press, spawn the window with a known class; on subsequent presses
--- flip whether it's floating. (Window-userdata will let us do this properly later.)
+-- flip whether it's floating. See the Window userdata + `window-opening` sections
+-- above for a cleaner pattern that matches on `w:app_id()` at open time.
 local scratch_spawned = false
 neori.bind("Mod+Grave", function()
     if not scratch_spawned then
