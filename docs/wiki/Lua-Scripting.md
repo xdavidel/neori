@@ -286,6 +286,72 @@ neori.on("layout-changed", function(name)
 end)
 ```
 
+## Input devices
+
+`neori.devices()` returns an array of `Device` userdata — one per libinput
+device the compositor is tracking (keyboards, mice, touchpads, trackballs,
+touch panels). Each snapshot carries metadata and capability bits; mutation
+methods call the matching libinput tuning setters on the real device.
+
+```lua
+-- Disable the laptop's built-in keyboard whenever an external one is present.
+neori.bind("Mod+Alt+K", function()
+    local has_external = false
+    for _, d in ipairs(neori.devices()) do
+        if d:is_keyboard() and not d:name():match("Translated Set") then
+            has_external = true
+            break
+        end
+    end
+    for _, d in ipairs(neori.devices()) do
+        if d:is_keyboard() and d:name():match("Translated Set") then
+            d:set_disabled(has_external)
+        end
+    end
+end)
+
+-- Tune every touchpad.
+neori.on("startup", function()
+    for _, d in ipairs(neori.devices()) do
+        if d:is_touchpad() then
+            d:set_tap(true)
+            d:set_natural_scroll(true)
+            d:set_accel(0.3)
+        end
+    end
+end)
+```
+
+### `Device` methods
+
+Read-only:
+
+| method               | returns                                                       |
+|---                   |---                                                            |
+| `d:name()`           | libinput device name string                                   |
+| `d:sysname()`        | udev sysname (e.g. `"event5"`) — stable per-boot              |
+| `d:product_id()`     | integer                                                       |
+| `d:vendor_id()`      | integer                                                       |
+| `d:is_pointer()`     | boolean — mouse, trackball, touchpad, etc.                    |
+| `d:is_keyboard()`    | boolean                                                       |
+| `d:is_touch()`       | boolean — touch panel                                         |
+| `d:is_touchpad()`    | boolean — a pointer with non-zero `tap_finger_count`          |
+
+Mutation:
+
+| method                           | effect                                                           |
+|---                               |---                                                               |
+| `d:set_tap(bool)`                | Touchpad tap-to-click.                                           |
+| `d:set_natural_scroll(bool)`     | "Natural" (macOS-style) scroll direction.                        |
+| `d:set_accel(f64)`               | Pointer acceleration speed (−1.0 fastest … 1.0 slowest).         |
+| `d:set_left_handed(bool)`        | Swap left/right mouse buttons.                                   |
+| `d:set_disabled(bool)`           | Set libinput `send_events` to DISABLED / ENABLED.                |
+
+Mutations go directly to libinput; they persist on the device until the next
+config reload re-applies the static `input { … }` block, at which point the
+config value takes over again. Not every setting is supported by every
+device — libinput silently ignores unsupported calls.
+
 ## Reload semantics
 
 `neori msg action reload-config` wipes the Lua state and rebuilds it from disk. Any Lua

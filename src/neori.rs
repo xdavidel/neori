@@ -1650,6 +1650,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         match result {
             Ok(_) => {}
             Err(err) => warn!("{err}"),

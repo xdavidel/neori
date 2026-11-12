@@ -5,7 +5,7 @@
 //! see a consistent view of the world at each callback boundary.
 
 use neori_config::{
-    Config, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, PointerSnapshot,
+    Config, DeviceOp, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, PointerSnapshot,
     Window as LuaWindow, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 use smithay::desktop::Window;
@@ -136,6 +136,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         self.drain_and_dispatch(event, result);
     }
 
@@ -155,6 +156,7 @@ impl State {
         } else {
             self.scripting.clear_pointer_cache();
         }
+        self.scripting.set_device_cache(build_device_cache(&self.neori));
     }
 
     /// Dispatch actions returned from the Lua call plus any pending output ops the
@@ -182,6 +184,9 @@ impl State {
         }
         for (x, y) in self.scripting.drain_pending_warps() {
             self.move_cursor(smithay::utils::Point::from((x, y)));
+        }
+        for (sysname, op) in self.scripting.drain_pending_device_ops() {
+            apply_device_op(&mut self.neori, &sysname, op);
         }
     }
 
@@ -213,6 +218,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         self.drain_and_dispatch("window-opening", result);
         overrides
     }
@@ -227,6 +233,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         self.drain_and_dispatch(event, result);
     }
 
@@ -254,6 +261,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         self.drain_and_dispatch("output-focused", result);
     }
 
@@ -272,6 +280,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
         self.drain_and_dispatch("layout-changed", result);
     }
 
@@ -344,6 +353,7 @@ impl State {
         self.scripting.clear_output_cache();
         self.scripting.clear_workspace_cache();
         self.scripting.clear_pointer_cache();
+        self.scripting.clear_device_cache();
     }
 
     /// Drain and dispatch any output ops / cursor warps enqueued by a bind
@@ -357,6 +367,9 @@ impl State {
         for (x, y) in self.scripting.drain_pending_warps() {
             self.move_cursor(smithay::utils::Point::from((x, y)));
         }
+        for (sysname, op) in self.scripting.drain_pending_device_ops() {
+            apply_device_op(&mut self.neori, &sysname, op);
+        }
     }
 }
 
@@ -369,6 +382,7 @@ pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     host.clear_output_cache();
     host.clear_workspace_cache();
     host.clear_pointer_cache();
+    host.clear_device_cache();
 }
 
 /// Build a snapshot for one compositor output.
@@ -506,6 +520,72 @@ pub fn build_workspace_cache(neori: &Neori) -> WorkspaceCache {
     WorkspaceCache {
         workspaces,
         focused: focused_snapshot,
+    }
+}
+
+/// Snapshot connected input devices for Lua.
+///
+/// Walks `Neori::devices` (the set of libinput devices the compositor is
+/// tracking) and reads each device's metadata and capability bits. Touchpad
+/// detection matches `apply_libinput_settings` (non-zero `tap_finger_count`).
+pub fn build_device_cache(neori: &Neori) -> neori_config::DeviceCache {
+    use smithay::reexports::input::DeviceCapability;
+    let mut devices = Vec::new();
+    for device in &neori.devices {
+        let is_touchpad = device.config_tap_finger_count() > 0;
+        let is_pointer = device.has_capability(DeviceCapability::Pointer);
+        let is_keyboard = device.has_capability(DeviceCapability::Keyboard);
+        let is_touch = device.has_capability(DeviceCapability::Touch);
+        devices.push(neori_config::DeviceSnapshot {
+            name: device.name().into_owned(),
+            sysname: device.sysname().to_owned(),
+            product_id: device.id_product(),
+            vendor_id: device.id_vendor(),
+            is_pointer,
+            is_keyboard,
+            is_touch,
+            is_touchpad,
+        });
+    }
+    neori_config::DeviceCache { devices }
+}
+
+/// Apply one Lua-enqueued `DeviceOp` to the matching libinput device, if any.
+///
+/// Mutations land on the device directly; they persist until the next
+/// `apply_libinput_settings` (config reload) overwrites them.
+pub fn apply_device_op(neori: &mut Neori, sysname: &str, op: DeviceOp) {
+    use smithay::reexports::input::SendEventsMode;
+    let mut target: Option<smithay::reexports::input::Device> = None;
+    for device in &neori.devices {
+        if device.sysname() == sysname {
+            target = Some(device.clone());
+            break;
+        }
+    }
+    let Some(mut device) = target else {
+        return;
+    };
+    match op {
+        DeviceOp::SetTap(enable) => {
+            let _ = device.config_tap_set_enabled(enable);
+        }
+        DeviceOp::SetNaturalScroll(enable) => {
+            let _ = device.config_scroll_set_natural_scroll_enabled(enable);
+        }
+        DeviceOp::SetAccel(speed) => {
+            let _ = device.config_accel_set_speed(speed);
+        }
+        DeviceOp::SetLeftHanded(enable) => {
+            let _ = device.config_left_handed_set(enable);
+        }
+        DeviceOp::SetDisabled(disabled) => {
+            let _ = device.config_send_events_set_mode(if disabled {
+                SendEventsMode::DISABLED
+            } else {
+                SendEventsMode::ENABLED
+            });
+        }
     }
 }
 

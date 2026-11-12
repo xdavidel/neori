@@ -1715,6 +1715,46 @@ fn keyboard_layout_is_readable_from_lua() {
 }
 
 #[test]
+fn devices_returns_empty_array_in_test_fixture() {
+    // The test fixture doesn't bring up real libinput, so neori.devices() should
+    // return an empty array. This exercises the cache priming / drain plumbing
+    // and documents that Device userdata is wired correctly end-to-end.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+D", function()
+            seen_count = #neori.devices()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let count = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("seen_count")
+        .unwrap();
+    assert!(
+        matches!(count, neori_config::mlua::Value::Integer(0)),
+        "expected 0 devices in the test fixture, got {count:?}"
+    );
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

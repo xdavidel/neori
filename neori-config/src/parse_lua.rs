@@ -161,6 +161,51 @@ pub struct PointerSnapshot {
     pub output_name: Option<String>,
 }
 
+/// Snapshot of one libinput device, exposed to Lua as the `Device` userdata.
+/// The compositor refreshes a cache in `refresh_script_caches` so
+/// `neori.devices()` sees fresh metadata at every callback boundary.
+#[derive(Debug, Default, Clone)]
+pub struct DeviceSnapshot {
+    /// libinput device name (e.g. `"AT Translated Set 2 keyboard"`).
+    pub name: String,
+    /// Stable per-boot udev sysname (e.g. `"event5"`). Used as the mutation
+    /// target key: mutation methods enqueue `(sysname, DeviceOp)` tuples which
+    /// the compositor dispatches by looking the device up in `neori.devices`.
+    pub sysname: String,
+    pub product_id: u32,
+    pub vendor_id: u32,
+    pub is_pointer: bool,
+    pub is_keyboard: bool,
+    pub is_touch: bool,
+    /// True for touchpads specifically (any pointer device with a non-zero
+    /// `config_tap_finger_count`), as opposed to mice / trackballs.
+    pub is_touchpad: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct DeviceCache {
+    pub devices: Vec<DeviceSnapshot>,
+}
+
+type SharedDeviceCache = Arc<Mutex<DeviceCache>>;
+
+/// Runtime mutations enqueued against a specific device by its sysname.
+/// Drained by the compositor after the callback returns; each op maps onto
+/// a `device.config_*_set_*` libinput call.
+///
+/// Changes persist on the device until the next `apply_libinput_settings`
+/// (i.e. config reload), at which point the config value takes over again.
+#[derive(Debug, Clone)]
+pub enum DeviceOp {
+    SetTap(bool),
+    SetNaturalScroll(bool),
+    SetAccel(f64),
+    SetLeftHanded(bool),
+    SetDisabled(bool),
+}
+
+type PendingDeviceOps = Arc<Mutex<Vec<(String, DeviceOp)>>>;
+
 type SharedPointerCache = Arc<Mutex<Option<PointerSnapshot>>>;
 
 /// Queue of pending cursor warps enqueued by Lua via `neori.warp(x, y)`. The
@@ -534,6 +579,73 @@ impl mlua::UserData for LuaWorkspace {
     }
 }
 
+/// Lua `Device` userdata: a snapshot wrapper for an input device (keyboard /
+/// mouse / touchpad / touch panel) with read-only metadata accessors and
+/// mutation methods that enqueue libinput tuning ops keyed by the device's
+/// udev `sysname`. The compositor drains the queue after the callback returns
+/// and applies each op to the matching `input::Device`.
+///
+/// Named `LuaDevice` on the Rust side to avoid any `Device` ambiguity with
+/// Smithay / libinput types; Lua users just see it as `Device`.
+#[derive(Debug, Clone)]
+pub struct LuaDevice(pub DeviceSnapshot);
+
+impl mlua::UserData for LuaDevice {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // Read-only accessors.
+        methods.add_method("name", |_, this, ()| Ok(this.0.name.clone()));
+        methods.add_method("sysname", |_, this, ()| Ok(this.0.sysname.clone()));
+        methods.add_method("product_id", |_, this, ()| Ok(this.0.product_id));
+        methods.add_method("vendor_id", |_, this, ()| Ok(this.0.vendor_id));
+        methods.add_method("is_pointer", |_, this, ()| Ok(this.0.is_pointer));
+        methods.add_method("is_keyboard", |_, this, ()| Ok(this.0.is_keyboard));
+        methods.add_method("is_touch", |_, this, ()| Ok(this.0.is_touch));
+        methods.add_method("is_touchpad", |_, this, ()| Ok(this.0.is_touchpad));
+
+        // Mutation methods. Each enqueues a (sysname, DeviceOp) pair; the
+        // compositor drains and applies via `input::Device::config_*_set_*`.
+        // Changes persist until the next config reload wipes them.
+        methods.add_method("set_tap", |lua, this, enable: bool| {
+            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetTap(enable));
+            Ok(())
+        });
+        methods.add_method("set_natural_scroll", |lua, this, enable: bool| {
+            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetNaturalScroll(enable));
+            Ok(())
+        });
+        methods.add_method("set_accel", |lua, this, speed: f64| {
+            if !(-1.0..=1.0).contains(&speed) {
+                return Err(LuaError::runtime(format!(
+                    "Device:set_accel: speed {speed} out of range [-1.0, 1.0]"
+                )));
+            }
+            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetAccel(speed));
+            Ok(())
+        });
+        methods.add_method("set_left_handed", |lua, this, enable: bool| {
+            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetLeftHanded(enable));
+            Ok(())
+        });
+        methods.add_method("set_disabled", |lua, this, disabled: bool| {
+            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetDisabled(disabled));
+            Ok(())
+        });
+
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+            Ok(format!(
+                "Device(sysname={:?}, name={:?})",
+                this.0.sysname, this.0.name
+            ))
+        });
+    }
+}
+
+fn enqueue_device_op(lua: &Lua, sysname: &str, op: DeviceOp) {
+    if let Some(queue) = lua.app_data_ref::<PendingDeviceOps>() {
+        queue.lock().unwrap().push((sysname.to_owned(), op));
+    }
+}
+
 fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
     match s {
         "normal" => Ok(neori_ipc::Transform::Normal),
@@ -807,6 +919,11 @@ pub struct ScriptHost {
     /// Current keyboard layout name, refreshed by the compositor. Powers
     /// `neori.keyboard_layout()`.
     keyboard_layout: SharedKeyboardLayout,
+    /// Snapshot of connected input devices, refreshed by the compositor.
+    /// Powers `neori.devices()`.
+    device_cache: SharedDeviceCache,
+    /// Pending libinput mutations enqueued by `Device:set_*` methods.
+    pending_device_ops: PendingDeviceOps,
 }
 
 impl ScriptHost {
@@ -824,6 +941,8 @@ impl ScriptHost {
         let pointer_cache: SharedPointerCache = Arc::new(Mutex::new(None));
         let pending_warps: PendingWarps = Arc::new(Mutex::new(Vec::new()));
         let keyboard_layout: SharedKeyboardLayout = Arc::new(Mutex::new(None));
+        let device_cache: SharedDeviceCache = Arc::new(Mutex::new(DeviceCache::default()));
+        let pending_device_ops: PendingDeviceOps = Arc::new(Mutex::new(Vec::new()));
 
         // Stash handles for every runtime queue + cache on the Lua state so userdata
         // methods (`w:close()`, `out:set_scale(…)`, `ws:windows()`, …) can reach
@@ -833,6 +952,7 @@ impl ScriptHost {
         lua.set_app_data::<SharedWindowCache>(Arc::clone(&window_cache));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
         lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
+        lua.set_app_data::<PendingDeviceOps>(Arc::clone(&pending_device_ops));
 
         Ok(Self {
             lua,
@@ -848,7 +968,23 @@ impl ScriptHost {
             pointer_cache,
             pending_warps,
             keyboard_layout,
+            device_cache,
+            pending_device_ops,
         })
+    }
+
+    /// Replace the cached device snapshots.
+    pub fn set_device_cache(&self, cache: DeviceCache) {
+        *self.device_cache.lock().unwrap() = cache;
+    }
+
+    pub fn clear_device_cache(&self) {
+        *self.device_cache.lock().unwrap() = DeviceCache::default();
+    }
+
+    /// Drain pending libinput device mutation ops enqueued by `Device:set_*`.
+    pub fn drain_pending_device_ops(&self) -> Vec<(String, DeviceOp)> {
+        std::mem::take(&mut *self.pending_device_ops.lock().unwrap())
     }
 
     /// Replace the cached pointer snapshot, called by the compositor just before
@@ -957,6 +1093,8 @@ impl ScriptHost {
         *self.pointer_cache.lock().unwrap() = None;
         self.pending_warps.lock().unwrap().clear();
         *self.keyboard_layout.lock().unwrap() = None;
+        *self.device_cache.lock().unwrap() = DeviceCache::default();
+        self.pending_device_ops.lock().unwrap().clear();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -1006,6 +1144,7 @@ impl ScriptHost {
             &self.pointer_cache,
             &self.pending_warps,
             &self.keyboard_layout,
+            &self.device_cache,
             search_dir,
             Arc::clone(&includes),
         )
@@ -1296,6 +1435,7 @@ fn setup_neori_api(
     pointer_cache: &SharedPointerCache,
     pending_warps: &PendingWarps,
     keyboard_layout: &SharedKeyboardLayout,
+    device_cache: &SharedDeviceCache,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -1603,6 +1743,23 @@ fn setup_neori_api(
             .create_function(move |_lua, ()| Ok(cache.lock().unwrap().clone()))
             .map_err(err)?;
         neori.set("keyboard_layout", func).map_err(err)?;
+    }
+
+    // neori.devices() returns an array of Device userdata — one per connected
+    // libinput device. Empty when the cache is unseeded or there are no devices.
+    {
+        let cache = Arc::clone(device_cache);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let snapshots = cache.lock().unwrap().devices.clone();
+                let arr = lua.create_table()?;
+                for (i, snap) in snapshots.into_iter().enumerate() {
+                    arr.set(i + 1, LuaDevice(snap))?;
+                }
+                Ok(arr)
+            })
+            .map_err(err)?;
+        neori.set("devices", func).map_err(err)?;
     }
 
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and

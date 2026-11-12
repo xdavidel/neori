@@ -855,6 +855,43 @@ end
 --   neori.action("spawn-sh", string.format("notify-send layout %q", name))
 -- end)
 
+--------------------------------------------------------------------------------
+-- Input devices.
+--
+-- Read-only methods: name(), sysname(), product_id(), vendor_id(),
+-- is_pointer(), is_keyboard(), is_touch(), is_touchpad().
+--
+-- Mutation methods: set_tap(bool), set_natural_scroll(bool), set_accel(speed),
+-- set_left_handed(bool), set_disabled(bool). Mutations go directly to
+-- libinput and persist until the next config reload wipes them.
+
+-- Tune every touchpad at startup.
+-- neori.on("startup", function()
+--   for _, d in ipairs(neori.devices()) do
+--     if d:is_touchpad() then
+--       d:set_tap(true)
+--       d:set_natural_scroll(true)
+--       d:set_accel(0.3)
+--     end
+--   end
+-- end)
+
+-- Disable the built-in keyboard when any external keyboard is plugged in.
+-- neori.bind("Mod+Alt+K", function()
+--   local has_external = false
+--   for _, d in ipairs(neori.devices()) do
+--     if d:is_keyboard() and not d:name():match("Translated Set") then
+--       has_external = true
+--       break
+--     end
+--   end
+--   for _, d in ipairs(neori.devices()) do
+--     if d:is_keyboard() and d:name():match("Translated Set") then
+--       d:set_disabled(has_external)
+--     end
+--   end
+-- end)
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

@@ -53,8 +53,9 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    LuaOutput, LuaWorkspace, OpenOverrides, OutputCache, OutputSnapshot, PointerSnapshot,
-    ScriptHost, Window, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    DeviceCache, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides,
+    OutputCache, OutputSnapshot, PointerSnapshot, ScriptHost, Window, WindowCache, WindowSnapshot,
+    WorkspaceCache, WorkspaceSnapshot,
 };
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
@@ -794,6 +795,128 @@ mod tests {
         // but either order is acceptable — just assert we see one of them).
         let fw: u64 = t.get("first_window_id").unwrap();
         assert!(fw == 42 || fw == 7, "unexpected first window id {fw}");
+    }
+
+    #[test]
+    fn devices_api_returns_cached_snapshots_and_methods_enqueue_ops() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = {}
+            neori.bind("Mod+Alt+D", function()
+                seen.count = #neori.devices()
+                local names, syses = {}, {}
+                for i, d in ipairs(neori.devices()) do
+                    names[i] = d:name()
+                    syses[i] = d:sysname()
+                    if d:is_touchpad() then
+                        d:set_tap(true)
+                        d:set_natural_scroll(true)
+                        d:set_accel(0.5)
+                    end
+                    if d:is_pointer() and not d:is_touchpad() then
+                        d:set_left_handed(true)
+                    end
+                    if d:is_keyboard() then
+                        d:set_disabled(true)
+                    end
+                end
+                seen.names = names
+                seen.syses = syses
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // Cold cache: devices() returns an empty array.
+        let _ = host.call_bind_function(1).unwrap();
+        assert!(host.drain_pending_device_ops().is_empty());
+        let count_cold: i64 = {
+            let seen = host.read_global("seen").unwrap();
+            let mlua::Value::Table(t) = seen else {
+                panic!("seen is not a table");
+            };
+            t.get("count").unwrap()
+        };
+        assert_eq!(count_cold, 0);
+
+        // Seed with three devices: a touchpad, a mouse, a keyboard.
+        host.set_device_cache(DeviceCache {
+            devices: vec![
+                DeviceSnapshot {
+                    name: "SynPS/2 Touchpad".into(),
+                    sysname: "event4".into(),
+                    is_pointer: true,
+                    is_touchpad: true,
+                    ..Default::default()
+                },
+                DeviceSnapshot {
+                    name: "Logitech MX Master".into(),
+                    sysname: "event6".into(),
+                    is_pointer: true,
+                    ..Default::default()
+                },
+                DeviceSnapshot {
+                    name: "AT Translated Set 2 keyboard".into(),
+                    sysname: "event3".into(),
+                    is_keyboard: true,
+                    ..Default::default()
+                },
+            ],
+        });
+        let _ = host.call_bind_function(1).unwrap();
+        let ops = host.drain_pending_device_ops();
+        assert_eq!(
+            ops.len(),
+            5,
+            "expected 5 device ops (tap+natural+accel for pad, left-handed for mouse, disabled for kb), got {ops:?}"
+        );
+
+        let by_sys = |target: &str| -> Vec<&DeviceOp> {
+            ops.iter().filter(|(s, _)| s == target).map(|(_, o)| o).collect()
+        };
+        assert!(matches!(by_sys("event4")[..], [DeviceOp::SetTap(true), DeviceOp::SetNaturalScroll(true), DeviceOp::SetAccel(x)] if (x - 0.5).abs() < 1e-9));
+        assert!(matches!(by_sys("event6")[..], [DeviceOp::SetLeftHanded(true)]));
+        assert!(matches!(by_sys("event3")[..], [DeviceOp::SetDisabled(true)]));
+
+        // Metadata round-trips.
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        let names: mlua::Table = t.get("names").unwrap();
+        assert_eq!(names.get::<String>(1).unwrap(), "SynPS/2 Touchpad");
+        assert_eq!(names.get::<String>(3).unwrap(), "AT Translated Set 2 keyboard");
+        let syses: mlua::Table = t.get("syses").unwrap();
+        assert_eq!(syses.get::<String>(2).unwrap(), "event6");
+    }
+
+    #[test]
+    fn set_accel_rejects_out_of_range_speed() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+D", function()
+                neori.devices()[1]:set_accel(5.0)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.set_device_cache(DeviceCache {
+            devices: vec![DeviceSnapshot {
+                name: "mouse".into(),
+                sysname: "event1".into(),
+                is_pointer: true,
+                ..Default::default()
+            }],
+        });
+
+        let err = host.call_bind_function(1).unwrap_err();
+        assert!(err.contains("out of range"), "unexpected error: {err}");
+        assert!(host.drain_pending_device_ops().is_empty());
     }
 
     #[test]
