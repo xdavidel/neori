@@ -831,6 +831,113 @@ fn window_send_to_output_moves_the_window_between_outputs() {
 }
 
 #[test]
+fn neori_outputs_returns_cached_outputs_from_bind_callback() {
+    // Bind callback iterates neori.outputs() and writes a count + the focused output's
+    // name to Lua globals. With two headless outputs the iteration should see two.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            out_count = #neori.outputs()
+            focused_name = neori.focused_output() and neori.focused_output():name() or nil
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let count = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("out_count")
+        .unwrap();
+    assert!(
+        matches!(count, neori_config::mlua::Value::Integer(2)),
+        "expected 2 outputs, got {count:?}"
+    );
+
+    let focused = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("focused_name")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = focused else {
+        panic!("focused_name is not a string");
+    };
+    assert_eq!(s.to_str().unwrap().to_string(), "headless-1");
+}
+
+#[test]
+fn output_set_scale_takes_effect_on_compositor_output() {
+    // Lua bind calls out:set_scale(2.0) on the focused output. After dispatch the
+    // compositor's Smithay Output should report scale = 2.0.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local out = neori.focused_output()
+            if out then out:set_scale(2.0) end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let before = f
+        .neori()
+        .global_space
+        .outputs()
+        .find(|o| o.name() == "headless-1")
+        .unwrap()
+        .current_scale()
+        .fractional_scale();
+    assert!(
+        (before - 1.0).abs() < f64::EPSILON,
+        "initial scale should be 1.0, got {before}"
+    );
+
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| b.script_fn.is_some())
+            .unwrap()
+            .clone()
+    };
+    f.state.server.state.handle_bind(bind);
+
+    let after = f
+        .neori()
+        .global_space
+        .outputs()
+        .find(|o| o.name() == "headless-1")
+        .unwrap()
+        .current_scale()
+        .fractional_scale();
+    assert!(
+        (after - 2.0).abs() < f64::EPSILON,
+        "scale should have become 2.0, got {after}"
+    );
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

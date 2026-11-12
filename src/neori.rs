@@ -1591,7 +1591,13 @@ impl State {
     }
 
     /// Fires a monitor event: executes queued actions from the config, then runs the Lua
-    /// callbacks registered via `neori.on(event, function(name) ... end)`.
+    /// callbacks registered via `neori.on(event, function(name, output) ... end)`.
+    ///
+    /// Handlers can take one or two arguments: the first is always the connector-name
+    /// string (backward-compat with the pre-`Output` API) and the second is an
+    /// `Output` userdata snapshot built from the compositor's current view of the
+    /// connector. `neori.outputs()` and `neori.focused_output()` are likewise primed
+    /// before the callback.
     fn fire_monitor_event(&mut self, event: &str, connector: &str) {
         let actions = match event {
             "monitor-added" => self.neori.config.borrow().monitor_added.clone(),
@@ -1602,9 +1608,36 @@ impl State {
             self.do_action(action, false);
         }
 
-        if let Err(err) = self.scripting.call_event_with(event, connector.to_string()) {
-            warn!("{err}");
+        // Prime the output + window caches so neori.outputs() / focused_output() etc.
+        // see the just-connected / just-removed state.
+        self.prime_window_cache();
+
+        // Build a snapshot for the output that triggered this event (if it still
+        // exists in global_space — for monitor-removed we pass the last-known data if
+        // the output is already gone).
+        let ipc_outputs = self.backend.ipc_outputs().lock().unwrap().clone();
+        let snapshot = self
+            .neori
+            .global_space
+            .outputs()
+            .find(|o| o.name() == connector)
+            .map(|o| crate::script::output_snapshot(&self.neori, o, &ipc_outputs))
+            .unwrap_or_else(|| neori_config::OutputSnapshot {
+                name: connector.to_string(),
+                ..Default::default()
+            });
+
+        let result = self.scripting.call_event_with(
+            event,
+            (connector.to_string(), neori_config::LuaOutput(snapshot)),
+        );
+        self.scripting.clear_window_cache();
+        self.scripting.clear_output_cache();
+        match result {
+            Ok(_) => {}
+            Err(err) => warn!("{err}"),
         }
+        self.drain_pending_output_ops_and_dispatch();
     }
 
     /// Fires a switch event: executes queued actions from the config, then runs the Lua callbacks

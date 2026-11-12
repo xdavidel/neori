@@ -686,7 +686,7 @@ impl State {
     /// between the function and the static Action.
     fn dispatch_bind_inner(&mut self, bind: &Bind) {
         if let Some(fn_ref) = &bind.script_fn {
-            // Prime neori.windows() / neori.focused_window() with current state.
+            // Prime neori.windows() / neori.outputs() / focused_* with current state.
             self.prime_window_cache();
             let result = self.scripting.call_bind_function(fn_ref.id);
             self.clear_window_cache();
@@ -701,6 +701,9 @@ impl State {
                     self.neori.config_error_notification.show();
                 }
             }
+            // Drain any output-configuration ops the Lua function enqueued via
+            // `Output` mutation methods (`out:set_scale(…)`, `out:set_mode(…)`, …).
+            self.drain_pending_output_ops_and_dispatch();
         }
         if let Some(action) = bind.action.clone() {
             self.do_action(action, bind.allow_when_locked);

@@ -83,6 +83,310 @@ pub struct WindowCache {
 
 type SharedWindowCache = Arc<Mutex<WindowCache>>;
 
+/// Snapshot of an output's state, exposed to Lua as the `Output` userdata.
+///
+/// Same semantics as [`WindowSnapshot`]: values are captured at the moment the
+/// snapshot is built; future compositor changes do not mutate a snapshot already in
+/// Lua hands. Re-query via [`neori.outputs()`](Self) or `neori.focused_output()` to
+/// see fresh state.
+#[derive(Debug, Clone, Default)]
+pub struct OutputSnapshot {
+    /// Connector-style name (e.g. "eDP-1", "HEADLESS-1"). Stable across the output's
+    /// lifetime.
+    pub name: String,
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub serial: Option<String>,
+    /// Current mode as a string "WxH@REFRESH" (e.g. "1920x1080@60.000"), or `None` if
+    /// the output has no current mode.
+    pub mode: Option<String>,
+    /// Available modes as strings in the same "WxH@REFRESH" format.
+    pub modes: Vec<String>,
+    pub scale: Option<f64>,
+    /// Transform as a Lua-side string: "normal" | "90" | "180" | "270" | "flipped" |
+    /// "flipped-90" | "flipped-180" | "flipped-270".
+    pub transform: Option<String>,
+    pub position: Option<(i32, i32)>,
+    pub is_focused: bool,
+    /// Whether the output is virtual (HEADLESS-*). Mirrors `VirtualOutputMarker`.
+    pub is_virtual: bool,
+    /// Whether the output is currently off in the compositor's view.
+    pub off: bool,
+    pub vrr_supported: bool,
+    pub vrr_enabled: bool,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct OutputCache {
+    pub outputs: Vec<OutputSnapshot>,
+    pub focused: Option<OutputSnapshot>,
+}
+
+type SharedOutputCache = Arc<Mutex<OutputCache>>;
+
+/// Queue of output configuration operations enqueued by Lua via the `Output`
+/// userdata mutation methods. The compositor drains and dispatches each via
+/// `State::apply_transient_output_config` after the callback returns.
+type PendingOutputOps = Arc<Mutex<Vec<(String, neori_ipc::OutputAction)>>>;
+
+/// Lua `Output` userdata: a snapshot wrapper with read-only accessors and
+/// mutation methods that enqueue `OutputAction`s against this output by name.
+///
+/// Named `LuaOutput` on the Rust side to disambiguate from
+/// [`crate::output::Output`] (the config-time struct). Lua code just sees an
+/// Output userdata.
+#[derive(Debug, Clone)]
+pub struct LuaOutput(pub OutputSnapshot);
+
+impl mlua::UserData for LuaOutput {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // Read-only accessors.
+        methods.add_method("name", |_, this, ()| Ok(this.0.name.clone()));
+        methods.add_method("make", |_, this, ()| Ok(this.0.make.clone()));
+        methods.add_method("model", |_, this, ()| Ok(this.0.model.clone()));
+        methods.add_method("serial", |_, this, ()| Ok(this.0.serial.clone()));
+        methods.add_method("mode", |_, this, ()| Ok(this.0.mode.clone()));
+        methods.add_method("modes", |lua, this, ()| {
+            let t = lua.create_table()?;
+            for (i, m) in this.0.modes.iter().enumerate() {
+                t.set(i + 1, m.clone())?;
+            }
+            Ok(t)
+        });
+        methods.add_method("scale", |_, this, ()| Ok(this.0.scale));
+        methods.add_method("transform", |_, this, ()| Ok(this.0.transform.clone()));
+        methods.add_method("position", |lua, this, ()| match this.0.position {
+            Some((x, y)) => {
+                let t = lua.create_table()?;
+                t.set("x", x)?;
+                t.set("y", y)?;
+                Ok(mlua::Value::Table(t))
+            }
+            None => Ok(mlua::Value::Nil),
+        });
+        methods.add_method("is_focused", |_, this, ()| Ok(this.0.is_focused));
+        methods.add_method("is_virtual", |_, this, ()| Ok(this.0.is_virtual));
+        methods.add_method("is_off", |_, this, ()| Ok(this.0.off));
+        methods.add_method("vrr_supported", |_, this, ()| Ok(this.0.vrr_supported));
+        methods.add_method("vrr_enabled", |_, this, ()| Ok(this.0.vrr_enabled));
+
+        // Mutation methods. Each enqueues an (output name, OutputAction) pair which
+        // the compositor drains and dispatches via apply_transient_output_config.
+
+        // out:on() / out:off() / out:enable(bool)
+        methods.add_method("on", |lua, this, ()| {
+            enqueue_output_op(lua, &this.0.name, neori_ipc::OutputAction::On);
+            Ok(())
+        });
+        methods.add_method("off", |lua, this, ()| {
+            enqueue_output_op(lua, &this.0.name, neori_ipc::OutputAction::Off);
+            Ok(())
+        });
+        methods.add_method("enable", |lua, this, enable: Option<bool>| {
+            // Default: flip to the opposite of the current state (snapshot-based).
+            let desired = enable.unwrap_or(this.0.off);
+            // Skip if the snapshot already matches — same idempotence rules as
+            // Window:fullscreen(bool). `off` means "not enabled", so the match is
+            // `desired != off`.
+            if desired != this.0.off {
+                return Ok(());
+            }
+            let op = if desired {
+                neori_ipc::OutputAction::On
+            } else {
+                neori_ipc::OutputAction::Off
+            };
+            enqueue_output_op(lua, &this.0.name, op);
+            Ok(())
+        });
+
+        // out:set_mode("1920x1080@144") or out:set_mode("auto")
+        methods.add_method("set_mode", |lua, this, mode: String| {
+            let op = if mode == "auto" || mode.is_empty() {
+                neori_ipc::OutputAction::Mode {
+                    mode: neori_ipc::ModeToSet::Automatic,
+                }
+            } else {
+                let configured = parse_mode_string_strict(&mode).map_err(LuaError::runtime)?;
+                neori_ipc::OutputAction::Mode {
+                    mode: neori_ipc::ModeToSet::Specific(configured),
+                }
+            };
+            enqueue_output_op(lua, &this.0.name, op);
+            Ok(())
+        });
+
+        // out:set_scale(1.5) / out:set_scale("auto")
+        methods.add_method("set_scale", |lua, this, scale: mlua::Value| {
+            let op = match &scale {
+                mlua::Value::String(s) => {
+                    let s = s.to_str().map_err(|e| LuaError::runtime(format!("{e}")))?;
+                    if s == "auto" {
+                        neori_ipc::OutputAction::Scale {
+                            scale: neori_ipc::ScaleToSet::Automatic,
+                        }
+                    } else {
+                        return Err(LuaError::runtime(format!(
+                            "set_scale: expected a number or \"auto\", got \"{s}\""
+                        )));
+                    }
+                }
+                mlua::Value::Number(n) => neori_ipc::OutputAction::Scale {
+                    scale: neori_ipc::ScaleToSet::Specific(*n),
+                },
+                mlua::Value::Integer(i) => neori_ipc::OutputAction::Scale {
+                    scale: neori_ipc::ScaleToSet::Specific(*i as f64),
+                },
+                other => {
+                    return Err(LuaError::runtime(format!(
+                        "set_scale: expected a number or \"auto\", got {}",
+                        other.type_name()
+                    )))
+                }
+            };
+            enqueue_output_op(lua, &this.0.name, op);
+            Ok(())
+        });
+
+        // out:set_transform("90") etc.
+        methods.add_method("set_transform", |lua, this, s: String| {
+            let transform = parse_transform_string(&s).map_err(LuaError::runtime)?;
+            enqueue_output_op(
+                lua,
+                &this.0.name,
+                neori_ipc::OutputAction::Transform { transform },
+            );
+            Ok(())
+        });
+
+        // out:set_position({x=…, y=…}) / out:set_position("auto")
+        methods.add_method("set_position", |lua, this, value: mlua::Value| {
+            let op = match &value {
+                mlua::Value::Nil => neori_ipc::OutputAction::Position {
+                    position: neori_ipc::PositionToSet::Automatic,
+                },
+                mlua::Value::String(s) => {
+                    let s = s.to_str().map_err(|e| LuaError::runtime(format!("{e}")))?;
+                    if s == "auto" {
+                        neori_ipc::OutputAction::Position {
+                            position: neori_ipc::PositionToSet::Automatic,
+                        }
+                    } else {
+                        return Err(LuaError::runtime(format!(
+                            "set_position: expected a {{x, y}} table or \"auto\", got \"{s}\""
+                        )));
+                    }
+                }
+                mlua::Value::Table(t) => {
+                    let x: i32 = t
+                        .get("x")
+                        .map_err(|e| LuaError::runtime(format!("set_position.x: {e}")))?;
+                    let y: i32 = t
+                        .get("y")
+                        .map_err(|e| LuaError::runtime(format!("set_position.y: {e}")))?;
+                    neori_ipc::OutputAction::Position {
+                        position: neori_ipc::PositionToSet::Specific(
+                            neori_ipc::ConfiguredPosition { x, y },
+                        ),
+                    }
+                }
+                other => {
+                    return Err(LuaError::runtime(format!(
+                        "set_position: expected a {{x, y}} table or \"auto\", got {}",
+                        other.type_name()
+                    )))
+                }
+            };
+            enqueue_output_op(lua, &this.0.name, op);
+            Ok(())
+        });
+
+        // out:set_vrr(true/false) — on-demand defaults to false
+        methods.add_method(
+            "set_vrr",
+            |lua, this, args: (bool, Option<bool>)| {
+                let (enable, on_demand) = args;
+                enqueue_output_op(
+                    lua,
+                    &this.0.name,
+                    neori_ipc::OutputAction::Vrr {
+                        vrr: neori_ipc::VrrToSet {
+                            vrr: enable,
+                            on_demand: on_demand.unwrap_or(false),
+                        },
+                    },
+                );
+                Ok(())
+            },
+        );
+
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+            let mode = this.0.mode.as_deref().unwrap_or("?");
+            Ok(format!("Output({:?}, mode={mode})", this.0.name))
+        });
+    }
+}
+
+/// Enqueue an output configuration operation onto the shared pending-output-ops
+/// queue stashed on the Lua state via [`Lua::set_app_data`].
+fn enqueue_output_op(lua: &Lua, output_name: &str, op: neori_ipc::OutputAction) {
+    if let Some(pending) = lua.app_data_ref::<PendingOutputOps>() {
+        pending
+            .lock()
+            .unwrap()
+            .push((output_name.to_string(), op));
+    }
+}
+
+/// Parse a "WxH@REFRESH" mode string into a [`neori_ipc::ConfiguredMode`].
+/// Accepts an omitted refresh rate (just "WxH" means Automatic refresh).
+fn parse_mode_string_strict(s: &str) -> Result<neori_ipc::ConfiguredMode, String> {
+    let (res, refresh) = match s.split_once('@') {
+        Some((res, r)) => {
+            let r: f64 = r
+                .parse()
+                .map_err(|_| format!("invalid refresh rate in mode {s:?}"))?;
+            (res, Some(r))
+        }
+        None => (s, None),
+    };
+    let (w, h) = res
+        .split_once('x')
+        .ok_or_else(|| format!("mode {s:?} is missing an 'x' between width and height"))?;
+    let width: u16 = w
+        .parse()
+        .map_err(|_| format!("invalid width in mode {s:?}"))?;
+    let height: u16 = h
+        .parse()
+        .map_err(|_| format!("invalid height in mode {s:?}"))?;
+    Ok(neori_ipc::ConfiguredMode {
+        width,
+        height,
+        refresh,
+    })
+}
+
+/// Parse a transform name into [`neori_ipc::Transform`]. Accepts both kebab-case
+/// ("flipped-90") and camel-case variants, matching the strings the
+/// `Output:transform()` accessor returns.
+fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
+    match s {
+        "normal" => Ok(neori_ipc::Transform::Normal),
+        "90" => Ok(neori_ipc::Transform::_90),
+        "180" => Ok(neori_ipc::Transform::_180),
+        "270" => Ok(neori_ipc::Transform::_270),
+        "flipped" => Ok(neori_ipc::Transform::Flipped),
+        "flipped-90" | "flipped_90" => Ok(neori_ipc::Transform::Flipped90),
+        "flipped-180" | "flipped_180" => Ok(neori_ipc::Transform::Flipped180),
+        "flipped-270" | "flipped_270" => Ok(neori_ipc::Transform::Flipped270),
+        other => Err(format!(
+            "invalid transform {other:?}: expected one of \
+             \"normal\", \"90\", \"180\", \"270\", \"flipped\", \
+             \"flipped-90\", \"flipped-180\", \"flipped-270\""
+        )),
+    }
+}
+
 /// Lua `Window` userdata: a snapshot wrapper with read-only accessors.
 #[derive(Debug, Clone)]
 pub struct Window(pub WindowSnapshot);
@@ -265,9 +569,15 @@ pub struct ScriptHost {
     next_bind_fn_id: Arc<AtomicU64>,
     /// Queue of actions enqueued by Lua via `neori.action`.
     pending_actions: PendingActions,
+    /// Queue of output configuration operations enqueued by `Output` mutation
+    /// methods (`out:set_mode(…)`, `out:set_scale(…)`, …).
+    pending_output_ops: PendingOutputOps,
     /// Cached compositor state powering `neori.windows()` and
     /// `neori.focused_window()`. The compositor refreshes it before every Lua call.
     window_cache: SharedWindowCache,
+    /// Cached compositor state powering `neori.outputs()` and
+    /// `neori.focused_output()`.
+    output_cache: SharedOutputCache,
 }
 
 impl ScriptHost {
@@ -277,12 +587,15 @@ impl ScriptHost {
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
+        let pending_output_ops: PendingOutputOps = Arc::new(Mutex::new(Vec::new()));
         let window_cache = Arc::new(Mutex::new(WindowCache::default()));
+        let output_cache = Arc::new(Mutex::new(OutputCache::default()));
 
-        // Stash the pending_actions handle in the Lua state so Window userdata
-        // methods (`w:close()`, `w:focus()`, …) can reach it via `lua.app_data_ref`
+        // Stash the pending-action queues on the Lua state so userdata methods
+        // (Window and Output mutations) can reach them via `lua.app_data_ref`
         // without taking a reference to Self.
         lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
+        lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
 
         Ok(Self {
             lua,
@@ -290,8 +603,26 @@ impl ScriptHost {
             bind_functions,
             next_bind_fn_id,
             pending_actions,
+            pending_output_ops,
             window_cache,
+            output_cache,
         })
+    }
+
+    /// Replace the current output cache with a fresh snapshot.
+    pub fn set_output_cache(&self, cache: OutputCache) {
+        *self.output_cache.lock().unwrap() = cache;
+    }
+
+    pub fn clear_output_cache(&self) {
+        *self.output_cache.lock().unwrap() = OutputCache::default();
+    }
+
+    /// Drain and return any pending output configuration ops enqueued via the
+    /// `Output` userdata mutation methods.
+    pub fn drain_pending_output_ops(&self) -> Vec<(String, neori_ipc::OutputAction)> {
+        let mut queue = self.pending_output_ops.lock().unwrap();
+        std::mem::take(&mut *queue)
     }
 
     /// Replaces the current window cache with a fresh snapshot.
@@ -326,7 +657,9 @@ impl ScriptHost {
         self.event_functions.lock().unwrap().clear();
         self.bind_functions.lock().unwrap().clear();
         self.pending_actions.lock().unwrap().clear();
+        self.pending_output_ops.lock().unwrap().clear();
         *self.window_cache.lock().unwrap() = WindowCache::default();
+        *self.output_cache.lock().unwrap() = OutputCache::default();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -371,6 +704,7 @@ impl ScriptHost {
             &self.next_bind_fn_id,
             &self.pending_actions,
             &self.window_cache,
+            &self.output_cache,
             search_dir,
             Arc::clone(&includes),
         )
@@ -656,6 +990,7 @@ fn setup_neori_api(
     next_bind_fn_id: &Arc<AtomicU64>,
     pending_actions: &PendingActions,
     window_cache: &SharedWindowCache,
+    output_cache: &SharedOutputCache,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -888,6 +1223,19 @@ fn setup_neori_api(
         neori.set("focused_window", func).map_err(err)?;
     }
 
+    // neori.focused_output() — paired with neori.outputs(), which is registered later
+    // so it can override the "outputs" section-setter below.
+    {
+        let cache = Arc::clone(output_cache);
+        let func = lua
+            .create_function(move |_lua, ()| {
+                let focused = cache.lock().unwrap().focused.clone();
+                Ok(focused.map(LuaOutput))
+            })
+            .map_err(err)?;
+        neori.set("focused_output", func).map_err(err)?;
+    }
+
     // neori.spawn(...) / neori.spawn_sh(...) build spawn actions usable in neori.bind and
     // neori.on. `neori.spawn("kitty")` and `neori.spawn { "kitty", "-e", "sh" }` build an
     // argv command; `neori.spawn_sh("cmd | cmd")` builds a shell command. An optional
@@ -933,6 +1281,11 @@ fn setup_neori_api(
     }
 
     // Whole-section setters: neori.input { ... }, neori.layout { ... } and so on.
+    //
+    // "outputs" is deliberately absent here: the collision-free spelling for setting
+    // an outputs block is `neori.output("name", { … })` (plural `neori.outputs` is the
+    // runtime lookup function instead). The section setter was previously registered
+    // for `neori.outputs { … }` but no shipped config uses it that way.
     for name in [
         "binds",
         "input",
@@ -952,7 +1305,6 @@ fn setup_neori_api(
         "environment",
         "prefer_no_csd",
         "screenshot_path",
-        "outputs",
         "window_rules",
         "layer_rules",
         "workspaces",
@@ -965,6 +1317,24 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set(name, func).map_err(err)?;
+    }
+
+    // neori.outputs() — runtime lookup, returns an array of Output userdata snapshots.
+    // Registered after the section-setter loop so it is the final binding under
+    // `neori.outputs`.
+    {
+        let cache = Arc::clone(output_cache);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let snapshots = cache.lock().unwrap().outputs.clone();
+                let arr = lua.create_table()?;
+                for (i, snap) in snapshots.into_iter().enumerate() {
+                    arr.set(i + 1, LuaOutput(snap))?;
+                }
+                Ok(arr)
+            })
+            .map_err(err)?;
+        neori.set("outputs", func).map_err(err)?;
     }
 
     // Entry pushers: neori.window_rule { ... } appends one entry to a section.

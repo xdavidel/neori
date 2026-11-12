@@ -205,10 +205,87 @@ function callbacks you had registered in the previous instance are dropped. Pres
 key chord that was bound to a Lua function in the old config and nothing happens — the
 new config decides what that chord does now. Same for `neori.on` handlers.
 
+## Outputs
+
+Inside any Lua callback, `neori.outputs()` returns an array of `Output` userdata
+and `neori.focused_output()` returns the focused one (or `nil`). The
+`monitor-added` / `monitor-removed` event handlers receive an `Output` as their
+second argument (the connector-name string is still the first argument, so old
+handlers keep working).
+
+```lua
+neori.on("monitor-added", function(connector, out)
+    if out:name() == "DP-3" then
+        out:set_mode("3840x2160@120")
+        out:set_scale(1.5)
+        out:set_vrr(true)
+    end
+end)
+
+-- Enumerate every output and print its current mode.
+neori.bind("Mod+Alt+O", function()
+    for _, out in ipairs(neori.outputs()) do
+        print(out:name(), out:mode(), out:scale())
+    end
+end)
+
+-- Bump the focused output's scale a notch.
+neori.bind("Mod+Alt+Plus", function()
+    local out = neori.focused_output()
+    if out then out:set_scale((out:scale() or 1) * 1.25) end
+end)
+```
+
+### `Output` methods
+
+Read-only accessors return the snapshot captured at the moment the Output was
+constructed. Mutation methods enqueue an `OutputAction`; the compositor drains
+and applies them via `apply_transient_output_config` after the callback returns.
+
+**Read-only:**
+
+| method                 | returns                                                       |
+|---                     |---                                                            |
+| `out:name()`           | connector-name string (e.g. `"eDP-1"`, `"HEADLESS-1"`)        |
+| `out:make()`           | string or `nil`                                               |
+| `out:model()`          | string or `nil`                                               |
+| `out:serial()`         | string or `nil`                                               |
+| `out:mode()`           | current mode as `"WxH@HZ.000"` or `nil`                       |
+| `out:modes()`          | array of mode strings                                         |
+| `out:scale()`          | fractional scale number                                       |
+| `out:transform()`      | `"normal"` / `"90"` / `"180"` / `"270"` / `"flipped"` / `"flipped-90"` / `"flipped-180"` / `"flipped-270"` |
+| `out:position()`       | `{ x = <number>, y = <number> }` or `nil`                     |
+| `out:is_focused()`     | boolean                                                       |
+| `out:is_virtual()`     | boolean — true for `HEADLESS-*` outputs                       |
+| `out:is_off()`         | boolean                                                       |
+| `out:vrr_supported()`  | boolean                                                       |
+| `out:vrr_enabled()`    | boolean                                                       |
+
+**Mutation:**
+
+| method                         | effect                                                      |
+|---                             |---                                                          |
+| `out:on()` / `out:off()`       | Enable or disable the output.                               |
+| `out:enable(true/false/())`    | Set-style, with the same idempotence as `w:fullscreen`.     |
+| `out:set_mode("WxH@HZ")`       | Pick a specific mode.                                       |
+| `out:set_mode("auto")`         | Reset to the output's preferred mode.                       |
+| `out:set_scale(1.5)`           | Set the fractional scale.                                   |
+| `out:set_scale("auto")`        | Compositor-chosen scale.                                    |
+| `out:set_transform("90")`      | Rotation / flip; same string set as `out:transform()`.      |
+| `out:set_position({x=.., y=..})` | Set logical position.                                     |
+| `out:set_position("auto")`     | Let the compositor place it.                                |
+| `out:set_vrr(true)`            | Enable always-on VRR.                                       |
+| `out:set_vrr(true, true)`      | Enable on-demand VRR (second arg is `on_demand`).           |
+| `out:set_vrr(false)`           | Disable VRR.                                                |
+
+All these go through the same IPC `OutputAction` pipeline that `neori msg output`
+uses, so anything you can do from the command line you can now do from a Lua
+function.
+
 ## Known limitations (today)
 
-- No `Output` / `Workspace` userdata yet — use `w:output()` / `w:workspace()` and
-  `neori.action("output", { name = "…", … })` for configuration changes.
+- No `Workspace` userdata yet — use `w:workspace()` (returns `{ idx, name }`) and
+  `neori.action("move-window-to-workspace", n)` for structural changes.
 - Read-only properties on a `Window` are snapshots. A stashed `Window` won't update
   its `app_id` / `title` / `is_fullscreen` fields when the live window changes; call
   `neori.focused_window()` / `neori.windows()` again when you need fresh state.

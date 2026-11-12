@@ -711,6 +711,52 @@ end
 --   end
 -- end)
 
+--------------------------------------------------------------------------------
+-- Output events + Output userdata.
+--
+-- Read-only methods: name(), make(), model(), serial(), mode(), modes(),
+-- scale(), transform(), position(), is_focused(), is_virtual(), is_off(),
+-- vrr_supported(), vrr_enabled().
+--
+-- Mutation methods: on(), off(), enable(bool|nil), set_mode("WxH@HZ"|"auto"),
+-- set_scale(n|"auto"), set_transform("90"|...), set_position({x,y}|"auto"),
+-- set_vrr(bool, on_demand?).
+--
+-- monitor-added / monitor-removed handlers now take a second argument:
+--   neori.on("monitor-added", function(connector, out) ... end)
+-- Old handlers that take only `connector` still work.
+
+-- Set up a 4K monitor automatically on hotplug.
+-- neori.on("monitor-added", function(connector, out)
+--   if out:name() == "DP-3" then
+--     out:set_mode("3840x2160@120")
+--     out:set_scale(1.5)
+--     out:set_vrr(true)
+--   end
+-- end)
+
+-- Bump the focused output's scale a notch.
+-- neori.bind("Mod+Alt+Plus", function()
+--   local out = neori.focused_output()
+--   if out then out:set_scale((out:scale() or 1) * 1.25) end
+-- end)
+
+-- Toggle fractional scaling on every real (non-virtual) output.
+-- neori.bind("Mod+Alt+Minus", function()
+--   for _, out in ipairs(neori.outputs()) do
+--     if not out:is_virtual() then out:set_scale(1.0) end
+--   end
+-- end)
+
+-- Enumerate outputs into a notification.
+-- neori.bind("Mod+Alt+O", function()
+--   local msg = {}
+--   for _, out in ipairs(neori.outputs()) do
+--     table.insert(msg, string.format("%s %s @%sx", out:name(), out:mode() or "?", out:scale() or "?"))
+--   end
+--   neori.action("spawn-sh", "notify-send 'outputs' '" .. table.concat(msg, "\\n") .. "'")
+-- end)
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

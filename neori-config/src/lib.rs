@@ -52,7 +52,9 @@ pub use crate::layer_rule::LayerRule;
 pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
-pub use crate::parse_lua::{ScriptHost, Window, WindowCache, WindowSnapshot};
+pub use crate::parse_lua::{
+    LuaOutput, OutputCache, OutputSnapshot, ScriptHost, Window, WindowCache, WindowSnapshot,
+};
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
 pub use mlua;
@@ -508,6 +510,192 @@ mod tests {
     fn enlarge_cursor_action_parses() {
         let config = Config::parse_mem(r#"neori.bind("Mod+Shift+F", "enlarge-cursor")"#).unwrap();
         assert!(actions(&config).contains(&Action::EnlargeCursor {}));
+    }
+
+    #[test]
+    fn output_api_registers_lookup_functions() {
+        // neori.outputs() and neori.focused_output() should be callable from any Lua
+        // context. They return empty / nil respectively when the cache is unseeded.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("startup", function()
+                outputs_count = #neori.outputs()
+                focused_name = neori.focused_output() and neori.focused_output():name() or nil
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.call_event("startup").unwrap();
+
+        let count = host.read_global("outputs_count").unwrap();
+        assert!(matches!(count, mlua::Value::Integer(0)));
+        let focused = host.read_global("focused_name").unwrap();
+        assert!(matches!(focused, mlua::Value::Nil));
+    }
+
+    #[test]
+    fn output_userdata_methods_return_snapshot_fields() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            captured = {}
+            neori.on("startup", function()
+                local out = neori.focused_output()
+                captured.name = out:name()
+                captured.make = out:make()
+                captured.model = out:model()
+                captured.mode = out:mode()
+                captured.scale = out:scale()
+                captured.transform = out:transform()
+                captured.focused = out:is_focused()
+                captured.virt = out:is_virtual()
+                captured.vrr_supported = out:vrr_supported()
+                captured.vrr_enabled = out:vrr_enabled()
+                captured.pos_x = out:position() and out:position().x or nil
+                captured.pos_y = out:position() and out:position().y or nil
+                captured.modes_count = #out:modes()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let snap = OutputSnapshot {
+            name: "HEADLESS-1".to_string(),
+            make: Some("neori".to_string()),
+            model: Some("HEADLESS-1".to_string()),
+            serial: None,
+            mode: Some("1920x1080@60.000".to_string()),
+            modes: vec!["1920x1080@60.000".to_string(), "1280x720@60.000".to_string()],
+            scale: Some(1.25),
+            transform: Some("90".to_string()),
+            position: Some((100, 200)),
+            is_focused: true,
+            is_virtual: true,
+            off: false,
+            vrr_supported: true,
+            vrr_enabled: false,
+        };
+        host.set_output_cache(OutputCache {
+            outputs: vec![snap.clone()],
+            focused: Some(snap),
+        });
+        host.call_event("startup").unwrap();
+
+        let captured = host.read_global("captured").unwrap();
+        let mlua::Value::Table(t) = captured else {
+            panic!("captured is not a table");
+        };
+        assert_eq!(t.get::<String>("name").unwrap(), "HEADLESS-1");
+        assert_eq!(t.get::<String>("make").unwrap(), "neori");
+        assert_eq!(t.get::<String>("model").unwrap(), "HEADLESS-1");
+        assert_eq!(t.get::<String>("mode").unwrap(), "1920x1080@60.000");
+        assert_eq!(t.get::<f64>("scale").unwrap(), 1.25);
+        assert_eq!(t.get::<String>("transform").unwrap(), "90");
+        assert!(t.get::<bool>("focused").unwrap());
+        assert!(t.get::<bool>("virt").unwrap());
+        assert!(t.get::<bool>("vrr_supported").unwrap());
+        assert!(!t.get::<bool>("vrr_enabled").unwrap());
+        assert_eq!(t.get::<i64>("pos_x").unwrap(), 100);
+        assert_eq!(t.get::<i64>("pos_y").unwrap(), 200);
+        assert_eq!(t.get::<i64>("modes_count").unwrap(), 2);
+    }
+
+    #[test]
+    fn output_mutation_methods_enqueue_ops() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("startup", function()
+                local out = neori.focused_output()
+                out:off()
+                out:on()
+                out:enable(true)    -- snapshot has off=false already, should be no-op
+                out:enable(false)   -- toggles to off
+                out:set_mode("2560x1440@144")
+                out:set_mode("auto")
+                out:set_scale(2.0)
+                out:set_scale("auto")
+                out:set_transform("90")
+                out:set_position({ x = 100, y = 200 })
+                out:set_position("auto")
+                out:set_vrr(true)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let snap = OutputSnapshot {
+            name: "eDP-1".to_string(),
+            off: false,
+            ..Default::default()
+        };
+        host.set_output_cache(OutputCache {
+            outputs: vec![snap.clone()],
+            focused: Some(snap),
+        });
+        host.call_event("startup").unwrap();
+
+        let ops = host.drain_pending_output_ops();
+        let kinds: Vec<&str> = ops
+            .iter()
+            .map(|(_, op)| match op {
+                neori_ipc::OutputAction::Off => "off",
+                neori_ipc::OutputAction::On => "on",
+                neori_ipc::OutputAction::Mode { .. } => "mode",
+                neori_ipc::OutputAction::Scale { .. } => "scale",
+                neori_ipc::OutputAction::Transform { .. } => "transform",
+                neori_ipc::OutputAction::Position { .. } => "position",
+                neori_ipc::OutputAction::Vrr { .. } => "vrr",
+                _ => "other",
+            })
+            .collect();
+        // Expected: off, on, (enable(true) no-op skipped), off (from enable(false)),
+        // mode, mode (auto), scale, scale (auto), transform, position, position (auto), vrr.
+        assert_eq!(
+            kinds,
+            vec![
+                "off", "on", "off", "mode", "mode", "scale", "scale", "transform", "position",
+                "position", "vrr",
+            ],
+            "unexpected ops: {kinds:?}"
+        );
+
+        // Each op targeted eDP-1.
+        for (name, _) in &ops {
+            assert_eq!(name, "eDP-1");
+        }
+
+        // Spot-check arg shapes.
+        for (_, op) in &ops {
+            if let neori_ipc::OutputAction::Mode { mode } = op {
+                match mode {
+                    neori_ipc::ModeToSet::Automatic => {}
+                    neori_ipc::ModeToSet::Specific(m) => {
+                        assert_eq!(m.width, 2560);
+                        assert_eq!(m.height, 1440);
+                        assert_eq!(m.refresh, Some(144.0));
+                    }
+                }
+            }
+            if let neori_ipc::OutputAction::Scale { scale } = op {
+                match scale {
+                    neori_ipc::ScaleToSet::Automatic => {}
+                    neori_ipc::ScaleToSet::Specific(s) => assert_eq!(*s, 2.0),
+                }
+            }
+            if let neori_ipc::OutputAction::Transform { transform } = op {
+                assert_eq!(*transform, neori_ipc::Transform::_90);
+            }
+            if let neori_ipc::OutputAction::Vrr { vrr } = op {
+                assert!(vrr.vrr);
+                assert!(!vrr.on_demand);
+            }
+        }
     }
 
     #[test]

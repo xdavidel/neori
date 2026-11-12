@@ -4,9 +4,13 @@
 //! Lua `neori.windows()` / `neori.focused_window()` queries and window event callbacks
 //! see a consistent view of the world at each callback boundary.
 
-use neori_config::{Config, Window as LuaWindow, WindowCache, WindowSnapshot};
+use neori_config::{
+    Config, OutputCache, OutputSnapshot, Window as LuaWindow, WindowCache, WindowSnapshot,
+};
 use smithay::desktop::Window;
+use smithay::output::Output as SmithayOutput;
 
+use crate::backend::VirtualOutputMarker;
 use crate::layout::Layout;
 use crate::neori::{Neori, State};
 use crate::window::Mapped;
@@ -124,11 +128,32 @@ impl State {
     /// Errors from a Lua callback are warn!'d and flash the config-error notification;
     /// they do not propagate.
     pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
-        let cache = build_window_cache(&self.neori);
-        self.scripting.set_window_cache(cache);
+        self.refresh_script_caches();
         let window = LuaWindow(snapshot);
         let result = self.scripting.call_event_with(event, window);
         self.scripting.clear_window_cache();
+        self.scripting.clear_output_cache();
+        self.drain_and_dispatch(event, result);
+    }
+
+    /// Refresh the ScriptHost's window + output caches from current compositor state.
+    fn refresh_script_caches(&self) {
+        let window_cache = build_window_cache(&self.neori);
+        self.scripting.set_window_cache(window_cache);
+        let ipc = self.backend.ipc_outputs();
+        let ipc_outputs = ipc.lock().unwrap().clone();
+        let output_cache = build_output_cache(&self.neori, &ipc_outputs);
+        self.scripting.set_output_cache(output_cache);
+    }
+
+    /// Dispatch actions returned from the Lua call plus any pending output ops the
+    /// callback enqueued via `Output` mutation methods. Surfaces Lua errors via the
+    /// config-error notification.
+    fn drain_and_dispatch(
+        &mut self,
+        event: &str,
+        result: Result<Vec<neori_config::Action>, String>,
+    ) {
         match result {
             Ok(actions) => {
                 for action in actions {
@@ -140,18 +165,30 @@ impl State {
                 self.neori.config_error_notification.show();
             }
         }
+        for (output, op) in self.scripting.drain_pending_output_ops() {
+            self.apply_transient_output_config(&output, op);
+        }
     }
 
-    /// Prime the window cache with the current compositor state so a Lua function bind
-    /// can observe `neori.windows()` and `neori.focused_window()` at the moment of the
-    /// key press.
+    /// Prime the window + output caches with current compositor state so a Lua
+    /// function bind can observe `neori.windows()`, `neori.focused_window()`,
+    /// `neori.outputs()`, and `neori.focused_output()` at the moment of the key press.
     pub fn prime_window_cache(&mut self) {
-        let cache = build_window_cache(&self.neori);
-        self.scripting.set_window_cache(cache);
+        self.refresh_script_caches();
     }
 
     pub fn clear_window_cache(&mut self) {
         self.scripting.clear_window_cache();
+        self.scripting.clear_output_cache();
+    }
+
+    /// Drain and dispatch any output ops enqueued by a bind callback via `Output`
+    /// mutation methods. Mirror of the drain step inside `fire_window_event` so
+    /// `dispatch_bind_inner` can call it alongside its action drain.
+    pub fn drain_pending_output_ops_and_dispatch(&mut self) {
+        for (output, op) in self.scripting.drain_pending_output_ops() {
+            self.apply_transient_output_config(&output, op);
+        }
     }
 }
 
@@ -161,4 +198,121 @@ impl State {
 pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
     let _ = config;
     host.clear_window_cache();
+    host.clear_output_cache();
+}
+
+/// Build a snapshot for one compositor output.
+///
+/// `ipc_outputs` carries the backend-maintained IPC-output mirror; the snapshot
+/// reads VRR flags from it. Taking it as a parameter avoids needing access to
+/// `State::backend` from here.
+pub fn output_snapshot(
+    neori: &Neori,
+    output: &SmithayOutput,
+    ipc_outputs: &std::collections::HashMap<crate::backend::OutputId, neori_ipc::Output>,
+) -> OutputSnapshot {
+    let props = output.physical_properties();
+    let serial = if props.serial_number.is_empty() {
+        None
+    } else {
+        Some(props.serial_number.clone())
+    };
+    let make = if props.make.is_empty() {
+        None
+    } else {
+        Some(props.make.clone())
+    };
+    let model = if props.model.is_empty() {
+        None
+    } else {
+        Some(props.model.clone())
+    };
+
+    let mode = output.current_mode().map(|m| {
+        let hz = m.refresh as f64 / 1000.0;
+        format!("{}x{}@{:.3}", m.size.w, m.size.h, hz)
+    });
+    let modes: Vec<String> = output
+        .modes()
+        .into_iter()
+        .map(|m| {
+            let hz = m.refresh as f64 / 1000.0;
+            format!("{}x{}@{:.3}", m.size.w, m.size.h, hz)
+        })
+        .collect();
+    let scale = Some(output.current_scale().fractional_scale());
+    let transform = Some(smithay_transform_name(output.current_transform()).to_string());
+
+    let position = neori
+        .global_space
+        .output_geometry(output)
+        .map(|r| (r.loc.x, r.loc.y));
+
+    let is_focused = neori.layout.active_output() == Some(output);
+    let is_virtual = VirtualOutputMarker::is_virtual(output);
+
+    // VRR flags come from the IPC-output mirror. `off` is always false here because
+    // only live outputs are in global_space; disabled outputs are gone from it.
+    let name = output.name();
+    let (vrr_supported, vrr_enabled) = ipc_outputs
+        .values()
+        .find(|o| o.name == name)
+        .map(|o| (o.vrr_supported, o.vrr_enabled))
+        .unwrap_or((false, false));
+    // If the output is in the iteration (we're inside global_space.outputs()), it's on.
+    let off = false;
+
+    OutputSnapshot {
+        name,
+        make,
+        model,
+        serial,
+        mode,
+        modes,
+        scale,
+        transform,
+        position,
+        is_focused,
+        is_virtual,
+        off,
+        vrr_supported,
+        vrr_enabled,
+    }
+}
+
+/// Build the full output cache from the current compositor state.
+pub fn build_output_cache(
+    neori: &Neori,
+    ipc_outputs: &std::collections::HashMap<crate::backend::OutputId, neori_ipc::Output>,
+) -> OutputCache {
+    let focused_output = neori.layout.active_output().cloned();
+    let mut outputs: Vec<OutputSnapshot> = Vec::new();
+    let mut focused_snapshot: Option<OutputSnapshot> = None;
+    for output in neori.global_space.outputs() {
+        let snap = output_snapshot(neori, output, ipc_outputs);
+        if focused_output.as_ref() == Some(output) {
+            focused_snapshot = Some(snap.clone());
+        }
+        outputs.push(snap);
+    }
+    OutputCache {
+        outputs,
+        focused: focused_snapshot,
+    }
+}
+
+/// Convert a Smithay output transform into the string form the Lua `Output:transform()`
+/// accessor exposes (and that `set_transform(…)` parses back).
+fn smithay_transform_name(t: smithay::utils::Transform) -> &'static str {
+    use smithay::utils::Transform;
+    match t {
+        Transform::Normal => "normal",
+        Transform::_90 => "90",
+        Transform::_180 => "180",
+        Transform::_270 => "270",
+        Transform::Flipped => "flipped",
+        Transform::Flipped90 => "flipped-90",
+        Transform::Flipped180 => "flipped-180",
+        Transform::Flipped270 => "flipped-270",
+    }
 }
