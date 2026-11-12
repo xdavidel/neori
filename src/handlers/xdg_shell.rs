@@ -1052,12 +1052,41 @@ impl State {
             return;
         };
 
-        let config = self.neori.config.borrow();
-        let rules = ResolvedWindowRules::compute(
-            &config.window_rules,
-            WindowRef::Unmapped(unmapped),
-            self.neori.is_at_startup,
-        );
+        let mut rules = {
+            let config = self.neori.config.borrow();
+            ResolvedWindowRules::compute(
+                &config.window_rules,
+                WindowRef::Unmapped(unmapped),
+                self.neori.is_at_startup,
+            )
+        };
+
+        // Lua `window-opening` hook — runs before placement so handlers can
+        // override open-on-workspace / output / fullscreen etc. before the
+        // window becomes visible. The pre-placement snapshot has no stable
+        // MappedId yet (id=0); only app_id / title are meaningful.
+        let pre_snapshot = {
+            use crate::utils::with_toplevel_role;
+            let (app_id, title) = with_toplevel_role(toplevel, |role| {
+                (role.app_id.clone(), role.title.clone())
+            });
+            neori_config::WindowSnapshot {
+                id: 0,
+                app_id,
+                title,
+                ..Default::default()
+            }
+        };
+        let overrides = self.fire_window_opening_event(pre_snapshot);
+        rules.apply_open_overrides(overrides);
+
+        // Re-fetch unmapped: the Lua handler may have run other actions through
+        // `do_action` that touch `self.neori`. The surface is still here (a
+        // Lua handler can't unmap it mid-configure).
+        let Some(unmapped) = self.neori.unmapped_windows.get_mut(toplevel.wl_surface()) else {
+            error!("window must still be present in unmapped_windows after window-opening");
+            return;
+        };
 
         let Unmapped { window, state, .. } = unmapped;
 
@@ -1182,7 +1211,8 @@ impl State {
         }
 
         // Set the tiled state for the initial configure.
-        update_tiled_state(toplevel, config.prefer_no_csd, rules.tiled_state);
+        let prefer_no_csd = self.neori.config.borrow().prefer_no_csd;
+        update_tiled_state(toplevel, prefer_no_csd, rules.tiled_state);
 
         // Set the configured settings.
         *state = InitialConfigureState::Configured {

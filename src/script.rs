@@ -182,6 +182,30 @@ impl State {
         self.refresh_script_caches();
     }
 
+    /// Fire the `window-opening` event just before placement.
+    ///
+    /// Opens the open-overrides guard, invokes the Lua handler with a
+    /// pre-placement `Window` snapshot (id=0 — the window has no stable
+    /// MappedId yet), then takes back the accumulated overrides so the caller
+    /// (`send_initial_configure`) can merge them into `ResolvedWindowRules`.
+    pub fn fire_window_opening_event(
+        &mut self,
+        snapshot: WindowSnapshot,
+    ) -> neori_config::OpenOverrides {
+        self.refresh_script_caches();
+        self.scripting.begin_open_overrides();
+        let window = LuaWindow(snapshot);
+        let result = self
+            .scripting
+            .call_event_with("window-opening", window);
+        let overrides = self.scripting.take_open_overrides();
+        self.scripting.clear_window_cache();
+        self.scripting.clear_output_cache();
+        self.scripting.clear_workspace_cache();
+        self.drain_and_dispatch("window-opening", result);
+        overrides
+    }
+
     /// Fire a workspace-lifecycle event (`workspace-focused`, `workspace-added`,
     /// `workspace-removed`) to Lua callbacks. Mirrors [`State::fire_window_event`].
     pub fn fire_workspace_event(&mut self, event: &str, snapshot: WorkspaceSnapshot) {

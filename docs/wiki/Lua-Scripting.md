@@ -105,6 +105,7 @@ Supported event names and their handler arg:
 | `lid-closed`         | — (no arg)                                          |
 | `tablet-mode-on`     | — (no arg)                                          |
 | `tablet-mode-off`    | — (no arg)                                          |
+| `window-opening`     | `Window` userdata (pre-placement — only `app_id` and `title` are populated); the handler can call `w:open_*` methods to drive initial placement |
 | `window-opened`      | `Window` userdata — see the next section            |
 | `window-closed`      | `Window` userdata                                   |
 | `window-focused`     | `Window` userdata                                   |
@@ -206,6 +207,46 @@ loop don't hammer the compositor. If the snapshot was stale (you stashed `w` and
 state changed between calls), a mismatched fullscreen toggle can still land — the
 float set-style methods use dedicated `MoveWindowToFloating` / `MoveWindowToTiling`
 IPC actions, so they're truly idempotent regardless of staleness.
+
+## Pre-placement window rules (`window-opening`)
+
+`neori.on("window-opening", function(w) … end)` fires right **before** the
+compositor places a new window. The handler receives a pre-placement `Window`
+userdata whose `app_id` and `title` reflect the client's current state; the
+rest of the fields (workspace, output, id) are placeholders because the
+window hasn't been placed yet. Call any of the `w:open_*` methods to steer
+initial placement — they override the matching fields in the static
+`window_rule { … }` resolution for this one window.
+
+```lua
+neori.on("window-opening", function(w)
+    if w:app_id() == "firefox" then
+        w:open_on_workspace("browser")
+        w:open_fullscreen(true)
+    end
+    if (w:title() or ""):match("Picture in Picture") then
+        w:open_floating(true)
+    end
+end)
+```
+
+`w:open_*` methods only have an effect from inside a `window-opening`
+handler — a stashed `Window` from any other callback calling them is a
+silent no-op, so a stray write can never leak onto an unrelated future
+window.
+
+| method                                | effect                                                       |
+|---                                    |---                                                           |
+| `w:open_on_output("HDMI-A-1")`        | Open on this output. Overrides the static `open-on-output`.  |
+| `w:open_on_workspace("browser")`      | Open on this named workspace. Overrides `open-on-workspace`. |
+| `w:open_fullscreen(true/false)`       | Open fullscreen (or not). Default `true` when no arg given.  |
+| `w:open_maximized(true/false)`        | Open maximized (full-width). Default `true` when no arg.     |
+| `w:open_floating(true/false)`         | Open floating / tiled. Default `true` when no arg.           |
+
+Static `window_rule { … }` entries still apply — the Lua handler composes on
+top, and anything it sets wins. The `window-opened` event still fires after
+placement, so you can keep using it for post-placement side effects
+(notifications, focus swaps, …) that don't belong in placement decisions.
 
 ## Reload semantics
 

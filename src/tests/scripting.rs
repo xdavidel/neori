@@ -1429,6 +1429,141 @@ fn workspace_added_event_fires_when_new_workspace_appears() {
 }
 
 #[test]
+fn window_opening_event_fires_with_app_id_and_title() {
+    // Opening a window should fire `window-opening` once with the pre-placement
+    // Window userdata carrying the client-set app_id and title.
+    let mut f = fixture_from_lua(
+        r#"
+        openings = 0
+        last_app = nil
+        neori.on("window-opening", function(w)
+            openings = openings + 1
+            last_app = w:app_id()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    window.xdg_toplevel.set_app_id("firefox".to_string());
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    let count = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("openings")
+        .unwrap();
+    assert!(
+        matches!(count, neori_config::mlua::Value::Integer(n) if n == 1),
+        "expected exactly 1 window-opening event, got {count:?}"
+    );
+    let app = f
+        .state
+        .server
+        .state
+        .scripting
+        .read_global("last_app")
+        .unwrap();
+    let neori_config::mlua::Value::String(s) = app else {
+        panic!("last_app is not a string, got {app:?}");
+    };
+    assert_eq!(s.to_str().unwrap().to_string(), "firefox");
+}
+
+#[test]
+fn window_opening_open_fullscreen_takes_effect_before_first_paint() {
+    // A window-opening handler calling `w:open_fullscreen(true)` must land the
+    // window in fullscreen by the time placement completes — no toggle cycle,
+    // no visible flash into tiled first.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("window-opening", function(w)
+            if w:app_id() == "needs-full" then w:open_fullscreen(true) end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    window.xdg_toplevel.set_app_id("needs-full".to_string());
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(1920, 1080);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    assert!(
+        f.neori().layout.focus().unwrap().is_fullscreen(),
+        "w:open_fullscreen(true) at window-opening should land the window fullscreen"
+    );
+}
+
+#[test]
+fn window_opening_open_on_output_lands_on_target() {
+    // Two outputs. A window-opening handler sends windows whose app_id is
+    // "goes-right" to the second output regardless of which output is active.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("window-opening", function(w)
+            if w:app_id() == "goes-right" then w:open_on_output("headless-2") end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    window.xdg_toplevel.set_app_id("goes-right".to_string());
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+
+    // Search all workspaces for the (single) mapped window — focus may not
+    // follow a window that opens on a non-active output.
+    let output_name = {
+        let mut hit: Option<String> = None;
+        for (monitor, _, ws) in f.neori().layout.workspaces() {
+            if ws.windows().next().is_some() {
+                hit = monitor.map(|m| m.output().name());
+                break;
+            }
+        }
+        hit
+    };
+    assert_eq!(
+        output_name.as_deref(),
+        Some("headless-2"),
+        "w:open_on_output(\"headless-2\") at window-opening should place the window on headless-2"
+    );
+}
+
+#[test]
 fn handle_bind_ignores_bind_with_only_none_action() {
     // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
     // a panic, if one ever gets constructed by mistake.

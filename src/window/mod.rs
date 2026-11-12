@@ -381,6 +381,27 @@ impl ResolvedWindowRules {
         // We open fixed-height windows as floating.
         min_size.h > 0 && min_size.h == max_size.h
     }
+
+    /// Overlay pre-placement overrides from a Lua `window-opening` handler onto
+    /// this resolved rule set. Fields the handler left unset (`None`) keep the
+    /// compositor-resolved value; fields it set win.
+    pub fn apply_open_overrides(&mut self, overrides: neori_config::OpenOverrides) {
+        if let Some(v) = overrides.open_on_output {
+            self.open_on_output = Some(v);
+        }
+        if let Some(v) = overrides.open_on_workspace {
+            self.open_on_workspace = Some(v);
+        }
+        if let Some(v) = overrides.open_fullscreen {
+            self.open_fullscreen = Some(v);
+        }
+        if let Some(v) = overrides.open_maximized {
+            self.open_maximized = Some(v);
+        }
+        if let Some(v) = overrides.open_floating {
+            self.open_floating = Some(v);
+        }
+    }
 }
 
 fn window_matches(window: WindowRef, role: &XdgToplevelSurfaceRoleAttributes, m: &Match) -> bool {

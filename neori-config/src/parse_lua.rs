@@ -154,6 +154,29 @@ type SharedWorkspaceCache = Arc<Mutex<WorkspaceCache>>;
 /// `State::apply_transient_output_config` after the callback returns.
 type PendingOutputOps = Arc<Mutex<Vec<(String, neori_ipc::OutputAction)>>>;
 
+/// Pre-placement overrides a Lua `window-opening` handler can set on the window
+/// via the `w:open_*` methods. The compositor reads these just before calling
+/// `Layout::add_window` and merges them into the per-window
+/// `ResolvedWindowRules` (overrides win). Fields that stay `None` leave the
+/// compositor-resolved rule untouched.
+///
+/// Access is guarded by `Arc<Mutex<Option<OpenOverrides>>>`: the compositor
+/// sets the inner to `Some(default)` just before firing `window-opening` and
+/// takes it back to `None` right after draining. A Lua `w:open_*` call outside
+/// that window is a silent no-op — the guard is `None`, so writes are dropped.
+/// This keeps a stashed `Window` from, say, a startup bind unable to leak an
+/// override onto some unrelated future window that opens.
+#[derive(Debug, Default, Clone)]
+pub struct OpenOverrides {
+    pub open_on_output: Option<String>,
+    pub open_on_workspace: Option<String>,
+    pub open_fullscreen: Option<bool>,
+    pub open_maximized: Option<bool>,
+    pub open_floating: Option<bool>,
+}
+
+type SharedOpenOverrides = Arc<Mutex<Option<OpenOverrides>>>;
+
 /// Lua `Output` userdata: a snapshot wrapper with read-only accessors and
 /// mutation methods that enqueue `OutputAction`s against this output by name.
 ///
@@ -618,6 +641,42 @@ impl mlua::UserData for Window {
             },
         );
 
+        // Pre-placement overrides. These only have an effect from inside a
+        // `window-opening` handler: the compositor sets the overrides guard
+        // before firing the event, these methods write into it, and the
+        // compositor drains + merges into the per-window ResolvedWindowRules
+        // right before placement. Outside the event (e.g. called on a stashed
+        // Window after the fact), the guard is `None`, so the write is a silent
+        // no-op — nothing leaks onto some later window.
+
+        methods.add_method("open_on_output", |lua, _, name: String| {
+            with_open_overrides(lua, |o| o.open_on_output = Some(name));
+            Ok(())
+        });
+
+        methods.add_method("open_on_workspace", |lua, _, name: String| {
+            with_open_overrides(lua, |o| o.open_on_workspace = Some(name));
+            Ok(())
+        });
+
+        methods.add_method("open_fullscreen", |lua, _, enable: Option<bool>| {
+            let v = enable.unwrap_or(true);
+            with_open_overrides(lua, |o| o.open_fullscreen = Some(v));
+            Ok(())
+        });
+
+        methods.add_method("open_maximized", |lua, _, enable: Option<bool>| {
+            let v = enable.unwrap_or(true);
+            with_open_overrides(lua, |o| o.open_maximized = Some(v));
+            Ok(())
+        });
+
+        methods.add_method("open_floating", |lua, _, enable: Option<bool>| {
+            let v = enable.unwrap_or(true);
+            with_open_overrides(lua, |o| o.open_floating = Some(v));
+            Ok(())
+        });
+
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
             let app = this.0.app_id.as_deref().unwrap_or("?");
             let title = this.0.title.as_deref().unwrap_or("?");
@@ -636,6 +695,17 @@ impl mlua::UserData for Window {
 fn enqueue_action(lua: &Lua, action: Action) {
     if let Some(pending) = lua.app_data_ref::<PendingActions>() {
         pending.lock().unwrap().push(action);
+    }
+}
+
+/// Mutate the open-overrides accumulator, if one is in scope. Outside a
+/// `window-opening` dispatch the inner `Option` is `None` and the write is
+/// silently dropped — see [`OpenOverrides`].
+fn with_open_overrides(lua: &Lua, f: impl FnOnce(&mut OpenOverrides)) {
+    if let Some(guard) = lua.app_data_ref::<SharedOpenOverrides>() {
+        if let Some(overrides) = guard.lock().unwrap().as_mut() {
+            f(overrides);
+        }
     }
 }
 
@@ -700,6 +770,11 @@ pub struct ScriptHost {
     /// Cached compositor state powering `neori.workspaces()` and
     /// `neori.focused_workspace()`.
     workspace_cache: SharedWorkspaceCache,
+    /// Pre-placement overrides for `window-opening` handlers. `Some(default)`
+    /// only during a `window-opening` dispatch; `None` the rest of the time.
+    /// `Window` userdata `open_*` methods write to the inner struct when the
+    /// guard is `Some`, and silently no-op when it's `None`.
+    open_overrides: SharedOpenOverrides,
 }
 
 impl ScriptHost {
@@ -713,6 +788,7 @@ impl ScriptHost {
         let window_cache: SharedWindowCache = Arc::new(Mutex::new(WindowCache::default()));
         let output_cache = Arc::new(Mutex::new(OutputCache::default()));
         let workspace_cache = Arc::new(Mutex::new(WorkspaceCache::default()));
+        let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
 
         // Stash handles for every runtime queue + cache on the Lua state so userdata
         // methods (`w:close()`, `out:set_scale(…)`, `ws:windows()`, …) can reach
@@ -720,6 +796,7 @@ impl ScriptHost {
         lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
         lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
         lua.set_app_data::<SharedWindowCache>(Arc::clone(&window_cache));
+        lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
 
         Ok(Self {
             lua,
@@ -731,7 +808,27 @@ impl ScriptHost {
             window_cache,
             output_cache,
             workspace_cache,
+            open_overrides,
         })
+    }
+
+    /// Open a `window-opening` dispatch: enables the `w:open_*` methods and
+    /// clears any stale accumulator from a prior dispatch. The compositor calls
+    /// this just before firing the `window-opening` event, and
+    /// [`ScriptHost::take_open_overrides`] right after.
+    pub fn begin_open_overrides(&self) {
+        *self.open_overrides.lock().unwrap() = Some(OpenOverrides::default());
+    }
+
+    /// Take the overrides accumulated during a `window-opening` dispatch and
+    /// reset the guard to `None`. A later stray `w:open_*` call from a stashed
+    /// `Window` is a no-op until the next [`ScriptHost::begin_open_overrides`].
+    pub fn take_open_overrides(&self) -> OpenOverrides {
+        self.open_overrides
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_default()
     }
 
     /// Replace the current output cache with a fresh snapshot.
@@ -1573,6 +1670,7 @@ fn setup_neori_api(
                     "lid-closed" | "lid_closed" => "lid-closed",
                     "tablet-mode-on" | "tablet_mode_on" => "tablet-mode-on",
                     "tablet-mode-off" | "tablet_mode_off" => "tablet-mode-off",
+                    "window-opening" | "window_opening" => "window-opening",
                     "window-opened" | "window_opened" => "window-opened",
                     "window-closed" | "window_closed" => "window-closed",
                     "window-focused" | "window_focused" => "window-focused",
@@ -1584,9 +1682,9 @@ fn setup_neori_api(
                         return Err(LuaError::runtime(format!(
                             "unknown event '{event}' (supported events: startup, monitor-added, \
                              monitor-removed, lid-open, lid-closed, tablet-mode-on, \
-                             tablet-mode-off, window-opened, window-closed, window-focused, \
-                             workspace-focused, workspace-added, workspace-removed, \
-                             output-focused)"
+                             tablet-mode-off, window-opening, window-opened, window-closed, \
+                             window-focused, workspace-focused, workspace-added, \
+                             workspace-removed, output-focused)"
                         )));
                     }
                 };

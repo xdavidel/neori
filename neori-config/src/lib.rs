@@ -53,8 +53,8 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, ScriptHost, Window, WindowCache,
-    WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    LuaOutput, LuaWorkspace, OpenOverrides, OutputCache, OutputSnapshot, ScriptHost, Window,
+    WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
 /// Re-exported so downstream crates (compositor, tests) can read Lua values via
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
@@ -794,6 +794,95 @@ mod tests {
         // but either order is acceptable — just assert we see one of them).
         let fw: u64 = t.get("first_window_id").unwrap();
         assert!(fw == 42 || fw == 7, "unexpected first window id {fw}");
+    }
+
+    #[test]
+    fn window_opening_event_registers_and_dispatches() {
+        // The `window-opening` event takes a `Window` payload (just like
+        // `window-opened`). The handler should fire with the given snapshot.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = {}
+            neori.on("window-opening", function(w)
+                seen.app_id = w:app_id()
+                seen.title  = w:title()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let snap = WindowSnapshot {
+            id: 0,
+            app_id: Some("firefox".into()),
+            title: Some("Example".into()),
+            ..Default::default()
+        };
+        host.call_event_with("window-opening", Window(snap)).unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        assert_eq!(t.get::<String>("app_id").unwrap(), "firefox");
+        assert_eq!(t.get::<String>("title").unwrap(), "Example");
+    }
+
+    #[test]
+    fn open_overrides_write_only_inside_window_opening() {
+        // `w:open_fullscreen(true)` inside a `window-opening` handler should
+        // populate the overrides; the same call from a plain bind (no guard)
+        // must be a silent no-op.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                -- No window-opening guard here — this must leak nothing.
+                local w = neori.focused_window()
+                if w then w:open_fullscreen(true) end
+            end)
+            neori.on("window-opening", function(w)
+                w:open_fullscreen(true)
+                w:open_on_workspace("browser")
+                w:open_on_output("HDMI-A-1")
+                w:open_maximized(true)
+                w:open_floating(false)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // 1. Bind path (no guard): drain should see nothing.
+        host.set_window_cache(WindowCache {
+            windows: vec![WindowSnapshot {
+                id: 42,
+                ..Default::default()
+            }],
+            focused: Some(WindowSnapshot {
+                id: 42,
+                ..Default::default()
+            }),
+        });
+        let _ = host.call_bind_function(1).unwrap();
+        host.begin_open_overrides();
+        let after_bind = host.take_open_overrides();
+        assert!(
+            after_bind.open_fullscreen.is_none(),
+            "no override should leak from the bind path: {after_bind:?}"
+        );
+
+        // 2. window-opening path: begin guard, fire, take.
+        host.begin_open_overrides();
+        host.call_event_with("window-opening", Window(WindowSnapshot::default()))
+            .unwrap();
+        let overrides = host.take_open_overrides();
+        assert_eq!(overrides.open_fullscreen, Some(true));
+        assert_eq!(overrides.open_on_workspace.as_deref(), Some("browser"));
+        assert_eq!(overrides.open_on_output.as_deref(), Some("HDMI-A-1"));
+        assert_eq!(overrides.open_maximized, Some(true));
+        assert_eq!(overrides.open_floating, Some(false));
     }
 
     #[test]

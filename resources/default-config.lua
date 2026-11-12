@@ -644,8 +644,26 @@ end
 --
 -- Mutation methods: close(), focus(), fullscreen(true|false|nil),
 -- float(true|false|nil), send_to_workspace(idx|name), send_to_output(name).
+--
+-- Pre-placement overrides (only valid inside window-opening handlers):
+-- open_on_output(name), open_on_workspace(name), open_fullscreen(bool),
+-- open_maximized(bool), open_floating(bool). These replace the matching
+-- fields of the static `window_rule { ... }` resolution for that one window.
 
--- Send Firefox to the "browser" workspace on open.
+-- Pre-placement rule: Firefox opens on the "browser" workspace, fullscreen.
+-- Runs before first paint, so there's no flash into a tiled state first.
+-- neori.on("window-opening", function(w)
+--   if w:app_id() == "firefox" then
+--     w:open_on_workspace("browser")
+--     w:open_fullscreen(true)
+--   end
+--   if (w:title() or ""):match("Picture%-in%-Picture") then
+--     w:open_floating(true)
+--   end
+-- end)
+
+-- Post-placement variant (window-opened) — good for toasts, focus swaps, or
+-- anything that doesn't need to land before the first frame.
 -- neori.on("window-opened", function(w)
 --   if w:app_id() == "firefox" then
 --     w:send_to_workspace("browser")
