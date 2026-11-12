@@ -693,95 +693,161 @@ impl State {
 
         let _span = tracy_client::span!("State::ipc_refresh_workspaces");
 
-        let mut state = server.event_stream_state.borrow_mut();
-        let state = &mut state.workspaces;
-
-        let mut events = Vec::new();
-        let layout = &self.neori.layout;
-        let focused_ws_id = layout.active_workspace().map(|ws| ws.id().get());
-
-        // Check for workspace changes.
-        let mut seen = HashSet::new();
-        let mut need_workspaces_changed = false;
-        for (mon, ws_idx, ws) in layout.workspaces() {
-            let id = ws.id().get();
-            seen.insert(id);
-
-            let Some(ipc_ws) = state.workspaces.get(&id) else {
-                // A new workspace was added.
-                need_workspaces_changed = true;
-                break;
-            };
-
-            // Check for any changes that we can't signal as individual events.
-            let output_name = mon.map(|mon| mon.output_name());
-            if ipc_ws.idx != u8::try_from(ws.index()).unwrap_or(u8::MAX)
-                || ipc_ws.name.as_ref() != ws.name()
-                || ipc_ws.output.as_ref() != output_name
-            {
-                need_workspaces_changed = true;
-                break;
-            }
-
-            let active_window_id = ws.active_window().map(|win| win.id().get());
-            if ipc_ws.active_window_id != active_window_id {
-                events.push(Event::WorkspaceActiveWindowChanged {
-                    workspace_id: id,
-                    active_window_id,
-                });
-            }
-
-            // Check if this workspace urgent state changed.
-            let urgent = ws.is_urgent();
-            if urgent != ipc_ws.is_urgent {
-                events.push(Event::WorkspaceUrgencyChanged { id, urgent });
-            }
-
-            // Check if this workspace became focused.
-            let is_focused = Some(id) == focused_ws_id;
-            if is_focused && !ipc_ws.is_focused {
-                events.push(Event::WorkspaceActivated { id, focused: true });
-                continue;
-            }
-
-            // Check if this workspace became active.
-            let is_active = mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx);
-            if is_active && !ipc_ws.is_active {
-                events.push(Event::WorkspaceActivated { id, focused: false });
-            }
+        // Walk layout once; produce IPC events AND the Lua delta payload in the same
+        // pass. The IPC refresh runs per tick from State::refresh, so having Lua
+        // piggy-back on it means one diff + one walk per tick regardless of whether
+        // IPC clients or Lua handlers are consuming — no duplicated work.
+        let mut lua_added: Vec<neori_config::WorkspaceSnapshot> = Vec::new();
+        let mut lua_removed: Vec<neori_config::WorkspaceSnapshot> = Vec::new();
+        let mut lua_focused_changed: Option<neori_config::WorkspaceSnapshot> = None;
+        let active_output_name = self.neori.layout.active_output().map(|o| o.name());
+        let output_focus_changed = active_output_name != self.neori.last_focused_output_name;
+        if output_focus_changed {
+            self.neori
+                .last_focused_output_name
+                .clone_from(&active_output_name);
         }
 
-        // Check if any workspaces were removed.
-        if !need_workspaces_changed && state.workspaces.keys().any(|id| !seen.contains(id)) {
-            need_workspaces_changed = true;
-        }
+        {
+            let mut state = server.event_stream_state.borrow_mut();
+            let state = &mut state.workspaces;
 
-        if need_workspaces_changed {
-            events.clear();
+            let mut events = Vec::new();
+            let layout = &self.neori.layout;
+            let focused_ws_id = layout.active_workspace().map(|ws| ws.id().get());
 
-            let workspaces = layout
-                .workspaces()
-                .map(|(mon, ws_idx, ws)| {
-                    let id = ws.id().get();
-                    Workspace {
-                        id,
-                        idx: u8::try_from(ws.index()).unwrap_or(u8::MAX),
-                        name: ws.name().cloned(),
-                        output: mon.map(|mon| mon.output_name().clone()),
-                        is_urgent: ws.is_urgent(),
-                        is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
-                        is_focused: Some(id) == focused_ws_id,
-                        active_window_id: ws.active_window().map(|win| win.id().get()),
+            // Check for workspace changes. Walk every workspace (no early break) so we
+            // see every add candidate for Lua even if an earlier structural change
+            // already marked need_workspaces_changed. `global_idx` matches the 1-based
+            // position-in-walk that Lua `ws:idx()` has always returned.
+            let mut seen = HashSet::new();
+            let mut need_workspaces_changed = false;
+            let mut global_idx: u16 = 0;
+            for (mon, ws_idx, ws) in layout.workspaces() {
+                global_idx = global_idx.saturating_add(1);
+                let id = ws.id().get();
+                seen.insert(id);
+
+                let is_focused_now = Some(id) == focused_ws_id;
+
+                let Some(ipc_ws) = state.workspaces.get(&id) else {
+                    // A new workspace was added.
+                    need_workspaces_changed = true;
+                    let snap = crate::script::snapshot_workspace(
+                        mon,
+                        global_idx,
+                        ws,
+                        focused_ws_id,
+                    );
+                    if is_focused_now {
+                        lua_focused_changed = Some(snap.clone());
                     }
-                })
-                .collect();
+                    lua_added.push(snap);
+                    continue;
+                };
 
-            events.push(Event::WorkspacesChanged { workspaces });
+                // Check for any changes that we can't signal as individual events.
+                let output_name = mon.map(|mon| mon.output_name());
+                if ipc_ws.idx != u8::try_from(ws.index()).unwrap_or(u8::MAX)
+                    || ipc_ws.name.as_ref() != ws.name()
+                    || ipc_ws.output.as_ref() != output_name
+                {
+                    need_workspaces_changed = true;
+                }
+
+                let active_window_id = ws.active_window().map(|win| win.id().get());
+                if ipc_ws.active_window_id != active_window_id {
+                    events.push(Event::WorkspaceActiveWindowChanged {
+                        workspace_id: id,
+                        active_window_id,
+                    });
+                }
+
+                // Check if this workspace urgent state changed.
+                let urgent = ws.is_urgent();
+                if urgent != ipc_ws.is_urgent {
+                    events.push(Event::WorkspaceUrgencyChanged { id, urgent });
+                }
+
+                // Check if this workspace became focused.
+                if is_focused_now && !ipc_ws.is_focused {
+                    events.push(Event::WorkspaceActivated { id, focused: true });
+                    lua_focused_changed = Some(crate::script::snapshot_workspace(
+                        mon,
+                        global_idx,
+                        ws,
+                        focused_ws_id,
+                    ));
+                    continue;
+                }
+
+                // Check if this workspace became active.
+                let is_active = mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx);
+                if is_active && !ipc_ws.is_active {
+                    events.push(Event::WorkspaceActivated { id, focused: false });
+                }
+            }
+
+            // Check if any workspaces were removed. Capture the last-known snapshot for
+            // Lua so `workspace-removed` handlers still see the vanished workspace's
+            // metadata.
+            for (id, ipc_ws) in state.workspaces.iter() {
+                if !seen.contains(id) {
+                    need_workspaces_changed = true;
+                    lua_removed.push(neori_config::WorkspaceSnapshot {
+                        idx: ipc_ws.idx,
+                        name: ipc_ws.name.clone(),
+                        output_name: ipc_ws.output.clone(),
+                        is_focused: ipc_ws.is_focused,
+                        id: *id,
+                        window_ids: Vec::new(),
+                    });
+                }
+            }
+
+            if need_workspaces_changed {
+                events.clear();
+
+                let workspaces = layout
+                    .workspaces()
+                    .map(|(mon, ws_idx, ws)| {
+                        let id = ws.id().get();
+                        Workspace {
+                            id,
+                            idx: u8::try_from(ws.index()).unwrap_or(u8::MAX),
+                            name: ws.name().cloned(),
+                            output: mon.map(|mon| mon.output_name().clone()),
+                            is_urgent: ws.is_urgent(),
+                            is_active: mon.is_some_and(|mon| mon.active_workspace_idx() == ws_idx),
+                            is_focused: Some(id) == focused_ws_id,
+                            active_window_id: ws.active_window().map(|win| win.id().get()),
+                        }
+                    })
+                    .collect();
+
+                events.push(Event::WorkspacesChanged { workspaces });
+            }
+
+            for event in events {
+                state.apply(event.clone());
+                server.send_event(event);
+            }
         }
 
-        for event in events {
-            state.apply(event.clone());
-            server.send_event(event);
+        // IPC borrows dropped — now fire Lua events.
+        for snap in lua_added {
+            self.fire_workspace_event("workspace-added", snap);
+        }
+        for snap in lua_removed {
+            self.fire_workspace_event("workspace-removed", snap);
+        }
+        if let Some(snap) = lua_focused_changed {
+            self.fire_workspace_event("workspace-focused", snap);
+        }
+        if output_focus_changed {
+            if let Some(name) = active_output_name {
+                self.fire_output_focused_event(name);
+            }
         }
     }
 

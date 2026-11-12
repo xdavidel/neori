@@ -264,95 +264,6 @@ impl State {
         self.drain_and_dispatch("layout-changed", result);
     }
 
-    /// Wrapper around `Layout::focus_output` that also fires the Lua
-    /// `output-focused` / `workspace-focused` events. Prefer this over calling
-    /// `self.neori.layout.focus_output(…)` directly for any site outside
-    /// `State::do_action` — action dispatch already fires the events at its
-    /// tail, so those call sites can use the raw layout method without
-    /// double-firing.
-    ///
-    /// Known non-action callers: the DnD-drop handler in
-    /// `src/handlers/mod.rs` and the test fixture's `neori_focus_output`.
-    pub fn focus_output(&mut self, output: &smithay::output::Output) {
-        self.neori.layout.focus_output(output);
-        self.maybe_fire_workspace_events();
-    }
-
-    /// Diff current workspace / focused-output state against the last-known state
-    /// and fire the corresponding events (`workspace-added`, `workspace-removed`,
-    /// `workspace-focused`, `output-focused`). Updates the tracking state on
-    /// `Neori` so subsequent calls are no-ops until something changes.
-    ///
-    /// Called from event-driven transition boundaries:
-    ///   - `State::do_action` tail (binds, IPC, Lua `neori.action`, switch /
-    ///     monitor dispatches — any user-visible action).
-    ///   - `State::maybe_fire_window_focused` tail (only when window focus
-    ///     actually moved — chained because window focus moves usually imply
-    ///     workspace / output focus moves).
-    ///   - `State::reload_config` tail (named-workspace unname / ensure).
-    ///   - `State::fire_monitor_event` tail (monitor hotplug).
-    ///
-    /// NOT called per event-loop tick: the function used to ride every
-    /// `State::refresh` via an unconditional chain from `maybe_fire_window_focused`
-    /// and paid a full snapshot rebuild + HashMap diff + two Vec allocations
-    /// every tick for nothing. The explicit calls above fire only on real
-    /// transitions.
-    pub fn maybe_fire_workspace_events(&mut self) {
-        let cache = build_workspace_cache(&self.neori);
-        let new_map: std::collections::HashMap<u64, WorkspaceSnapshot> = cache
-            .workspaces
-            .iter()
-            .map(|s| (s.id, s.clone()))
-            .collect();
-        let new_focused_ws = cache.focused.as_ref().map(|s| s.id);
-        let new_focused_output = self.neori.layout.active_output().map(|o| o.name());
-
-        // workspace-added: ids present now that weren't before.
-        let added: Vec<WorkspaceSnapshot> = new_map
-            .iter()
-            .filter(|(id, _)| !self.neori.last_known_workspaces.contains_key(id))
-            .map(|(_, snap)| snap.clone())
-            .collect();
-
-        // workspace-removed: ids present before that are gone now. Use the
-        // last-known snapshot so handlers still see the workspace's metadata.
-        let removed: Vec<WorkspaceSnapshot> = self
-            .neori
-            .last_known_workspaces
-            .iter()
-            .filter(|(id, _)| !new_map.contains_key(id))
-            .map(|(_, snap)| snap.clone())
-            .collect();
-
-        // Commit the new tracking state BEFORE firing events so re-entrant Lua
-        // code that queries `last_known_workspaces` (indirectly, through further
-        // dispatches) sees a consistent picture.
-        self.neori.last_known_workspaces = new_map;
-
-        for snap in added {
-            self.fire_workspace_event("workspace-added", snap);
-        }
-        for snap in removed {
-            self.fire_workspace_event("workspace-removed", snap);
-        }
-
-        if new_focused_ws != self.neori.last_focused_workspace_id {
-            self.neori.last_focused_workspace_id = new_focused_ws;
-            if let Some(snap) = cache.focused {
-                self.fire_workspace_event("workspace-focused", snap);
-            }
-        }
-
-        if new_focused_output != self.neori.last_focused_output_name {
-            self.neori
-                .last_focused_output_name
-                .clone_from(&new_focused_output);
-            if let Some(name) = new_focused_output {
-                self.fire_output_focused_event(name);
-            }
-        }
-    }
-
     /// Clear every Lua-facing cache on the ScriptHost. Mirrors
     /// [`neori_config::ScriptHost::clear_script_caches`]. Called by the input
     /// dispatcher after a bind callback returns so the primed caches from
@@ -491,6 +402,27 @@ pub fn build_output_cache(
 /// Walks every workspace in global 1-based order (the same order `Layout::workspaces()`
 /// yields), records the workspace's id, optional name, owning output name, the
 /// MappedIds of its windows, and whether it is the globally focused workspace.
+/// Build a single [`WorkspaceSnapshot`] for the given workspace. Caller supplies
+/// the 1-based global index (position in `layout.workspaces()` order) because
+/// that's the semantic Lua `ws:idx()` has always had, and it isn't recoverable
+/// from the workspace alone.
+pub fn snapshot_workspace(
+    monitor: Option<&crate::layout::monitor::Monitor<crate::window::Mapped>>,
+    global_idx: u16,
+    ws: &crate::layout::workspace::Workspace<crate::window::Mapped>,
+    focused_ws_id: Option<u64>,
+) -> WorkspaceSnapshot {
+    let id = ws.id().get();
+    WorkspaceSnapshot {
+        idx: u8::try_from(global_idx).unwrap_or(u8::MAX),
+        name: ws.name().cloned(),
+        output_name: monitor.map(|m| m.output().name()),
+        is_focused: focused_ws_id == Some(id),
+        id,
+        window_ids: ws.windows().map(|w| w.id().get()).collect(),
+    }
+}
+
 pub fn build_workspace_cache(neori: &Neori) -> WorkspaceCache {
     let focused_id = neori.layout.active_workspace_id();
     let mut workspaces: Vec<WorkspaceSnapshot> = Vec::new();

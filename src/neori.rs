@@ -343,15 +343,11 @@ pub struct Neori {
     /// Used by [`State::maybe_fire_window_focused`] to detect focus transitions and
     /// invoke `neori.on("window-focused", …)` handlers only on change.
     pub last_focused_window_id: Option<u64>,
-    /// Id of the most recently focused workspace, for `workspace-focused`.
-    pub last_focused_workspace_id: Option<u64>,
-    /// Connector-name of the most recently focused output, for `output-focused`.
+    /// Connector-name of the most recently focused output. Used by
+    /// `ipc_refresh_workspaces` to detect `output-focused` transitions for Lua —
+    /// workspace add/remove/focus are already tracked via the IPC event-stream
+    /// state, but "which output is active" isn't a first-class IPC concept.
     pub last_focused_output_name: Option<String>,
-    /// Last-known snapshot of every live workspace, keyed by id. Used by
-    /// [`State::maybe_fire_workspace_events`] to diff for `workspace-added` /
-    /// `workspace-removed` and to supply a meaningful payload when a workspace
-    /// vanishes between ticks.
-    pub last_known_workspaces: HashMap<u64, neori_config::WorkspaceSnapshot>,
     /// Last-known active keyboard layout name. Used by
     /// [`State::maybe_fire_layout_changed`] to detect switches and fire the
     /// `layout-changed` Lua event only on change.
@@ -1530,14 +1526,9 @@ impl State {
     /// is fired when focus moves to nothing (yet — a future `window-unfocused` event
     /// could address that).
     ///
-    /// Called from `State::update_keyboard_focus`, which itself runs every tick via
-    /// `State::refresh`. The body here is cheap on the no-change path (one Option
-    /// compare) and only chains into `maybe_fire_workspace_events` when window focus
-    /// actually moved — so a quiet tick costs nothing. Workspace changes that *don't*
-    /// move the focused window (focus-workspace-* on an empty workspace, named-workspace
-    /// materialization on reload, monitor hotplug) are picked up by explicit
-    /// `maybe_fire_workspace_events` calls at the `do_action` / `reload_config` /
-    /// `fire_monitor_event` tails instead.
+    /// Workspace / output lifecycle + focus events ride on `ipc_refresh_workspaces`
+    /// (src/ipc/server.rs) which already runs per tick for the IPC event stream —
+    /// no separate chain needed here.
     pub fn maybe_fire_window_focused(&mut self) {
         let focused_id = self.neori.layout.focus().map(|m| m.id().get());
         if focused_id == self.neori.last_focused_window_id {
@@ -1548,9 +1539,6 @@ impl State {
             let snap = crate::script::snapshot_mapped(&self.neori, mapped);
             self.fire_window_event("window-focused", snap);
         }
-        // Window focus moving across windows almost always implies workspace or output
-        // focus moved too; diff while we're already here.
-        self.maybe_fire_workspace_events();
     }
 
     /// Loads the xkb keymap from a file config setting.
@@ -1666,9 +1654,8 @@ impl State {
             Err(err) => warn!("{err}"),
         }
         self.drain_pending_output_ops_and_dispatch();
-        // A monitor hotplug can add/remove workspaces and shift focus; make sure
-        // lifecycle / focus events fire in the same tick.
-        self.maybe_fire_workspace_events();
+        // Workspace / focus side effects of the hotplug are picked up by the
+        // next ipc_refresh_workspaces (runs per tick from State::refresh).
     }
 
     /// Fires a switch event: executes queued actions from the config, then runs the Lua callbacks
@@ -1994,11 +1981,8 @@ impl State {
         // clients will use the new xdg-decoration setting.
 
         self.neori.queue_redraw_all();
-
-        // Named-workspace unname + ensure above may have added or removed workspaces;
-        // let Lua handlers see those lifecycle events now instead of waiting for the
-        // next action/hotplug/focus change to trigger the diff.
-        self.maybe_fire_workspace_events();
+        // Named-workspace unname/ensure side effects are picked up by the next
+        // ipc_refresh_workspaces tick.
     }
 
     pub fn reload_output_config(&mut self) {
@@ -2863,9 +2847,7 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
-            last_focused_workspace_id: None,
             last_focused_output_name: None,
-            last_known_workspaces: HashMap::new(),
             last_keyboard_layout_name: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),

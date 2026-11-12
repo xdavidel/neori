@@ -76,13 +76,10 @@ impl Fixture {
     }
 
     pub fn neori_focus_output(&mut self, n: u8) {
-        let state = &mut self.state.server.state;
+        let neori = &mut self.state.server.state.neori;
         let idx = usize::from(n - 1);
-        let output = state.neori.global_space.outputs().nth(idx).unwrap().clone();
-        // Go through the State wrapper so Lua `output-focused` fires — direct
-        // `layout.focus_output` would bypass the event (that's precisely the
-        // real-world gap the wrapper closes for non-`do_action` callers).
-        state.focus_output(&output);
+        let output = neori.global_space.outputs().nth(idx).unwrap();
+        neori.layout.focus_output(output);
     }
 
     pub fn neori_complete_animations(&mut self) {

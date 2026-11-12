@@ -2630,14 +2630,8 @@ impl State {
                 }
             }
         }
-
-        // Every action runs through here — binds, IPC, Lua `neori.action`, switch /
-        // monitor dispatches. Many of them change workspace focus or the workspace
-        // set (focus-workspace-*, move-column-to-workspace-*, focus-monitor-*,
-        // close-window on the last window of a transient workspace, …). The ones
-        // that can't affect workspaces still pay a cheap diff here — tolerable at
-        // user action rates, and avoids having to enumerate the subset.
-        self.maybe_fire_workspace_events();
+        // Any workspace / focus side effects of this action are picked up by the
+        // next ipc_refresh_workspaces tick — no dedicated fire needed here.
     }
 
     fn on_pointer_motion<I: InputBackend>(&mut self, event: I::PointerMotionEvent) {
