@@ -346,7 +346,7 @@ impl mlua::UserData for LuaOutput {
         methods.add_method("set_scale", |lua, this, scale: mlua::Value| {
             let op = match &scale {
                 mlua::Value::String(s) => {
-                    let s = s.to_str().map_err(|e| LuaError::runtime(format!("{e}")))?;
+                    let s = s.to_str().map_err(|e| LuaError::runtime(e.to_string()))?;
                     if s == "auto" {
                         neori_ipc::OutputAction::Scale {
                             scale: neori_ipc::ScaleToSet::Automatic,
@@ -392,7 +392,7 @@ impl mlua::UserData for LuaOutput {
                     position: neori_ipc::PositionToSet::Automatic,
                 },
                 mlua::Value::String(s) => {
-                    let s = s.to_str().map_err(|e| LuaError::runtime(format!("{e}")))?;
+                    let s = s.to_str().map_err(|e| LuaError::runtime(e.to_string()))?;
                     if s == "auto" {
                         neori_ipc::OutputAction::Position {
                             position: neori_ipc::PositionToSet::Automatic,
@@ -1000,10 +1000,10 @@ impl ScriptHost {
                     }
                     Ok(())
                 })
-                .map_err(|e| format!("{e}"))?;
+                .map_err(|e| e.to_string())?;
             lua.globals()
                 .set("print", func)
-                .map_err(|e| format!("{e}"))?;
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(Self {
@@ -1279,9 +1279,7 @@ impl ScriptHost {
         let mut first_error: Option<String> = None;
         for f in &funs {
             if let Err(e) = f.call::<()>(args.clone()) {
-                if first_error.is_none() {
-                    first_error = Some(format!("{event} callback error: {e}"));
-                }
+                first_error.get_or_insert_with(|| format!("{event} callback error: {e}"));
             }
         }
         // Always drain pending_actions, even on error, so an Action a
