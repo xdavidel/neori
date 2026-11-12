@@ -1197,18 +1197,7 @@ impl ScriptHost {
     /// handlers for the same event live in `Config` and are dispatched separately by the
     /// compositor.
     pub fn call_event(&self, event: &str) -> Result<Vec<Action>, String> {
-        let funs = {
-            let registry = self.event_functions.lock().unwrap();
-            match registry.get(event) {
-                Some(fs) => fs.clone(),
-                None => return Ok(Vec::new()),
-            }
-        };
-        for f in &funs {
-            f.call::<()>(())
-                .map_err(|e| format!("{event} callback error: {e}"))?;
-        }
-        Ok(self.drain_pending_actions())
+        self.call_event_with(event, ())
     }
 
     /// Like [`ScriptHost::call_event`], but passes `args` to every callback.
@@ -1223,11 +1212,35 @@ impl ScriptHost {
                 None => return Ok(Vec::new()),
             }
         };
+        // Run every handler, capturing only the first error. One bad
+        // subscriber must not disable the others — this matches typical
+        // pub/sub semantics and keeps a bug in one handler from silently
+        // breaking the rest of the config.
+        let mut first_error: Option<String> = None;
         for f in &funs {
-            f.call::<()>(args.clone())
-                .map_err(|e| format!("{event} callback error: {e}"))?;
+            if let Err(e) = f.call::<()>(args.clone()) {
+                if first_error.is_none() {
+                    first_error = Some(format!("{event} callback error: {e}"));
+                }
+            }
         }
-        Ok(self.drain_pending_actions())
+        // Always drain pending_actions, even on error, so an Action a
+        // surviving handler queued doesn't leak into the next event's
+        // dispatch — where it would run with the wrong event's context.
+        let actions = self.drain_pending_actions();
+        match first_error {
+            Some(e) => {
+                // Current Result signature can't surface both; the compositor
+                // treats Err as "flash the config-error notification, run
+                // nothing." Actions from surviving handlers are dropped on
+                // this path, same as the single-handler error case before
+                // this change. The important fix is that siblings still ran
+                // and nothing leaks.
+                let _ = actions;
+                Err(e)
+            }
+            None => Ok(actions),
+        }
     }
 
     /// Reads a global value from the Lua state, for introspection in tests.

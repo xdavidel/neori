@@ -798,6 +798,89 @@ mod tests {
     }
 
     #[test]
+    fn multiple_handlers_on_same_event_all_fire() {
+        // neori.on(ev, fn) registers; registering twice should queue both
+        // callbacks and both should run (in registration order).
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            seen = {}
+            neori.on("startup", function() seen[#seen + 1] = "a" end)
+            neori.on("startup", function() seen[#seen + 1] = "b" end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        host.call_event("startup").unwrap();
+
+        let seen = host.read_global("seen").unwrap();
+        let mlua::Value::Table(t) = seen else {
+            panic!("seen is not a table");
+        };
+        assert_eq!(t.get::<String>(1).unwrap(), "a");
+        assert_eq!(t.get::<String>(2).unwrap(), "b");
+    }
+
+    #[test]
+    fn handler_error_does_not_skip_sibling_handlers() {
+        // If the first handler throws, the second must still run. Current
+        // call_event_with short-circuits on the first error — this test
+        // documents the fix (handler isolation).
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            after_error_ran = false
+            neori.on("startup", function() error("boom") end)
+            neori.on("startup", function() after_error_ran = true end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        // The call itself returns Err (an error occurred), but the sibling
+        // handler must have had a chance to run.
+        let _ = host.call_event("startup");
+        let v = host.read_global("after_error_ran").unwrap();
+        assert!(
+            matches!(v, mlua::Value::Boolean(true)),
+            "sibling handler must still run after earlier handler errored, got {v:?}"
+        );
+    }
+
+    #[test]
+    fn handler_error_does_not_leak_queued_actions_to_next_event() {
+        // When a handler queues an action and a later sibling throws, the
+        // queued action must not leak into the next event's dispatch. The
+        // correctness guarantee: every call_event_with drains pending_actions
+        // at the end, success or failure.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("startup", function()
+                neori.action("close-window")   -- queues one Action
+            end)
+            neori.on("startup", function() error("boom") end)
+
+            -- A separate event with no queued actions. If "close-window" from
+            -- startup leaked, it would show up here on drain.
+            neori.on("monitor-added", function(_) end)
+            "#,
+        )
+        .config
+        .unwrap();
+
+        let _ = host.call_event("startup");
+
+        // Fire a different event; its drained actions should be empty.
+        let actions = host.call_event("monitor-added").unwrap();
+        assert!(
+            actions.is_empty(),
+            "a queued action from a failed startup dispatch leaked into monitor-added: {actions:?}"
+        );
+    }
+
+    #[test]
     fn devices_api_returns_cached_snapshots_and_methods_enqueue_ops() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
