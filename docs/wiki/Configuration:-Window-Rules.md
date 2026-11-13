@@ -77,6 +77,9 @@ neori.window_rule {
     opacity = 0.5,
     block_out_from = "screencast",
     -- block_out_from = "screen-capture"
+    -- Or, hide entirely:
+    -- block_out_from = { "screencast", kind = "hide" }
+    -- block_out_from = { "screen-capture", kind = "hide" }
     variable_refresh_rate = true,
     default_column_display = "tabbed",
     default_floating_position = {
@@ -706,6 +709,28 @@ neori.window_rule {
 >
 > This is because window title (and app ID) are not double-buffered in the Wayland protocol, so they are not tied to specific window contents.
 > There's no robust way for Firefox to synchronize visibly showing a different tab and changing the window title.
+
+<sup>Since: next release</sup>
+You can set `kind = "hide"` to hide the window completely instead of drawing a black rectangle.
+
+> [!WARNING]
+>
+> With `kind = "hide"`, it's easy to unintentionally show something on the screencast.
+> You could be looking at a blocked-out window that covers some sensitive data, but the screencast will be showing the sensitive data underneath, since the covering window is hidden from the screencast.
+>
+> ![Blocked-out password manager covering a terminal where unbeknownst to the user, some sensitive information got shown.](./img/block-out-from-hide.jpg)
+>
+> The default block-out kind doesn't have this problem because the screencast would show a black rectangle.
+
+```lua
+-- Hide a password manager entirely instead of showing a black rectangle.
+neori.window_rule {
+    match = {
+        app_id = "^org\\.keepassxc\\.KeePassXC$",
+    },
+    block_out_from = { "screen-capture", kind = "hide" },
+}
+```
 
 #### `on-xdg-activate`
 

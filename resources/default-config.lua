@@ -405,6 +405,9 @@ neori.window_rule {
 --   draw_border_with_background = false,
 --   -- behavior:
 --   block_out_from = "screencast",         -- or "screen_capture"
+--   -- You can also hide the window entirely instead of drawing a black rectangle.
+--   -- Careful: this way you could unintentionally expose sensitive data.
+--   -- block_out_from = { "screencast", kind = "hide" },
 --   min_width = 100, min_height = 100,
 --   max_width = 2000, max_height = 2000,
 --   opacity = 1.0,

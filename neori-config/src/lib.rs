@@ -2220,6 +2220,48 @@ mod tests {
     }
 
     #[test]
+    fn block_out_from() {
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule { block_out_from = "screencast" }
+            neori.window_rule { block_out_from = { "screen-capture", kind = "hide" } }
+            neori.window_rule { ["block-out-from"] = { target = "screencast", kind = "fill" } }
+            neori.window_rule { opacity = 0.5 }
+            neori.layer_rule { block_out_from = { "screencast", kind = "hide" } }
+            "#,
+        )
+        .unwrap();
+
+        let rule = |target, kind| Some(BlockOutFrom { target, kind });
+        let rules = &config.window_rules;
+        assert_eq!(
+            rules[0].block_out_from,
+            rule(BlockOutTarget::Screencast, BlockOutKind::Fill)
+        );
+        assert_eq!(
+            rules[1].block_out_from,
+            rule(BlockOutTarget::ScreenCapture, BlockOutKind::Hide)
+        );
+        assert_eq!(
+            rules[2].block_out_from,
+            rule(BlockOutTarget::Screencast, BlockOutKind::Fill)
+        );
+        assert_eq!(rules[3].block_out_from, None);
+        assert_eq!(
+            config.layer_rules[0].block_out_from,
+            rule(BlockOutTarget::Screencast, BlockOutKind::Hide)
+        );
+
+        // Invalid values are rejected in strict mode.
+        for text in [
+            r#"neori.window_rule { block_out_from = "everything" }"#,
+            r#"neori.window_rule { block_out_from = { "screencast", kind = "blur" } }"#,
+        ] {
+            assert!(Config::parse_mem(&format!("neori.strict()\n{text}")).is_err(), "{text}");
+        }
+    }
+
+    #[test]
     fn pass_through_binds() {
         let config = Config::parse_mem(
             r#"
@@ -2672,7 +2714,10 @@ mod tests {
         assert_eq!(config.layer_rules[0].matches.len(), 1);
         assert_eq!(
             config.layer_rules[0].block_out_from,
-            Some(BlockOutFrom::ScreenCapture)
+            Some(BlockOutFrom {
+                target: BlockOutTarget::ScreenCapture,
+                kind: BlockOutKind::Fill,
+            })
         );
         assert_eq!(
             config.startup,

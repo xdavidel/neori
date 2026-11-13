@@ -2943,6 +2943,61 @@ fn parse_touch(table: &LuaTable, touch: &mut Touch) -> Result<(), String> {
     Ok(())
 }
 
+/// Parses `block_out_from`: a target string (`"screencast"` or `"screen-capture"`), or a table
+/// with the target and how to block out, like `{ "screencast", kind = "hide" }`.
+fn parse_block_out_from(value: &Value) -> Result<Option<BlockOutFrom>, String> {
+    let (target, kind) = match value {
+        Value::Table(t) => {
+            let target: Value = t.get(1).map_err(|e| format!("block_out_from: {e}"))?;
+            let target = match target {
+                Value::Nil => t.get("target").map_err(|e| format!("block_out_from: {e}"))?,
+                v => v,
+            };
+            let kind: Value = t.get("kind").map_err(|e| format!("block_out_from: {e}"))?;
+            for pair in t.clone().pairs::<Value, Value>() {
+                let (k, _) = pair.map_err(|e| format!("block_out_from: {e}"))?;
+                match k {
+                    Value::Integer(1) => {}
+                    Value::String(_) => {
+                        let ks = key_str(&k)?;
+                        if ks != "target" && ks != "kind" {
+                            unknown_key("block_out_from", &ks)?;
+                        }
+                    }
+                    _ => unknown_key("block_out_from", &format!("{k:?}"))?,
+                }
+            }
+            (target, kind)
+        }
+        v => (v.clone(), Value::Nil),
+    };
+
+    let target = match value_to_string(&target)?.as_str() {
+        "screencast" => BlockOutTarget::Screencast,
+        "screen-capture" | "screen_capture" => BlockOutTarget::ScreenCapture,
+        other => {
+            invalid_config(&format!(
+                "invalid block_out_from target `{other}`, expected \"screencast\" or \"screen-capture\""
+            ))?;
+            return Ok(None);
+        }
+    };
+    let kind = match kind {
+        Value::Nil => BlockOutKind::default(),
+        v => match value_to_string(&v)?.as_str() {
+            "fill" => BlockOutKind::Fill,
+            "hide" => BlockOutKind::Hide,
+            other => {
+                invalid_config(&format!(
+                    "invalid block_out_from kind `{other}`, expected \"fill\" or \"hide\""
+                ))?;
+                return Ok(None);
+            }
+        },
+    };
+    Ok(Some(BlockOutFrom { target, kind }))
+}
+
 /// Parses a pinch sensitivity multiplier, which must lie within `0..=100`.
 fn parse_pinch_sensitivity(
     val: &Value,
@@ -3311,6 +3366,9 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
             "pinch_sensitivity" | "pinch-sensitivity" => {
                 rule.pinch_sensitivity = parse_pinch_sensitivity(&value, "window_rule")?;
             }
+            "block_out_from" | "block-out-from" => {
+                rule.block_out_from = parse_block_out_from(&value)?;
+            }
             "geometry_corner_radius" | "geometry-corner-radius" => {
                 rule.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
             }
@@ -3448,12 +3506,7 @@ fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
                 }
             }
             "block_out_from" | "block-out-from" => {
-                let s = value_to_string(&value)?;
-                rule.block_out_from = match s.as_str() {
-                    "screencast" => Some(BlockOutFrom::Screencast),
-                    "screen-capture" | "screen_capture" => Some(BlockOutFrom::ScreenCapture),
-                    _ => None,
-                };
+                rule.block_out_from = parse_block_out_from(&value)?;
             }
             "focus_on_type_in_overview" | "focus-on-type-in-overview" => {
                 rule.focus_on_type_in_overview = Some(value_is_truthy(&value));

@@ -606,9 +606,22 @@ pub struct InsertHintPart {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlockOutFrom {
+pub struct BlockOutFrom {
+    pub target: BlockOutTarget,
+    pub kind: BlockOutKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockOutTarget {
     Screencast,
     ScreenCapture,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum BlockOutKind {
+    #[default]
+    Fill,
+    Hide,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]

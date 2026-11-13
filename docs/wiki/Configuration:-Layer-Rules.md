@@ -27,6 +27,9 @@ neori.layer_rule {
     opacity = 0.5,
     block_out_from = "screencast",
     -- block_out_from = "screen-capture"
+    -- Or, hide entirely:
+    -- block_out_from = { "screencast", kind = "hide" }
+    -- block_out_from = { "screen-capture", kind = "hide" }
     shadow = {
         on = true,
         -- off = true
