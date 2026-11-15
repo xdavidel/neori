@@ -360,6 +360,17 @@ neori.input {
 }
 ```
 
+<sup>Since: next release</sup> You can optionally set `outputs_only`.
+When true, focus only changes between monitors, instead of individual windows.
+
+```lua
+neori.input {
+    focus_follows_mouse = {
+        outputs_only = true,
+    },
+}
+```
+
 #### `workspace-auto-back-and-forth`
 
 Normally, switching to the same workspace by index twice will do nothing (since you're already on that workspace).

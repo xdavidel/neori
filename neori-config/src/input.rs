@@ -269,6 +269,7 @@ pub struct Touch {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FocusFollowsMouse {
+    pub outputs_only: Option<bool>,
     pub max_scroll_amount: Option<Percent>,
 }
 

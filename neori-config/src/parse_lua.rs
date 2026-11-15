@@ -2637,10 +2637,17 @@ fn parse_input_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
                     let max_scroll_amount = max_scroll
                         .as_deref()
                         .and_then(|s| s.parse::<Percent>().ok());
-                    config.input.focus_follows_mouse =
-                        Some(FocusFollowsMouse { max_scroll_amount });
+                    let outputs_only = match table_get_alias(t, "outputs_only", "outputs-only")? {
+                        Value::Nil => None,
+                        v => Some(value_is_truthy(&v)),
+                    };
+                    config.input.focus_follows_mouse = Some(FocusFollowsMouse {
+                        outputs_only,
+                        max_scroll_amount,
+                    });
                 } else if value_is_truthy(&value) {
                     config.input.focus_follows_mouse = Some(FocusFollowsMouse {
+                        outputs_only: None,
                         max_scroll_amount: None,
                     });
                 }

@@ -3159,6 +3159,21 @@ mod tests {
     }
 
     #[test]
+    fn focus_follows_mouse_outputs_only() {
+        let parse = |text: &str| Config::parse_mem(text).unwrap().input.focus_follows_mouse;
+
+        let ffm = parse("neori.input { focus_follows_mouse = { outputs_only = true } }").unwrap();
+        assert_eq!(ffm.outputs_only, Some(true));
+
+        let ffm = parse(r#"neori.input { focus_follows_mouse = { ["outputs-only"] = false } }"#)
+            .unwrap();
+        assert_eq!(ffm.outputs_only, Some(false));
+
+        let ffm = parse("neori.input { focus_follows_mouse = true }").unwrap();
+        assert_eq!(ffm.outputs_only, None);
+    }
+
+    #[test]
     fn pinch_sensitivity() {
         let config = Config::parse_mem(
             r#"
