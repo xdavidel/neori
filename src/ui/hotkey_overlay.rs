@@ -162,6 +162,15 @@ fn bind_triggers(bind: &Bind, action: &Action) -> bool {
     bind.press_action() == Some(action) || bind.release_action() == Some(action)
 }
 
+/// Returns the first action in `actions` that can be triggered by a bind in `binds`.
+/// Returns `None` if no such action exists.
+fn find_bound_action(binds: &[Bind], actions: &[&'static Action]) -> Option<&'static Action> {
+    actions
+        .iter()
+        .map(|action| *action)
+        .find(|action| binds.iter().any(|bind| bind_triggers(bind, action)))
+}
+
 fn format_bind(binds: &[Bind], action: &Action) -> Option<(Option<Key>, String)> {
     let mut bind_with_non_null = None;
     let mut bind_with_custom_title = None;
@@ -212,73 +221,66 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
 
     // Prefer Quit(false) if found, otherwise try Quit(true), and if there's neither, fall back to
     // Quit(false).
-    if binds
-        .iter()
-        .any(|bind| bind_triggers(bind, &Action::Quit {
-            skip_confirmation: false,
-        }))
-    {
-        actions.push(&Action::Quit {
-            skip_confirmation: false,
-        });
-    } else if binds
-        .iter()
-        .any(|bind| bind_triggers(bind, &Action::Quit {
-            skip_confirmation: true,
-        }))
-    {
-        actions.push(&Action::Quit {
-            skip_confirmation: true,
-        });
-    } else {
-        actions.push(&Action::Quit {
-            skip_confirmation: false,
-        });
-    }
+    actions.push(
+        find_bound_action(&binds, &[&Action::Quit { skip_confirmation: false }, &Action::Quit { skip_confirmation: true }])
+            .unwrap_or(&Action::Quit { skip_confirmation: false }),
+    );
+
+    let action_move_column_left = find_bound_action(
+        &binds,
+        &[
+            &Action::MoveColumnLeft { focus: true },
+            &Action::MoveColumnLeft { focus: false },
+        ],
+    )
+    .unwrap_or(&Action::MoveColumnLeft { focus: true });
+
+    let action_move_column_right = find_bound_action(
+        &binds,
+        &[
+            &Action::MoveColumnRight { focus: true },
+            &Action::MoveColumnRight { focus: false },
+        ],
+    )
+    .unwrap_or(&Action::MoveColumnRight { focus: true });
 
     actions.extend(&[
         &Action::CloseWindow { id: None },
         &Action::FocusColumnLeft {},
         &Action::FocusColumnRight {},
-        &Action::MoveColumnLeft { focus: true },
-        &Action::MoveColumnRight { focus: true },
+        action_move_column_left,
+        action_move_column_right,
         &Action::FocusWorkspaceDown {},
         &Action::FocusWorkspaceUp {},
     ]);
 
     // Prefer move-column-to-workspace-down, but fall back to move-window-to-workspace-down.
-    if let Some(action) = binds
-        .iter()
-        .flat_map(bind_actions)
-        .find(|action| matches!(action, Action::MoveColumnToWorkspaceDown { focus: _ }))
-    {
-        actions.push(action);
-    } else if binds
-        .iter()
-        .flat_map(bind_actions)
-        .any(|action| matches!(action, Action::MoveWindowToWorkspaceDown { focus: _ }))
-    {
-        actions.push(&Action::MoveWindowToWorkspaceDown { focus: true });
-    } else {
-        actions.push(&Action::MoveColumnToWorkspaceDown { focus: true });
-    }
+    actions.push(
+        find_bound_action(
+            &binds,
+            &[
+                &Action::MoveColumnToWorkspaceDown { focus: true },
+                &Action::MoveColumnToWorkspaceDown { focus: false },
+                &Action::MoveWindowToWorkspaceDown { focus: true },
+                &Action::MoveWindowToWorkspaceDown { focus: false },
+            ],
+        )
+        .unwrap_or(&Action::MoveColumnToWorkspaceDown { focus: true }),
+    );
 
     // Same for -up.
-    if let Some(action) = binds
-        .iter()
-        .flat_map(bind_actions)
-        .find(|action| matches!(action, Action::MoveColumnToWorkspaceUp { focus: _ }))
-    {
-        actions.push(action);
-    } else if binds
-        .iter()
-        .flat_map(bind_actions)
-        .any(|action| matches!(action, Action::MoveWindowToWorkspaceUp { focus: _ }))
-    {
-        actions.push(&Action::MoveWindowToWorkspaceUp { focus: true });
-    } else {
-        actions.push(&Action::MoveColumnToWorkspaceUp { focus: true });
-    }
+    actions.push(
+        find_bound_action(
+            &binds,
+            &[
+                &Action::MoveColumnToWorkspaceUp { focus: true },
+                &Action::MoveColumnToWorkspaceUp { focus: false },
+                &Action::MoveWindowToWorkspaceUp { focus: true },
+                &Action::MoveWindowToWorkspaceUp { focus: false },
+            ],
+        )
+        .unwrap_or(&Action::MoveColumnToWorkspaceUp { focus: true }),
+    );
 
     actions.extend(&[
         &Action::SwitchPresetColumnWidth {},
@@ -974,5 +976,47 @@ mod tests {
         Super+Ctrl
         Mod+Alt
         ");
+    }
+
+    #[test]
+    fn test_find_bound_action() {
+        let priority = [
+            &Action::Quit {
+                skip_confirmation: false,
+            },
+            &Action::Quit {
+                skip_confirmation: true,
+            },
+        ];
+        for (config_text, expected_match) in [
+            (
+                r#"neori.bind("Mod+Q", { quit = true, skip_confirmation = true })"#,
+                Some(&Action::Quit { skip_confirmation: true }),
+            ),
+            (
+                r#"neori.bind("Mod+Q", { quit = true, skip_confirmation = false })"#,
+                Some(&Action::Quit { skip_confirmation: false }),
+            ),
+            (
+                r#"
+                neori.bind("Mod+Shift+Q", { quit = true, skip_confirmation = true })
+                neori.bind("Mod+Q", { quit = true, skip_confirmation = false })
+                "#,
+                Some(&Action::Quit { skip_confirmation: false }),
+            ),
+            (
+                r#"
+                neori.bind("Mod+Shift+Q", { quit = true, skip_confirmation = false })
+                neori.bind("Mod+Q", { quit = true, skip_confirmation = true })
+                "#,
+                Some(&Action::Quit { skip_confirmation: false }),
+            ),
+            ("", None),
+        ] {
+            let config = Config::parse_mem(config_text).unwrap();
+            let binds = config.binds.0;
+
+            assert_eq!(find_bound_action(&binds, &priority), expected_match)
+        }
     }
 }
