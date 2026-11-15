@@ -5169,10 +5169,10 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         "focus_workspace_previous" | "focus-workspace-previous" => {
             Action::FocusWorkspacePrevious {}
         }
-        "move_column_left" | "move-column-left" => Action::MoveColumnLeft {},
-        "move_column_right" | "move-column-right" => Action::MoveColumnRight {},
-        "move_window_down" | "move-window-down" => Action::MoveWindowDown {},
-        "move_window_up" | "move-window-up" => Action::MoveWindowUp {},
+        "move_column_left" | "move-column-left" => Action::MoveColumnLeft { focus: true },
+        "move_column_right" | "move-column-right" => Action::MoveColumnRight { focus: true },
+        "move_window_down" | "move-window-down" => Action::MoveWindowDown { focus: true },
+        "move_window_up" | "move-window-up" => Action::MoveWindowUp { focus: true },
         "switch_preset_column_width" | "switch-preset-column-width" => {
             Action::SwitchPresetColumnWidth {}
         }
@@ -5255,8 +5255,8 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         }
         "focus_column_first" | "focus-column-first" => Action::FocusColumnFirst {},
         "focus_column_last" | "focus-column-last" => Action::FocusColumnLast {},
-        "move_column_to_first" | "move-column-to-first" => Action::MoveColumnToFirst {},
-        "move_column_to_last" | "move-column-to-last" => Action::MoveColumnToLast {},
+        "move_column_to_first" | "move-column-to-first" => Action::MoveColumnToFirst { focus: true },
+        "move_column_to_last" | "move-column-to-last" => Action::MoveColumnToLast { focus: true },
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
             Action::MoveColumnToMonitorLeft {}
         }
@@ -5516,10 +5516,10 @@ fn action_from_table_key(
         "focus_workspace_previous" | "focus-workspace-previous" => {
             Some(Action::FocusWorkspacePrevious {})
         }
-        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft {}),
-        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight {}),
-        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown {}),
-        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp {}),
+        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft { focus: true }),
+        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight { focus: true }),
+        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown { focus: true }),
+        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp { focus: true }),
         "switch_preset_column_width" | "switch-preset-column-width" => {
             Some(Action::SwitchPresetColumnWidth {})
         }
@@ -5632,8 +5632,8 @@ fn action_from_table_key(
         }
         "focus_column_first" | "focus-column-first" => Some(Action::FocusColumnFirst {}),
         "focus_column_last" | "focus-column-last" => Some(Action::FocusColumnLast {}),
-        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst {}),
-        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast {}),
+        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst { focus: true }),
+        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast { focus: true }),
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
             Some(Action::MoveColumnToMonitorLeft {})
         }

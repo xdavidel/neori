@@ -240,8 +240,8 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
         &Action::CloseWindow { id: None },
         &Action::FocusColumnLeft {},
         &Action::FocusColumnRight {},
-        &Action::MoveColumnLeft {},
-        &Action::MoveColumnRight {},
+        &Action::MoveColumnLeft { focus: true },
+        &Action::MoveColumnRight { focus: true },
         &Action::FocusWorkspaceDown {},
         &Action::FocusWorkspaceUp {},
     ]);
@@ -514,8 +514,8 @@ fn action_name(action: &Action) -> String {
         Action::CloseWindow { id: None } => String::from("Close Focused Window"),
         Action::FocusColumnLeft {} => String::from("Focus Column to the Left"),
         Action::FocusColumnRight {} => String::from("Focus Column to the Right"),
-        Action::MoveColumnLeft {} => String::from("Move Column Left"),
-        Action::MoveColumnRight {} => String::from("Move Column Right"),
+        Action::MoveColumnLeft { focus: _ } => String::from("Move Column Left"),
+        Action::MoveColumnRight { focus: _ } => String::from("Move Column Right"),
         Action::FocusWorkspaceDown {} => String::from("Switch Workspace Down"),
         Action::FocusWorkspaceUp {} => String::from("Switch Workspace Up"),
         Action::MoveColumnToWorkspaceDown { focus: _ } => {

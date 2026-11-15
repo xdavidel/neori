@@ -1374,36 +1374,36 @@ impl State {
                     }
                 });
             }
-            Action::MoveColumnLeft {} => {
+            Action::MoveColumnLeft { focus } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_left();
                 } else {
-                    self.neori.layout.move_left();
+                    self.neori.layout.move_left(focus);
                     self.maybe_warp_cursor_to_focus();
                 }
 
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnRight {} => {
+            Action::MoveColumnRight { focus } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_right();
                 } else {
-                    self.neori.layout.move_right();
+                    self.neori.layout.move_right(focus);
                     self.maybe_warp_cursor_to_focus();
                 }
 
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToFirst {} => {
-                self.neori.layout.move_column_to_first();
+            Action::MoveColumnToFirst { focus } => {
+                self.neori.layout.move_column_to_first(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveColumnToLast {} => {
-                self.neori.layout.move_column_to_last();
+            Action::MoveColumnToLast { focus } => {
+                self.neori.layout.move_column_to_last(focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
@@ -1420,7 +1420,7 @@ impl State {
                         self.maybe_warp_cursor_to_focus();
                     }
                 } else {
-                    self.neori.layout.move_left();
+                    self.neori.layout.move_left(true);
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -1439,29 +1439,29 @@ impl State {
                         self.maybe_warp_cursor_to_focus();
                     }
                 } else {
-                    self.neori.layout.move_right();
+                    self.neori.layout.move_right(true);
                     self.maybe_warp_cursor_to_focus();
                 }
 
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowDown {} => {
+            Action::MoveWindowDown { focus } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_down();
                 } else {
-                    self.neori.layout.move_down();
+                    self.neori.layout.move_down(focus);
                     self.maybe_warp_cursor_to_focus();
                 }
 
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::MoveWindowUp {} => {
+            Action::MoveWindowUp { focus } => {
                 if self.neori.screenshot_ui.is_open() {
                     self.neori.screenshot_ui.move_up();
                 } else {
-                    self.neori.layout.move_up();
+                    self.neori.layout.move_up(focus);
                     self.maybe_warp_cursor_to_focus();
                 }
 
@@ -1896,8 +1896,8 @@ impl State {
                     self.neori.queue_redraw_all();
                 }
             }
-            Action::MoveColumnToIndex { index: idx } => {
-                self.neori.layout.move_column_to_index(idx);
+            Action::MoveColumnToIndex { index: idx, focus } => {
+                self.neori.layout.move_column_to_index(idx, focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
@@ -2038,18 +2038,18 @@ impl State {
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwapWindowRight {} => {
+            Action::SwapWindowRight { focus } => {
                 self.neori
                     .layout
-                    .swap_window_in_direction(ScrollDirection::Right);
+                    .swap_window_in_direction(ScrollDirection::Right, focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
             }
-            Action::SwapWindowLeft {} => {
+            Action::SwapWindowLeft { focus } => {
                 self.neori
                     .layout
-                    .swap_window_in_direction(ScrollDirection::Left);
+                    .swap_window_in_direction(ScrollDirection::Left, focus);
                 self.maybe_warp_cursor_to_focus();
                 // FIXME: granular
                 self.neori.queue_redraw_all();
@@ -5633,13 +5633,13 @@ fn allowed_during_screenshot(action: &Action) -> bool {
             | Action::Spawn { command: _ }
             | Action::SpawnSh { command: _ }
             // The screenshot UI can handle these.
-            | Action::MoveColumnLeft {}
+            | Action::MoveColumnLeft { focus: _ }
             | Action::MoveColumnLeftOrToMonitorLeft {}
-            | Action::MoveColumnRight {}
+            | Action::MoveColumnRight { focus: _ }
             | Action::MoveColumnRightOrToMonitorRight {}
-            | Action::MoveWindowUp {}
+            | Action::MoveWindowUp { focus: _ }
             | Action::MoveWindowUpOrToWorkspaceUp {}
-            | Action::MoveWindowDown {}
+            | Action::MoveWindowDown { focus: _ }
             | Action::MoveWindowDownOrToWorkspaceDown {}
             | Action::MoveColumnToMonitorLeft {}
             | Action::MoveColumnToMonitorRight {}
@@ -6785,15 +6785,15 @@ mod tests {
         // allowed while the screenshot UI is open.
         let both = |press, release| close_bind(BoundAction::Both { press, release });
         assert!(!bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft {}, Action::CloseWindow { id: None }),
+            &both(Action::MoveColumnLeft { focus: true }, Action::CloseWindow { id: None }),
             true
         ));
         assert!(!bind_allowed_during_screenshot(
-            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft {}),
+            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft { focus: true }),
             true
         ));
         assert!(bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft {}, Action::MoveWindowUp {}),
+            &both(Action::MoveColumnLeft { focus: true }, Action::MoveWindowUp { focus: true }),
             true
         ));
     }
@@ -6801,7 +6801,7 @@ mod tests {
     #[test]
     fn bind_allowed_during_screenshot_requires_only_the_single_action() {
         assert!(bind_allowed_during_screenshot(
-            &close_bind(BoundAction::Press(Action::MoveColumnLeft {})),
+            &close_bind(BoundAction::Press(Action::MoveColumnLeft { focus: true })),
             true
         ));
         assert!(!bind_allowed_during_screenshot(
@@ -6816,17 +6816,17 @@ mod tests {
         // not block it.
         let both = |press, release| close_bind(BoundAction::Both { press, release });
         assert!(bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft {}, Action::CloseWindow { id: None }),
+            &both(Action::MoveColumnLeft { focus: true }, Action::CloseWindow { id: None }),
             false
         ));
         assert!(bind_allowed_during_screenshot(
-            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft {}),
+            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft { focus: true }),
             false
         ));
 
         // A release-only bind has no press to undo, so its own action must be allowed.
         assert!(bind_allowed_during_screenshot(
-            &close_bind(BoundAction::Release(Action::MoveColumnLeft {})),
+            &close_bind(BoundAction::Release(Action::MoveColumnLeft { focus: true })),
             false
         ));
         assert!(!bind_allowed_during_screenshot(
