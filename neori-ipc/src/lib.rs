@@ -1374,6 +1374,14 @@ pub enum Action {
         /// Id of the portal action.
         action: u32,
     },
+    /// Suspend from the power key, unless the press is the one that woke the system up.
+    ///
+    /// This action is internal, and usable neither from the config file nor over IPC.
+    #[doc(hidden)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    PowerKeySuspend,
     /// Increment a counter in the compositor's tests; does nothing otherwise.
     ///
     /// This action is internal, and usable neither from the config file nor over IPC.
@@ -2784,6 +2792,7 @@ mod tests {
             r#"{"ConfirmScreenshot":{"write_to_disk":true}}"#,
             r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
             r#""TestAction""#,
+            r#""PowerKeySuspend""#,
             r#"{"ScriptFunction":{"id":1}}"#,
             r#"{"GlobalShortcutActivateAction":{"action":1}}"#,
             r#"{"GlobalShortcutDeactivateAction":{"action":1}}"#,
