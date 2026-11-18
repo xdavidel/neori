@@ -3281,7 +3281,7 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
                 }
             }
             "open_on_output" | "open-on-output" => {
-                rule.open_on_output = Some(value_to_string(&value)?);
+                rule.open_on_output = parse_open_on_output(&value)?;
             }
             "open_on_workspace" | "open-on-workspace" => {
                 rule.open_on_workspace = Some(value_to_string(&value)?);

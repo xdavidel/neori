@@ -14,7 +14,8 @@ pub struct WindowRule {
     pub excludes: Vec<Match>,
     pub default_column_width: Option<DefaultPresetSize>,
     pub default_window_height: Option<DefaultPresetSize>,
-    pub open_on_output: Option<String>,
+    /// Outputs to open the window on, in preference order.
+    pub open_on_output: Vec<String>,
     pub open_on_workspace: Option<String>,
     pub open_maximized: Option<bool>,
     pub open_maximized_to_edges: Option<bool>,

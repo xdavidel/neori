@@ -503,6 +503,15 @@ neori.window_rule {
 <sup>Since: 0.1.9</sup> `open-on-output` can now use monitor manufacturer, model, and serial.
 Before, it could only use the connector name.
 
+<sup>Since: next release</sup> You can also give `open_on_output` a list of outputs.
+If the first output is not connected, the window will open on the second output, and so on.
+
+```lua
+neori.window_rule {
+    open_on_output = { "DP-1", "DP-2" }, -- DP-2 is the fallback
+}
+```
+
 #### `open-on-workspace`
 
 <sup>Since: 0.1.6</sup>

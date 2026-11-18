@@ -3318,6 +3318,22 @@ mod tests {
     }
 
     #[test]
+    fn window_rule_open_on_output_fallbacks() {
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule { open_on_output = { "DP-1", "DP-2" } }
+            neori.window_rule { ["open-on-output"] = "eDP-1" }
+            neori.window_rule { opacity = 0.5 }
+            "#,
+        )
+        .unwrap();
+        let rules = &config.window_rules;
+        assert_eq!(rules[0].open_on_output, ["DP-1", "DP-2"]);
+        assert_eq!(rules[1].open_on_output, ["eDP-1"]);
+        assert!(rules[2].open_on_output.is_empty());
+    }
+
+    #[test]
     fn window_rule_on_xdg_activate() {
         let config = Config::parse_mem(
             r#"
