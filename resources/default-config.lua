@@ -337,6 +337,24 @@ neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.
 -- neori.workspace("browser", { open_on_output = "eDP-1" })
 -- neori.workspace("chat")
 
+---------------------------------------------------------------------------------
+-- Scratchpads
+---------------------------------------------------------------------------------
+
+-- Named scratchpads, each holding at most one window. Actions address them by name:
+--   neori.bind("Mod+Alt+m", "send-to-scratchpad term")
+--   neori.bind("Mod+Alt+Return", "toggle-scratchpad term")
+--   neori.bind("Mod+Alt+plus", { remove_from_scratchpad = "term" })
+-- An action without a name uses the default scratchpad.
+--
+-- Give a scratchpad a spawn command and the first toggle-while-empty runs it, adopting the
+-- new window into that scratchpad; toggling it away hides the window, toggling again brings
+-- it back (the command is re-run only once the scratchpad is empty again).
+
+-- neori.scratchpad { spawn = { "kitty", "--class", "neori-scratch" } }  -- default scratchpad
+-- neori.scratchpad("term", { spawn_sh = "alacritty --class neori-term" })
+-- neori.scratchpad("browser")  -- no spawn: send a window to it first with send-to-scratchpad
+
 --------------------------------------------------------------------------------
 -- Window rules
 --------------------------------------------------------------------------------
@@ -626,7 +644,8 @@ end
 --   end
 -- end)
 
--- Lua-held state ("scratchpad" pattern):
+-- Lua-held state, e.g. remembering whether a window was opened:
+-- (For a scratchpad, prefer the real thing: see `neori.scratchpad` above.)
 -- local scratch_spawned = false
 -- neori.bind("Mod+Grave", function()
 --   if not scratch_spawned then

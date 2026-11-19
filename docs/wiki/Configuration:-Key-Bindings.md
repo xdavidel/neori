@@ -247,6 +247,41 @@ Keep in mind that going through the shell incurs a tiny performance penalty comp
 Using `sh` is hardcoded, consistent with other compositors.
 If you want a different shell, write it out using `spawn`, e.g. `spawn "fish" "-c" "some fish command"`.
 
+#### `send-to-scratchpad`, `remove-from-scratchpad`, `toggle-scratchpad`
+
+Scratchpads hide a window away from the normal workspace flow and bring it back on demand.
+There is a default scratchpad, plus any number of named ones:
+
+```lua
+-- Hide the focused window in the default scratchpad.
+neori.bind("Mod+Alt+minus", "send-to-scratchpad")
+-- Bring it back, shown centered on the active workspace.
+neori.bind("Mod+Alt+plus", "remove-from-scratchpad")
+-- Show it if hidden, hide it if shown.
+neori.bind("Mod+Alt+Return", "toggle-scratchpad")
+
+-- The same three actions, for the scratchpad named "term":
+neori.bind("Mod+Ctrl+m", "send-to-scratchpad term")
+neori.bind("Mod+Ctrl+u", { remove_from_scratchpad = "term" })
+neori.bind("Mod+Ctrl+t", { toggle_scratchpad = "term" })
+```
+
+Declare a scratchpad in the config to give it a spawn command:
+
+```lua
+-- The default scratchpad.
+neori.scratchpad { spawn = { "kitty", "--class", "neori-scratch" } }
+-- Named scratchpads. `spawn_sh` runs the command through sh instead.
+neori.scratchpad("term", { spawn_sh = "alacritty --class neori-term" })
+-- No spawn: send a window to it first with send-to-scratchpad.
+neori.scratchpad("browser")
+```
+
+Toggling a scratchpad that is empty and has a spawn command runs the command and adopts the
+new window into that scratchpad, so the first press opens the window. Toggling again hides it,
+and toggling once more shows it again — the command is only re-run when the scratchpad has
+become empty again (for example after the window was closed or removed).
+
 #### `quit`
 
 Exit neori after showing a confirmation dialog to avoid accidentally triggering it.

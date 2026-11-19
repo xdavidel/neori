@@ -2125,8 +2125,11 @@ fn scratchpad_hides_and_shows_window() {
 
     assert!(layout.focus().map(|w| *w.id()) == Some(0));
 
+    // Toggling an empty scratchpad reports emptiness (and would spawn its command).
+    assert!(layout.toggle_scratchpad(None));
+
     // Send the focused window to the scratchpad: it becomes hidden but is still tracked.
-    layout.send_to_scratchpad();
+    layout.send_to_scratchpad(None);
     assert!(layout.has_window(&0));
     assert!(layout.focus().is_none());
 
@@ -2135,15 +2138,97 @@ fn scratchpad_hides_and_shows_window() {
     assert!(!on_monitor);
 
     // Toggling shows it again, focused, on the active workspace.
-    layout.toggle_scratchpad();
+    assert!(!layout.toggle_scratchpad(None));
     assert!(layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
     assert_eq!(layout.focus().map(|w| *w.id()), Some(0));
 
     // Toggling again hides it back into the scratchpad.
-    layout.toggle_scratchpad();
+    assert!(!layout.toggle_scratchpad(None));
     assert!(!layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
     assert!(layout.workspaces_mut().all(|ws| !ws.has_window(&0)));
     assert!(layout.has_window(&0));
+
+    layout.verify_invariants();
+}
+
+#[test]
+fn named_scratchpads_are_independent() {
+    let mut layout = check_ops([
+        Op::AddOutput(1),
+        Op::AddWindow {
+            params: TestWindowParams::new(0),
+        },
+        Op::AddWindow {
+            params: TestWindowParams::new(1),
+        },
+        Op::CompleteAnimations,
+    ]);
+
+    // Toggling an unknown scratchpad reports it as empty.
+    assert!(layout.toggle_scratchpad(Some("term")));
+
+    // Send each window to its own scratchpad.
+    layout.activate_window(&0);
+    layout.send_to_scratchpad(Some("term"));
+    layout.activate_window(&1);
+    layout.send_to_scratchpad(Some("chat"));
+
+    assert!(layout.has_window(&0));
+    assert!(layout.has_window(&1));
+    let on_monitor = layout.workspaces().any(|(_, _, ws)| ws.has_window(&0));
+    assert!(!on_monitor);
+
+    // Toggling one scratchpad leaves the other hidden.
+    assert!(!layout.toggle_scratchpad(Some("chat")));
+    assert!(layout.workspaces().any(|(_, _, ws)| ws.has_window(&1)));
+    assert!(!layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
+
+    // The default scratchpad is a separate, still-empty scratchpad.
+    assert!(layout.toggle_scratchpad(None));
+
+    // Removing from the scratchpad shows the window and empties the scratchpad again.
+    layout.remove_from_scratchpad(Some("chat"));
+    assert!(layout.workspaces().any(|(_, _, ws)| ws.has_window(&1)));
+    assert!(layout.toggle_scratchpad(Some("chat")));
+
+    layout.verify_invariants();
+}
+
+#[test]
+fn scratchpad_spawn_is_adopted_when_window_appears() {
+    let mut layout = check_ops([Op::AddOutput(1), Op::CompleteAnimations]);
+
+    // Toggling the empty scratchpad reports emptiness; with no spawn pending nothing appears.
+    assert!(layout.toggle_scratchpad(Some("term")));
+    assert!(!layout.has_pending_scratchpad_spawn(Some("term")));
+
+    // With a spawn pending, the next added window is adopted into the scratchpad.
+    layout.set_pending_scratchpad_spawn(Some("term"));
+    assert!(layout.has_pending_scratchpad_spawn(Some("term")));
+
+    layout.add_window(
+        TestWindow::new(TestWindowParams::new(0)),
+        AddWindowTarget::Auto,
+        None,
+        None,
+        false,
+        false,
+        ActivateWindow::default(),
+    );
+    assert!(layout.adopt_pending_scratchpad(&0));
+    assert!(!layout.has_pending_scratchpad_spawn(Some("term")));
+    assert!(layout.has_window(&0));
+    assert!(layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
+
+    // The adopted window toggles like any other scratchpad window.
+    assert!(!layout.toggle_scratchpad(Some("term")));
+    assert!(!layout.workspaces().any(|(_, _, ws)| ws.has_window(&0)));
+    assert!(layout.has_window(&0));
+
+    // Closing the hidden window empties the scratchpad and clears the stale id.
+    layout.remove_window(&0, Transaction::new());
+    assert!(!layout.has_window(&0));
+    assert!(layout.toggle_scratchpad(Some("term")));
 
     layout.verify_invariants();
 }

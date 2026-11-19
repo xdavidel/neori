@@ -36,6 +36,7 @@ pub mod misc;
 pub mod output;
 pub mod parse_lua;
 pub mod recent_windows;
+pub mod scratchpad;
 pub mod utils;
 pub mod window_rule;
 pub mod workspace;
@@ -61,6 +62,7 @@ pub use crate::parse_lua::{
 /// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
 pub use mlua;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
+pub use crate::scratchpad::Scratchpad;
 pub use crate::utils::FloatOrInt;
 pub use crate::window_rule::{
     FloatingPosition, PopupsRule, RelativeTo, ResolvedPopupsRules, WindowRule,
@@ -97,6 +99,7 @@ pub struct Config {
     pub switch_events: SwitchBinds,
     pub debug: Debug,
     pub workspaces: Vec<Workspace>,
+    pub scratchpads: Vec<Scratchpad>,
     pub recent_windows: RecentWindows,
 }
 
@@ -1855,9 +1858,102 @@ mod tests {
         .unwrap();
 
         let actions = actions(&config);
-        assert!(actions.contains(&Action::SendToScratchpad {}));
-        assert!(actions.contains(&Action::ToggleScratchpad {}));
-        assert!(actions.contains(&Action::RemoveFromScratchpad {}));
+        assert!(actions.contains(&Action::SendToScratchpad { name: None }));
+        assert!(actions.contains(&Action::ToggleScratchpad { name: None }));
+        assert!(actions.contains(&Action::RemoveFromScratchpad { name: None }));
+    }
+
+    #[test]
+    fn named_scratchpad_actions_parse() {
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+Alt+m", "send-to-scratchpad term")
+            neori.bind("Mod+Alt+Return", "toggle-scratchpad chat")
+            neori.bind("Mod+Alt+minus", { send_to_scratchpad = "notes" })
+            neori.bind("Mod+Alt+plus", { remove_from_scratchpad = "notes" })
+            neori.bind("Mod+Alt+n", { toggle_scratchpad = { name = "notes" } })
+            "#,
+        )
+        .unwrap();
+
+        let actions = actions(&config);
+        assert!(actions.contains(&Action::SendToScratchpad {
+            name: Some("term".to_string()),
+        }));
+        assert!(actions.contains(&Action::ToggleScratchpad {
+            name: Some("chat".to_string()),
+        }));
+        assert!(actions.contains(&Action::SendToScratchpad {
+            name: Some("notes".to_string()),
+        }));
+        assert!(actions.contains(&Action::RemoveFromScratchpad {
+            name: Some("notes".to_string()),
+        }));
+        assert!(actions.contains(&Action::ToggleScratchpad {
+            name: Some("notes".to_string()),
+        }));
+    }
+
+    #[test]
+    fn scratchpads_parse() {
+        let config = Config::parse_mem(
+            r#"
+            neori.scratchpad { spawn = { "kitty" } }
+            neori.scratchpad("term", { spawn_sh = "alacritty -e htop" })
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.scratchpads,
+            vec![
+                Scratchpad {
+                    name: String::new(),
+                    spawn: Some(vec!["kitty".to_string()]),
+                    spawn_sh: None,
+                },
+                Scratchpad {
+                    name: "term".to_string(),
+                    spawn: None,
+                    spawn_sh: Some("alacritty -e htop".to_string()),
+                },
+            ]
+        );
+
+        // Top-level section form works too.
+        let config = Config::parse_mem(
+            r#"
+            return {
+                scratchpads = {
+                    { name = "browser", spawn = { "firefox" } },
+                },
+            }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.scratchpads.len(), 1);
+        assert_eq!(config.scratchpads[0].name, "browser");
+        assert_eq!(
+            config.scratchpads[0].spawn,
+            Some(vec!["firefox".to_string()])
+        );
+
+        // Duplicate names are a configuration error.
+        assert!(Config::parse_mem(
+            r#"
+            neori.scratchpad("term", { spawn = { "kitty" } })
+            neori.scratchpad("term", { spawn = { "foot" } })
+            "#,
+        )
+        .is_err());
+
+        // So is setting both spawn forms at once.
+        assert!(Config::parse_mem(
+            r#"
+            neori.scratchpad("term", { spawn = { "kitty" }, spawn_sh = "kitty" })
+            "#,
+        )
+        .is_err());
     }
 
     #[test]

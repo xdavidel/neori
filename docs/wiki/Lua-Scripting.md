@@ -694,11 +694,12 @@ neori.on("lid-closed", function()
     neori.action("power-off-monitors")
 end)
 
--- A tiny "scratchpad" pattern: toggle a named kitty.
+-- A tiny "scratchpad"-ish pattern: toggle a named kitty.
 --
--- On the first press, spawn the window with a known class; on subsequent presses
--- flip whether it's floating. See the Window userdata + `window-opening` sections
--- above for a cleaner pattern that matches on `w:app_id()` at open time.
+-- For real scratchpads (hide/show, spawn-on-empty, several by name) use the built-in
+-- `neori.scratchpad` + `toggle-scratchpad` action instead — see the Key-Bindings page.
+-- This example is just Lua-held state: on the first press, spawn the window with a known
+-- class; on subsequent presses flip whether it's floating.
 local scratch_spawned = false
 neori.bind("Mod+Grave", function()
     if not scratch_spawned then

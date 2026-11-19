@@ -12,6 +12,7 @@ mod layer_shell;
 mod perf;
 mod reload;
 mod remove_output;
+mod scratchpad;
 mod scripting;
 mod transactions;
 mod virtual_output;

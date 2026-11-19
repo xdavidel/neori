@@ -1964,6 +1964,7 @@ fn setup_neori_api(
         "screenshot_path",
         "window_rules",
         "layer_rules",
+        "scratchpads",
     ] {
         let data = data.clone();
         let func = lua
@@ -2020,6 +2021,7 @@ fn setup_neori_api(
         ("layer_rule", "layer_rules", false),
         ("output", "outputs", true),
         ("workspace", "workspaces", true),
+        ("scratchpad", "scratchpads", true),
     ] {
         let data = data.clone();
         let func = lua
@@ -2273,6 +2275,8 @@ const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
     "layer-rules",
     "workspaces",
     "workspace",
+    "scratchpads",
+    "scratchpad",
     "prefer_no_csd",
     "prefer-no-csd",
     "screenshot_path",
@@ -2372,6 +2376,7 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                 "window_rules" | "window-rules" => parse_window_rules(t, config)?,
                 "layer_rules" | "layer-rules" => parse_layer_rules(t, config)?,
                 "workspaces" | "workspace" => parse_workspaces(t, config)?,
+                "scratchpads" | "scratchpad" => parse_scratchpads(t, config)?,
                 _ => invalid_config(&format!("key `{key_str}` does not accept a table value"))?,
             },
             Value::Boolean(b) => match key_str.as_str() {
@@ -3380,6 +3385,73 @@ fn parse_workspaces(table: LuaTable, config: &mut Config) -> Result<(), String> 
             name: WorkspaceName(name),
             open_on_output,
             layout,
+        });
+    }
+    Ok(())
+}
+
+fn parse_scratchpads(table: LuaTable, config: &mut Config) -> Result<(), String> {
+    // A single map-style entry (`scratchpads = { name = "term", ... }`) is accepted alongside
+    // the usual sequence of entries.
+    let entries: Vec<Value> = if table_is_map(&table)? {
+        vec![Value::Table(table)]
+    } else {
+        table
+            .clone()
+            .sequence_values::<Value>()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("scratchpad error: {e}"))?
+    };
+
+    for item in entries {
+        // Bare name: `neori.scratchpad("term")`.
+        let (name, spawn, spawn_sh) = match item {
+            Value::String(s) => (
+                s.to_str().map_err(|e| format!("{e}"))?.to_string(),
+                None,
+                None,
+            ),
+            Value::Table(t) => {
+                let name: String = t.get("name").unwrap_or_default();
+                let spawn = t.get::<Value>("spawn").map_err(|e| format!("{e}"))?;
+                let spawn = match spawn {
+                    Value::Nil => None,
+                    v => {
+                        let args = parse_spawn_args(&v)?;
+                        if args.is_empty() {
+                            return Err(format!("scratchpad `{name}`: spawn requires a command"));
+                        }
+                        Some(args)
+                    }
+                };
+                let spawn_sh = match table_get_alias(&t, "spawn_sh", "spawn-sh")? {
+                    Value::Nil => None,
+                    Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
+                    _ => {
+                        return Err(format!("scratchpad `{name}`: spawn_sh must be a string"));
+                    }
+                };
+                if spawn.is_some() && spawn_sh.is_some() {
+                    return Err(format!(
+                        "scratchpad `{name}`: set only one of `spawn` or `spawn_sh`"
+                    ));
+                }
+                (name, spawn, spawn_sh)
+            }
+            _ => {
+                return Err(
+                    "scratchpad entries expect a name string or a table of options".to_string(),
+                );
+            }
+        };
+
+        if config.scratchpads.iter().any(|s| s.name == name) {
+            return Err(format!("duplicate scratchpad name `{name}`"));
+        }
+        config.scratchpads.push(Scratchpad {
+            name,
+            spawn,
+            spawn_sh,
         });
     }
     Ok(())
@@ -4768,9 +4840,35 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         "open_overview" | "open-overview" => Action::OpenOverview {},
         "close_overview" | "close-overview" => Action::CloseOverview {},
         "enlarge_cursor" | "enlarge-cursor" => Action::EnlargeCursor {},
-        "send_to_scratchpad" | "send-to-scratchpad" => Action::SendToScratchpad {},
-        "remove_from_scratchpad" | "remove-from-scratchpad" => Action::RemoveFromScratchpad {},
-        "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad {},
+        "send_to_scratchpad" | "send-to-scratchpad" => Action::SendToScratchpad { name: None },
+        "remove_from_scratchpad" | "remove-from-scratchpad" => {
+            Action::RemoveFromScratchpad { name: None }
+        }
+        "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad { name: None },
+        _ if let Some(name) = s
+            .strip_prefix("send-to-scratchpad ")
+            .or_else(|| s.strip_prefix("send_to_scratchpad ")) =>
+        {
+            Action::SendToScratchpad {
+                name: Some(name.trim().to_string()),
+            }
+        }
+        _ if let Some(name) = s
+            .strip_prefix("remove-from-scratchpad ")
+            .or_else(|| s.strip_prefix("remove_from_scratchpad ")) =>
+        {
+            Action::RemoveFromScratchpad {
+                name: Some(name.trim().to_string()),
+            }
+        }
+        _ if let Some(name) = s
+            .strip_prefix("toggle-scratchpad ")
+            .or_else(|| s.strip_prefix("toggle_scratchpad ")) =>
+        {
+            Action::ToggleScratchpad {
+                name: Some(name.trim().to_string()),
+            }
+        }
         "show_hotkey_overlay" | "show-hotkey-overlay" => Action::ShowHotkeyOverlay {},
         "screenshot" => Action::Screenshot {
             show_pointer: true,
@@ -4924,6 +5022,20 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
     Ok(action)
 }
 
+/// Parses the value of a scratchpad action table key into an optional scratchpad name.
+///
+/// Accepts `true` (default scratchpad), a string name, or a table with a `name` field.
+fn scratchpad_name_from_value(value: &Value) -> Result<Option<String>, String> {
+    match value {
+        Value::Nil | Value::Boolean(_) => Ok(None),
+        Value::String(s) => Ok(Some(s.to_str().map_err(|e| format!("{e}"))?.to_string())),
+        Value::Table(t) => t.get::<Option<String>>("name").map_err(|e| format!("{e}")),
+        _ => Err(
+            "scratchpad action expects `true`, a name string, or a table with `name`".to_string(),
+        ),
+    }
+}
+
 /// Maps a single action-table key (e.g. `spawn`) to its `Action`. Returns `None` for
 /// keys that are not actions (bind metadata such as `repeat` or `cooldown_ms`).
 fn action_from_table_key(
@@ -5065,11 +5177,15 @@ fn action_from_table_key(
         "open_overview" | "open-overview" => Some(Action::OpenOverview {}),
         "close_overview" | "close-overview" => Some(Action::CloseOverview {}),
         "enlarge_cursor" | "enlarge-cursor" => Some(Action::EnlargeCursor {}),
-        "send_to_scratchpad" | "send-to-scratchpad" => Some(Action::SendToScratchpad {}),
-        "remove_from_scratchpad" | "remove-from-scratchpad" => {
-            Some(Action::RemoveFromScratchpad {})
-        }
-        "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad {}),
+        "send_to_scratchpad" | "send-to-scratchpad" => Some(Action::SendToScratchpad {
+            name: scratchpad_name_from_value(value)?,
+        }),
+        "remove_from_scratchpad" | "remove-from-scratchpad" => Some(Action::RemoveFromScratchpad {
+            name: scratchpad_name_from_value(value)?,
+        }),
+        "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad {
+            name: scratchpad_name_from_value(value)?,
+        }),
         "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay {}),
         "screenshot" => {
             let show_pointer = table

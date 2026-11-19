@@ -710,6 +710,38 @@ impl State {
         }
     }
 
+    /// Spawns the command configured for the named scratchpad, if any, and marks the scratchpad
+    /// as waiting for its window.
+    ///
+    /// Called when a scratchpad is toggled while empty. Without a configured command nothing
+    /// happens; the scratchpad just stays empty.
+    fn spawn_scratchpad(&mut self, name: Option<&str>) {
+        let command = {
+            let config = self.neori.config.borrow();
+            let scratchpad = config
+                .scratchpads
+                .iter()
+                .find(|s| s.name == name.unwrap_or_default());
+            match scratchpad {
+                Some(scratchpad) => scratchpad.spawn_action(),
+                None => None,
+            }
+        };
+
+        let Some(action) = command else {
+            return;
+        };
+
+        self.neori.layout.set_pending_scratchpad_spawn(name);
+
+        let (token, _) = self.neori.activation_state.create_external_token(None);
+        match action {
+            Action::Spawn { command } => spawn(command, Some(token.clone())),
+            Action::SpawnSh { command } => spawn_sh(command, Some(token.clone())),
+            _ => unreachable!("scratchpad spawn_action only returns Spawn or SpawnSh"),
+        }
+    }
+
     pub fn do_action(&mut self, action: Action, allow_when_locked: bool) {
         if self.neori.is_locked() && !(allow_when_locked || allowed_when_locked(&action)) {
             return;
@@ -2494,16 +2526,24 @@ impl State {
                 self.neori.update_cursor_shake();
                 self.neori.queue_redraw_all();
             }
-            Action::SendToScratchpad {} => {
-                self.neori.layout.send_to_scratchpad();
+            Action::SendToScratchpad { name } => {
+                self.neori.layout.send_to_scratchpad(name.as_deref());
                 self.neori.queue_redraw_all();
             }
-            Action::RemoveFromScratchpad {} => {
-                self.neori.layout.remove_from_scratchpad();
+            Action::RemoveFromScratchpad { name } => {
+                self.neori.layout.remove_from_scratchpad(name.as_deref());
                 self.neori.queue_redraw_all();
             }
-            Action::ToggleScratchpad {} => {
-                self.neori.layout.toggle_scratchpad();
+            Action::ToggleScratchpad { name } => {
+                let was_empty = self.neori.layout.toggle_scratchpad(name.as_deref());
+                if was_empty
+                    && !self
+                        .neori
+                        .layout
+                        .has_pending_scratchpad_spawn(name.as_deref())
+                {
+                    self.spawn_scratchpad(name.as_deref());
+                }
                 self.neori.queue_redraw_all();
             }
             Action::ToggleWindowUrgent { id } => {

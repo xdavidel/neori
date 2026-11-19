@@ -491,6 +491,15 @@ fn render(
     })
 }
 
+/// Title for a scratchpad action: "Toggle Scratchpad" for the default one, otherwise
+/// "Toggle Scratchpad <name>".
+fn scratchpad_action_name(verb: &str, name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("{verb} Scratchpad <span face='monospace'>{name}</span>"),
+        None => format!("{verb} Scratchpad"),
+    }
+}
+
 fn action_name(action: &Action) -> String {
     match action {
         Action::Quit {
@@ -527,6 +536,9 @@ fn action_name(action: &Action) -> String {
             String::from("Switch Focus Between Floating and Tiling")
         }
         Action::ToggleOverview {} => String::from("Open the Overview"),
+        Action::ToggleScratchpad { name } => scratchpad_action_name("Toggle", name.as_deref()),
+        Action::SendToScratchpad { name } => scratchpad_action_name("Send to", name.as_deref()),
+        Action::RemoveFromScratchpad { name } => scratchpad_action_name("Show", name.as_deref()),
         Action::Screenshot {
             show_pointer: _,
             path: _,

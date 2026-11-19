@@ -1002,11 +1002,29 @@ pub enum Action {
         settings: ShakeToFindToSet,
     },
     /// Send the focused window to the scratchpad, hiding it.
-    SendToScratchpad {},
+    SendToScratchpad {
+        /// Scratchpad name; omit for the default scratchpad.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "clap", arg(long))]
+        name: Option<String>,
+    },
     /// Show the scratchpad window and remove it from the scratchpad.
-    RemoveFromScratchpad {},
+    RemoveFromScratchpad {
+        /// Scratchpad name; omit for the default scratchpad.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "clap", arg(long))]
+        name: Option<String>,
+    },
     /// Toggle the scratchpad window's appearance, centered on the active monitor.
-    ToggleScratchpad {},
+    ///
+    /// If the scratchpad is empty and a spawn command is configured for it, the command is
+    /// spawned and the new window is adopted into the scratchpad.
+    ToggleScratchpad {
+        /// Scratchpad name; omit for the default scratchpad.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "clap", arg(long))]
+        name: Option<String>,
+    },
     /// Toggle urgent status of a window.
     ToggleWindowUrgent {
         /// Id of the window to toggle urgent.
