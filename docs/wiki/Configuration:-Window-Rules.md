@@ -1275,3 +1275,24 @@ neori.window_rule {
     min_width = 876,
 }
 ```
+
+<sup>Since: next release</sup> Size override rules also apply to windows that are fullscreen and maximized-to-edges.
+This can be useful to letterbox games on ultrawide monitors.
+
+```lua
+-- Make osu! fullscreen as 16:9 on an ultrawide 3840×1600 monitor.
+neori.window_rule {
+    match = {
+        app_id = "^sh\\.ppy\\.osu$",
+    },
+    max_width = 2844,
+}
+
+-- Also, map my 16:9 tablet to the focused window,
+-- which will honor osu!'s window size.
+neori.input {
+    tablet = {
+        map_to_focused_window = true,
+    },
+}
+```
