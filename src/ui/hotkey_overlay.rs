@@ -167,7 +167,7 @@ fn bind_triggers(bind: &Bind, action: &Action) -> bool {
 fn find_bound_action(binds: &[Bind], actions: &[&'static Action]) -> Option<&'static Action> {
     actions
         .iter()
-        .map(|action| *action)
+        .copied()
         .find(|action| binds.iter().any(|bind| bind_triggers(bind, action)))
 }
 
@@ -222,12 +222,24 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     // Prefer Quit(false) if found, otherwise try Quit(true), and if there's neither, fall back to
     // Quit(false).
     actions.push(
-        find_bound_action(&binds, &[&Action::Quit { skip_confirmation: false }, &Action::Quit { skip_confirmation: true }])
-            .unwrap_or(&Action::Quit { skip_confirmation: false }),
+        find_bound_action(
+            binds,
+            &[
+                &Action::Quit {
+                    skip_confirmation: false,
+                },
+                &Action::Quit {
+                    skip_confirmation: true,
+                },
+            ],
+        )
+        .unwrap_or(&Action::Quit {
+            skip_confirmation: false,
+        }),
     );
 
     let action_move_column_left = find_bound_action(
-        &binds,
+        binds,
         &[
             &Action::MoveColumnLeft { focus: true },
             &Action::MoveColumnLeft { focus: false },
@@ -236,7 +248,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     .unwrap_or(&Action::MoveColumnLeft { focus: true });
 
     let action_move_column_right = find_bound_action(
-        &binds,
+        binds,
         &[
             &Action::MoveColumnRight { focus: true },
             &Action::MoveColumnRight { focus: false },
@@ -257,7 +269,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     // Prefer move-column-to-workspace-down, but fall back to move-window-to-workspace-down.
     actions.push(
         find_bound_action(
-            &binds,
+            binds,
             &[
                 &Action::MoveColumnToWorkspaceDown { focus: true },
                 &Action::MoveColumnToWorkspaceDown { focus: false },
@@ -271,7 +283,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     // Same for -up.
     actions.push(
         find_bound_action(
-            &binds,
+            binds,
             &[
                 &Action::MoveColumnToWorkspaceUp { focus: true },
                 &Action::MoveColumnToWorkspaceUp { focus: false },

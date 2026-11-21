@@ -16,3 +16,6 @@ neori-config = { version = "0.1.0", path = "../neori-config" }
 smithay.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
