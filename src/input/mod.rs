@@ -3149,7 +3149,9 @@ impl State {
             }
         }
 
-        self.neori.handle_focus_follows_mouse(&under);
+        if !pointer.is_grabbed() {
+            self.neori.handle_focus_follows_mouse(pos, &under);
+        }
 
         self.neori.pointer_contents.clone_from(&under);
 
@@ -3250,7 +3252,10 @@ impl State {
 
         let under = self.neori.contents_under(pos);
 
-        self.neori.handle_focus_follows_mouse(&under);
+        if !pointer.is_grabbed() {
+            let prev_location = pointer.current_location();
+            self.neori.handle_focus_follows_mouse(prev_location, &under);
+        }
 
         self.neori.pointer_contents.clone_from(&under);
 
