@@ -4150,6 +4150,15 @@ impl State {
         let tablet_seat = self.neori.seat.tablet_seat();
         let tool = tablet_seat.get_tool(&event.tool());
         if let Some(tool) = tool {
+            if !tool.is_grabbed() && self.neori.popup_grab.is_none() {
+                let prev_location = self.neori.tablet_cursor_location.unwrap_or_else(|| {
+                    // Do focus-follows-mouse when entering the tablet.
+                    let pointer = self.neori.seat.get_pointer().unwrap();
+                    pointer.current_location()
+                });
+                self.neori.handle_focus_follows_mouse(prev_location, &under);
+            }
+
             let time = event.time();
 
             let frame = tablet::tool::AxisFrame {
@@ -4365,6 +4374,15 @@ impl State {
 
             match event.state() {
                 ProximityState::In => {
+                    if !tool.is_grabbed() && self.neori.popup_grab.is_none() {
+                        let prev_location = self.neori.tablet_cursor_location.unwrap_or_else(|| {
+                            // Do focus-follows-mouse when entering the tablet.
+                            let pointer = self.neori.seat.get_pointer().unwrap();
+                            pointer.current_location()
+                        });
+                        self.neori.handle_focus_follows_mouse(prev_location, &under);
+                    }
+
                     let frame = tablet::tool::AxisFrame {
                         pressure: event.pressure_has_changed().then(|| event.pressure()),
                         distance: event.distance_has_changed().then(|| event.distance()),
