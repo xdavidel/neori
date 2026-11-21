@@ -12,7 +12,7 @@ authors = ["neori contributors"]
 license = "GPL-3.0-or-later"
 edition = "2021"
 repository = "https://github.com/neori-wm/neori"
-rust-version = "1.87"
+rust-version = "1.88"
 
 [workspace.lints.clippy]
 new_without_default = "allow"
