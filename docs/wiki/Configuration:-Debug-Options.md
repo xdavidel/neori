@@ -170,9 +170,9 @@ Disable DMA-BUF sharing for PipeWire screencasts, forcing shared-memory buffers 
 
 Useful for testing shm screencasting.
 
-```kdl
-debug {
-    disable-pipewire-dmabuf
+```lua
+neori.debug {
+    disable_pipewire_dmabuf = true,
 }
 ```
 
@@ -327,33 +327,6 @@ neori.debug {
 }
 ```
 
-### `disable-10bit-output`
-
-<sup>Since: next release</sup>
-
-By default, neori will try to output a 10-bit color format to the monitor (before falling back to 8-bit).
-However, this can currently cause problems on some Intel + NVIDIA mixed-GPU setups: the screen doesn't light up, or displays only white, etc.
-
-Until this is fixed in Smithay, you can disable 10-bit color formats by setting this debug flag.
-
-```lua
-neori.debug {
-    disable_10bit_output = true,
-}
-```
-
-### `disable-pipewire-dmabuf`
-
-Disable DMA-BUF sharing for PipeWire screencasts, forcing shared-memory buffers instead.
-
-Useful for testing shm screencasting.
-
-```lua
-neori.debug {
-    disable_pipewire_dmabuf = true,
-}
-```
-
 ### `deactivate-unfocused-windows`
 
 <sup>Since: 25.08</sup>
@@ -379,9 +352,9 @@ However, this can currently cause problems on some Intel + NVIDIA mixed-GPU setu
 
 Until this is fixed in Smithay, you can disable 10-bit color formats by setting this debug flag.
 
-```kdl
-debug {
-    disable-10bit-output
+```lua
+neori.debug {
+    disable_10bit_output = true,
 }
 ```
 
