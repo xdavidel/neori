@@ -277,6 +277,10 @@ neori.layout {
 -- }
 
 -- neori.prefer_no_csd(true)                 -- ask toplevels to hide their own title bars
+--
+-- These two options are also readable and assignable as neori.misc.prefer_no_csd and
+-- neori.misc.screenshot_path (assign nil to not save screenshots). Sections work the same
+-- way: neori.layout.gaps = 16, print(neori.layout.gaps).
 
 -- Pass false instead to not save screenshots to disk.
 neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png")

@@ -318,6 +318,39 @@ wins per field. Entry-collections that take names use the singular form, listed 
 | `neori.output("name", { … })`                                  | [Configuration: Outputs](Configuration:-Outputs.md) |
 | `neori.workspace("name", { … })`                               | [Configuration: Named Workspaces](Configuration:-Named-Workspaces.md) |
 
+### Sections as namespaces
+
+The sections above that take a table (`input`, `layout`, `cursor`, `animations`, `gestures`,
+`switch_events`, `recent_windows`, `hotkey_overlay`, `overview`, `blur`, `clipboard`,
+`config_notification`, `xwayland_satellite`, `environment` and `debug`) can also be read and
+assigned field by field:
+
+```lua
+neori.layout { gaps = 10, focus_ring = { width = 4 } }
+neori.layout.gaps = 16                 -- set one field
+neori.layout.focus_ring.width = 2      -- nested fields work once the subsection is set
+print(neori.layout.gaps)               --> 16
+neori.cursor.xcursor_size = 32         -- creates the section if needed
+neori.input = { keyboard = { numlock = true } }  -- same as calling neori.input { … }
+```
+
+A read returns what the config has set so far, or `nil` for a field it hasn't set (it doesn't
+know neori's defaults). Inside callbacks it returns what the loaded config set. Calling a
+section with a table replaces what was set in it before.
+
+The options that aren't sections live in `neori.misc`, which works the same way:
+
+```lua
+neori.misc.prefer_no_csd = true
+neori.misc.screenshot_path = nil       -- don't save screenshots (reads back as false)
+neori.misc { prefer_no_csd = true, screenshot_path = "~/Pictures/%Y-%m-%d.png" }
+print(neori.misc.prefer_no_csd)        --> true
+```
+
+`neori.prefer_no_csd(true)` and `neori.screenshot_path("…")` keep working and set the same
+options. Assigning to an API function (`neori.prefer_no_csd = true`) is an error, since it
+would replace the function and set nothing.
+
 The plural `neori.outputs` / `neori.workspaces` / `neori.windows` are **runtime lookup
 functions** — they return the current objects and are documented in the sections
 below. There is no `neori.outputs(table)` / `neori.workspaces(table)` section setter;

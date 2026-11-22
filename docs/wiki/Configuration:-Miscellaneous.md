@@ -126,6 +126,13 @@ Pass `false` to disable saving screenshots to disk.
 neori.screenshot_path(false)
 ```
 
+Both options are also fields of `neori.misc`, which can be read back:
+
+```lua
+neori.misc.prefer_no_csd = true
+neori.misc.screenshot_path = nil -- don't save screenshots
+```
+
 ### `environment`
 
 Override environment variables for processes spawned by neori.

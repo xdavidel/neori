@@ -253,49 +253,89 @@ function neori.pointer() end
 ---@return string?
 function neori.keyboard_layout() end
 
--- Config sections. Each call merges its table into the section; see the Configuration pages
--- of the wiki for the fields.
+-- Config sections. Call one with a table to set the section, or read and assign its fields:
+--
+--     neori.layout { gaps = 10 }
+--     neori.layout.gaps = 16
+--     print(neori.layout.gaps) --> 16
+--
+-- A read returns what the config has set so far, or nil. See the Configuration pages of the
+-- wiki for the fields.
 
----@param config table
-function neori.input(config) end
----@param config table
-function neori.layout(config) end
----@param config table
-function neori.cursor(config) end
----@param config table
-function neori.binds(config) end
----@param config table
-function neori.animations(config) end
----@param config table
-function neori.gestures(config) end
----@param config table
-function neori.switch_events(config) end
----@param config table
-function neori.recent_windows(config) end
----@param config table
-function neori.hotkey_overlay(config) end
----@param config table
-function neori.overview(config) end
----@param config table
-function neori.blur(config) end
----@param config table
-function neori.clipboard(config) end
----@param config table
-function neori.config_notification(config) end
----@param config table
-function neori.xwayland_satellite(config) end
----Environment variables for programs spawned by neori. `false` unsets a variable.
----@param variables table<string, string|number|false>
-function neori.environment(variables) end
----@param config table
-function neori.debug(config) end
+---A config section: callable with a table, and indexable for its fields.
+---@class neori.Section
+---@overload fun(config: table)
+---@field [string] any
+
+---Input devices: keyboard, touchpad, mouse, tablet, touch. See the Configuration: Input wiki page.
+---@type neori.Section
+neori.input = {}
+---Layout: gaps, focus ring, border, shadow, column widths. See the Configuration: Layout wiki page.
+---@type neori.Section
+neori.layout = {}
+---Cursor theme, size, hiding, shake-to-find.
+---@type neori.Section
+neori.cursor = {}
+---Animations. See the Configuration: Animations wiki page.
+---@type neori.Section
+neori.animations = {}
+---Gestures and hot corners. See the Configuration: Gestures wiki page.
+---@type neori.Section
+neori.gestures = {}
+---Actions for lid and tablet-mode switches. See the Configuration: Switch Events wiki page.
+---@type neori.Section
+neori.switch_events = {}
+---The recent windows switcher. See the Configuration: Recent Windows wiki page.
+---@type neori.Section
+neori.recent_windows = {}
+---The hotkey overlay.
+---@type neori.Section
+neori.hotkey_overlay = {}
+---The overview.
+---@type neori.Section
+neori.overview = {}
+---Background blur.
+---@type neori.Section
+neori.blur = {}
+---Clipboard settings.
+---@type neori.Section
+neori.clipboard = {}
+---The config error notification.
+---@type neori.Section
+neori.config_notification = {}
+---Xwayland through xwayland-satellite.
+---@type neori.Section
+neori.xwayland_satellite = {}
+---Environment variables for programs spawned by neori; `false` unsets a variable.
+---@type neori.Section
+neori.environment = {}
+---Debug options.
+---@type neori.Section
+neori.debug = {}
+
+---The options that aren't sections: call it with a table, or read and assign them.
+---@class neori.Misc
+---@overload fun(options: { prefer_no_csd?: boolean, screenshot_path?: string|false })
 ---Ask apps to not draw their own title bars and borders.
+---@field prefer_no_csd boolean?
+---Where screenshots are saved, as a `strftime` pattern (`~` expands to the home directory).
+---Assigning nil (read back as false) turns saving off.
+---@field screenshot_path string|false|nil
+
+---`neori.misc.prefer_no_csd = true`, `neori.misc.screenshot_path = nil`, …
+---@type neori.Misc
+neori.misc = {}
+
+---Ask apps to not draw their own title bars and borders. Same as `neori.misc.prefer_no_csd`.
 ---@param prefer boolean
 function neori.prefer_no_csd(prefer) end
 ---Where screenshots are saved, as a `strftime` pattern (`~` expands to the home directory), or
----false to not save them.
+---false to not save them. Same as `neori.misc.screenshot_path`.
 ---@param path string|false
 function neori.screenshot_path(path) end
+---Sets the binds section, as a table of key = action. `neori.bind` is usually easier.
+---@param binds table
+function neori.binds(binds) end
 ---Replaces all window rules.
 ---@param rules table[]
 function neori.window_rules(rules) end

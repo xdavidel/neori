@@ -1,13 +1,13 @@
 //! Keeps the LuaLS type stubs in `resources/lua/neori.lua` in sync with the real Lua API.
 //!
-//! Every function of the `neori` table, every method of the `Window`, `Output`, `Workspace` and
-//! `Device` userdata, the built-in signals and the bind options must be declared in the stubs,
-//! and the stubs must not declare anything that doesn't exist.
+//! Every function and namespace of the `neori` table, every method of the `Window`, `Output`,
+//! `Workspace` and `Device` userdata, the built-in signals and the bind options must be declared in
+//! the stubs, and the stubs must not declare anything that doesn't exist.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use neori_config::parse_lua::BIND_OPTIONS;
+use neori_config::parse_lua::{BIND_OPTIONS, CONFIG_SECTIONS};
 use neori_config::signals::BUILTIN_SIGNALS;
 use neori_config::{mlua, Config};
 use regex::Regex;
@@ -47,29 +47,50 @@ fn stubs_are_valid_lua() {
 }
 
 #[test]
-fn stubs_declare_every_neori_function() {
+fn stubs_declare_every_neori_function_and_namespace() {
     let (_config, host) = Config::parse_with_host(
         Path::new("test.lua"),
         r#"
-        api = {}
+        functions, namespaces = {}, {}
         for name, value in pairs(neori) do
-            if type(value) == "function" then api[#api + 1] = name end
+            if type(value) == "function" then
+                functions[#functions + 1] = name
+            elseif type(value) == "table" then
+                namespaces[#namespaces + 1] = name
+            end
         end
         "#,
     )
     .config
     .unwrap();
-    let mlua::Value::Table(api) = host.read_global("api").unwrap() else {
-        panic!("api is not a table");
+    let names = |global: &str| -> BTreeSet<String> {
+        let mlua::Value::Table(list) = host.read_global(global).unwrap() else {
+            panic!("{global} is not a table");
+        };
+        list.sequence_values::<String>()
+            .map(Result::unwrap)
+            .collect()
     };
-    let api: BTreeSet<String> = api
-        .sequence_values::<String>()
-        .map(Result::unwrap)
-        .collect();
+    let declared = |pattern: &str| -> BTreeSet<String> {
+        let re = Regex::new(pattern).unwrap();
+        re.captures_iter(STUBS).map(|c| c[1].to_owned()).collect()
+    };
 
-    let re = Regex::new(r"(?m)^function neori\.(\w+)\(").unwrap();
-    let stubs: BTreeSet<String> = re.captures_iter(STUBS).map(|c| c[1].to_owned()).collect();
-    assert_same("neori functions", &stubs, &api);
+    assert_same(
+        "neori functions",
+        &declared(r"(?m)^function neori\.(\w+)\("),
+        &names("functions"),
+    );
+    // Config sections and neori.misc, declared as `neori.<name> = {}`.
+    assert_same(
+        "neori namespaces",
+        &declared(r"(?m)^neori\.(\w+) = \{\}"),
+        &names("namespaces"),
+    );
+    let sections: BTreeSet<String> = CONFIG_SECTIONS.iter().map(|s| s.to_string()).collect();
+    let mut expected = sections.clone();
+    expected.insert("misc".to_owned());
+    assert_eq!(names("namespaces"), expected);
 }
 
 #[test]

@@ -1905,7 +1905,28 @@ fn setup_neori_api(
         neori.set("remove_virtual_output", func).map_err(err)?;
     }
 
-    // Whole-section setters: neori.input { ... }, neori.layout { ... } and so on.
+    // Config sections: neori.layout { ... } sets the section, and neori.layout.gaps reads or
+    // assigns one field (see SECTION_LUA).
+    {
+        let make_section: mlua::Function = lua
+            .load(SECTION_LUA)
+            .set_name("neori section")
+            .into_function()
+            .map_err(err)?;
+        for &name in CONFIG_SECTIONS {
+            let section: LuaTable = make_section.call((data.clone(), name)).map_err(err)?;
+            neori.set(name, section).map_err(err)?;
+        }
+        let make_misc: mlua::Function = lua
+            .load(MISC_LUA)
+            .set_name("neori.misc")
+            .into_function()
+            .map_err(err)?;
+        let misc: LuaTable = make_misc.call(data.clone()).map_err(err)?;
+        neori.set("misc", misc).map_err(err)?;
+    }
+
+    // Whole-section setters that stay plain functions: lists and single values.
     //
     // "outputs" and "workspaces" are deliberately absent here: the collision-free
     // spellings for declaring entries are `neori.output("name", { … })` /
@@ -1913,21 +1934,6 @@ fn setup_neori_api(
     // functions instead. Shipped configs always use the singular entry form.
     for name in [
         "binds",
-        "input",
-        "layout",
-        "cursor",
-        "hotkey_overlay",
-        "config_notification",
-        "clipboard",
-        "animations",
-        "blur",
-        "gestures",
-        "overview",
-        "xwayland_satellite",
-        "switch_events",
-        "debug",
-        "recent_windows",
-        "environment",
         "prefer_no_csd",
         "screenshot_path",
         "window_rules",
@@ -2155,11 +2161,112 @@ fn setup_neori_api(
     Ok(data)
 }
 
+/// The config sections that are also namespaces: `neori.layout { ... }` sets the section, and
+/// `neori.layout.gaps` reads or assigns one field.
+pub const CONFIG_SECTIONS: &[&str] = &[
+    "input",
+    "layout",
+    "cursor",
+    "hotkey_overlay",
+    "config_notification",
+    "clipboard",
+    "animations",
+    "blur",
+    "gestures",
+    "overview",
+    "xwayland_satellite",
+    "switch_events",
+    "debug",
+    "recent_windows",
+    "environment",
+];
+
+/// Makes a config section object for `data[name]`.
+///
+/// Calling it sets the section, like before. Reading a field returns what the config has set so
+/// far (nil if unset), and assigning a field sets just that field, creating the section if
+/// needed.
+const SECTION_LUA: &str = r#"
+local data, name = ...
+return setmetatable({}, {
+    __call = function(_, value)
+        data[name] = value
+    end,
+    __index = function(_, key)
+        local section = data[name]
+        if type(section) == "table" then
+            return section[key]
+        end
+    end,
+    __newindex = function(_, key, value)
+        local section = data[name]
+        if section == nil then
+            section = {}
+            data[name] = section
+        end
+        if type(section) ~= "table" then
+            error("neori." .. name .. " was set to a " .. type(section) .. ", not a table", 2)
+        end
+        section[key] = value
+    end,
+    __pairs = function()
+        local section = data[name]
+        return next, type(section) == "table" and section or {}, nil
+    end,
+    __metatable = false,
+})
+"#;
+
+/// Makes `neori.misc`, the namespace of the options that aren't sections.
+///
+/// Assigning nil to `screenshot_path` turns saving off: a nil value can't be stored in a table,
+/// so it's stored as false, which the parser reads as "don't save".
+const MISC_LUA: &str = r#"
+local data = ...
+local options = { prefer_no_csd = true, screenshot_path = true }
+local function check(key)
+    if not options[key] then
+        error("neori.misc has no option " .. tostring(key)
+            .. " (options: prefer_no_csd, screenshot_path)", 3)
+    end
+end
+local function set(key, value)
+    check(key)
+    if key == "screenshot_path" and value == nil then
+        value = false
+    end
+    data[key] = value
+end
+return setmetatable({}, {
+    __index = function(_, key)
+        check(key)
+        return data[key]
+    end,
+    __newindex = function(_, key, value)
+        set(key, value)
+    end,
+    __call = function(_, values)
+        for key, value in pairs(values) do
+            set(key, value)
+        end
+    end,
+    __pairs = function()
+        local values = {}
+        for key in pairs(options) do
+            values[key] = data[key]
+        end
+        return next, values, nil
+    end,
+    __metatable = false,
+})
+"#;
+
 /// Wraps the `neori` API table so that its functions can't be overwritten.
 ///
 /// `neori.prefer_no_csd = true` looks like it sets an option, but would only replace the
 /// function and set nothing. Assigning to an API function raises an error that shows the call
-/// form instead. New fields (`neori.my_helper = …`, to share code between included files) are
+/// form instead. Assigning to a config section (`neori.layout = { … }`) sets the section, like
+/// calling it. New fields (`neori.my_helper = …`, to share code between included files) are
 /// fine, and `pairs(neori)` still lists the API.
 fn protect_api(lua: &Lua, api: LuaTable) -> LuaResult<LuaTable> {
     let proxy = lua.create_table()?;
@@ -2170,14 +2277,20 @@ fn protect_api(lua: &Lua, api: LuaTable) -> LuaResult<LuaTable> {
         meta.set(
             "__newindex",
             lua.create_function(move |_, (_, key, value): (LuaTable, Value, Value)| {
-                if let Value::Function(_) = api.raw_get::<Value>(key.clone())? {
-                    let name = key.to_string()?;
-                    return Err(LuaError::runtime(format!(
-                        "neori.{name} is a function and can't be assigned: call it instead, \
-                         like neori.{name}(...)"
-                    )));
+                match api.raw_get::<Value>(key.clone())? {
+                    Value::Function(_) => {
+                        let name = key.to_string()?;
+                        Err(LuaError::runtime(format!(
+                            "neori.{name} is a function and can't be assigned: call it \
+                             instead, like neori.{name}(...)"
+                        )))
+                    }
+                    // A config section or neori.misc: assigning sets it, like calling it.
+                    Value::Table(section) if section.metatable().is_some() => {
+                        section.call::<()>(value)
+                    }
+                    _ => api.raw_set(key, value),
                 }
-                api.raw_set(key, value)
             })?,
         )?;
     }

@@ -2447,6 +2447,94 @@ mod tests {
     }
 
     #[test]
+    fn config_sections_are_namespaces() {
+        let (config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            unset_gaps = neori.layout.gaps            -- nil: nothing set yet
+            neori.layout { gaps = 3, focus_ring = { width = 2 } }
+            after_call = neori.layout.gaps            -- 3
+            neori.layout.gaps = 7                     -- one field
+            neori.layout.focus_ring.width = 5         -- nested, the subsection exists
+            after_assign = neori.layout.gaps          -- 7
+            neori.cursor.xcursor_size = 32            -- creates the section
+            neori.input = { keyboard = { numlock = true } }  -- whole section, like a call
+            fields = 0
+            for _ in pairs(neori.layout) do fields = fields + 1 end
+            neori.bind("Mod+T", function() at_runtime = neori.layout.gaps end)
+            "#,
+        )
+        .config
+        .unwrap();
+        assert_eq!(config.layout.gaps, 7.0);
+        assert_eq!(config.layout.focus_ring.width, 5.0);
+        assert_eq!(config.cursor.xcursor_size, 32);
+        assert!(config.input.keyboard.numlock);
+
+        let int = |name: &str| match host.read_global(name).unwrap() {
+            mlua::Value::Integer(n) => n,
+            other => panic!("{name} is {other:?}"),
+        };
+        assert!(matches!(
+            host.read_global("unset_gaps").unwrap(),
+            mlua::Value::Nil
+        ));
+        assert_eq!(int("after_call"), 3);
+        assert_eq!(int("after_assign"), 7);
+        assert_eq!(int("fields"), 2);
+
+        // Inside a callback, a read gives what the loaded config set.
+        run_bind(&host, &mut FakeContext::default());
+        assert_eq!(int("at_runtime"), 7);
+    }
+
+    #[test]
+    fn neori_misc() {
+        let (config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.misc.prefer_no_csd = true
+            csd = neori.misc.prefer_no_csd
+            neori.misc.screenshot_path = nil          -- don't save screenshots
+            path = neori.misc.screenshot_path         -- false
+            "#,
+        )
+        .config
+        .unwrap();
+        assert!(config.prefer_no_csd);
+        assert_eq!(config.screenshot_path.0, None);
+        assert!(matches!(
+            host.read_global("csd").unwrap(),
+            mlua::Value::Boolean(true)
+        ));
+        assert!(matches!(
+            host.read_global("path").unwrap(),
+            mlua::Value::Boolean(false)
+        ));
+
+        // Callable with a table; the function forms set the same options.
+        let config = Config::parse_mem(
+            r#"
+            neori.misc { screenshot_path = "~/a.png" }
+            neori.prefer_no_csd(true)
+            assert(neori.misc.prefer_no_csd == true)
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.screenshot_path.0.as_deref(), Some("~/a.png"));
+        assert!(config.prefer_no_csd);
+
+        let msg = format!(
+            "{:?}",
+            Config::parse_mem("neori.misc.prefer_no_cds = true").unwrap_err()
+        );
+        assert!(
+            msg.contains("neori.misc has no option prefer_no_cds"),
+            "{msg}"
+        );
+    }
+
+    #[test]
     fn false_disables_screenshots_and_unsets_environment_variables() {
         let config = Config::parse_mem(
             r#"
