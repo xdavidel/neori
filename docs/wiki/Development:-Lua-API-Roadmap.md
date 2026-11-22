@@ -13,20 +13,21 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - The wibox/cairo widget toolkit and title bars: out of scope, shells like noctalia cover this.
 - A global `key-pressed` signal: it would hand every keystroke to Lua. At most an opt-in for debugging.
 
-### Phase 0: foundations
+### Phase 0: foundations (done)
 
 - **Live handles.**
   A `Window`, `Output` or `Workspace` holds an id instead of a snapshot.
   Reading a property looks up the current compositor state, and setters and methods apply directly
   rather than being queued as actions.
-  Callbacks run inside an mlua scope that lends them the compositor state.
+  Callbacks run with the compositor state lent to them through a script context.
 - **Signals.**
   One registry with `connect`, `disconnect` and `emit`, both global and per object, including
   user-defined signals.
   `neori.on(event, fn)` stays as an alias for connecting a global signal.
 - **No cost when unused.**
   Firing a signal that has no Lua handler must stay free, like the existing event helpers.
-- **LuaLS type stubs** generated from the API definitions, for editor completion.
+- **LuaLS type stubs** for editor completion, in `resources/lua/neori.lua`. They're written by hand,
+  and a test checks them against the real API.
 
 ### Phase 1: high value features
 

@@ -4697,6 +4697,17 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
     Ok(())
 }
 
+/// The canonical names of the bind options, as [`BindOptions::apply`] returns them.
+pub const BIND_OPTIONS: &[&str] = &[
+    "repeat",
+    "cooldown_ms",
+    "allow_when_locked",
+    "allow_inhibiting",
+    "pass_through",
+    "keycode",
+    "hotkey_overlay_title",
+];
+
 /// The options of a bind, given in its action table or in the options table of `neori.bind`.
 struct BindOptions {
     /// `None` means the default: repeat unless the bind has a release action.
@@ -4852,9 +4863,8 @@ fn parse_bind_entry(
                 Some(_) => {}
                 None => {
                     return Err(format!(
-                        "bind {key_name}: unknown bind option `{oks}` (expected repeat, \
-                         cooldown_ms, allow_when_locked, allow_inhibiting, pass_through, keycode \
-                         or hotkey_overlay_title)"
+                        "bind {key_name}: unknown bind option `{oks}` (expected one of: {})",
+                        BIND_OPTIONS.join(", ")
                     ));
                 }
             }

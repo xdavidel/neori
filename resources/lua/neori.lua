@@ -1,0 +1,581 @@
+---@meta neori
+
+-- Type definitions of neori's Lua API, for lua-language-server (LuaLS).
+--
+-- Point LuaLS at the directory that holds this file, for example in a `.luarc.json` next to
+-- your config:
+--
+--     { "workspace.library": ["/run/current-system/sw/share/neori/lua"] }
+--
+-- This file is only read by the language server; neori itself never loads it.
+
+--------------------------------------------------------------------------------
+-- Shared types
+--------------------------------------------------------------------------------
+
+---A signal that the compositor emits.
+---@alias neori.Signal
+---| "startup" # The compositor started.
+---| "monitor-added" # A monitor was connected.
+---| "monitor-removed" # A monitor was disconnected.
+---| "lid-open" # The laptop lid was opened.
+---| "lid-closed" # The laptop lid was closed.
+---| "tablet-mode-on" # Tablet mode was turned on.
+---| "tablet-mode-off" # Tablet mode was turned off.
+---| "window-opening" # A window is about to open; `w:open_*` methods set where.
+---| "window-opened" # A window opened.
+---| "window-closed" # A window closed.
+---| "window-focused" # A window got keyboard focus.
+---| "workspace-focused" # A workspace became the active one.
+---| "workspace-added" # A workspace was created.
+---| "workspace-removed" # A workspace was removed.
+---| "output-focused" # An output became the active one.
+---| "layout-changed" # The keyboard layout changed.
+
+---An action: an action name like `"close-window"` (with its arguments, as in
+---`"focus-workspace 2"`), or an action table like `{ focus_workspace = 2 }` or the result of
+---`neori.spawn`.
+---@alias neori.Action string|table
+
+---Options of a bind, the third argument of `neori.bind`.
+---@class neori.BindOptions
+---Repeat the action while the key is held. Defaults to true, unless the bind has a release
+---action.
+---@field repeat? boolean
+---Ignore the bind for this many milliseconds after it fires.
+---@field cooldown_ms? integer
+---Also run while the session is locked.
+---@field allow_when_locked? boolean
+---Let apps inhibit the bind (keyboard shortcuts inhibitor). Defaults to true.
+---@field allow_inhibiting? boolean
+---Also send the key to the focused app.
+---@field pass_through? boolean
+---Match the physical key (keycode) instead of the symbol of the current layout.
+---@field keycode? boolean
+---Title in the hotkey overlay. `nil` hides the bind from it.
+---@field hotkey_overlay_title? string
+
+---A bind whose actions run on press and on release.
+---@class neori.PressRelease
+---@field press? neori.Action|fun()
+---@field release? neori.Action|fun()
+
+---A position in the compositor's global logical space.
+---@class neori.Point
+---@field x number
+---@field y number
+
+---@class neori.Pointer: neori.Point
+---Connector name of the output under the pointer.
+---@field output? string
+
+---The workspace of a window.
+---@class neori.WindowWorkspace
+---Global 1-based index.
+---@field idx integer
+---@field name? string
+
+---A signal, as listed by `neori.signals()` and `obj:signals()`.
+---@class neori.SignalInfo
+---@field name string
+---True for signals that the compositor emits, false for custom ones.
+---@field builtin boolean
+---How many functions are connected to it.
+---@field handlers integer
+---What happened (built-in signals only).
+---@field description? string
+---What the functions receive (built-in signals only).
+---@field args? string
+---The short name it has on objects, like `"closed"` (`neori.signals()`, for built-in signals
+---that reach objects).
+---@field object_signal? string
+---How many functions are connected to `object_signal`, across all objects.
+---@field object_handlers? integer
+
+--------------------------------------------------------------------------------
+-- neori
+--------------------------------------------------------------------------------
+
+---The neori API.
+---@class neori
+neori = {}
+
+-- Binds and actions
+
+---Binds a key to an action, a Lua function, or press and release actions.
+---
+---```lua
+---neori.bind("Mod+Q", "close-window")
+---neori.bind("Mod+Return", neori.spawn("kitty"), { hotkey_overlay_title = "Terminal" })
+---neori.bind("Mod+F1", function() print("pressed") end, { ["repeat"] = false })
+---```
+---@param key string A key combination, like `"Mod+Shift+E"` or `"Mod+WheelScrollDown"`.
+---@param action neori.Action|neori.PressRelease|fun()
+---@param options? neori.BindOptions
+function neori.bind(key, action, options) end
+
+---Runs an action right away. Only works inside a callback.
+---
+---```lua
+---neori.action("focus-workspace", 2)
+---neori.action("spawn", { "kitty", "-e", "htop" })
+---```
+---@param name string An action name, in kebab or snake case.
+---@param args? any The action's argument: a value, a sequence, or a table of fields.
+function neori.action(name, args) end
+
+---Builds a `spawn` action that runs a program directly. A trailing table of bind options is
+---merged in.
+---@param ... string|string[]|neori.BindOptions The command and its arguments.
+---@return table
+function neori.spawn(...) end
+
+---Builds a `spawn` action that runs a command through `sh -c`.
+---@param command string
+---@param options? neori.BindOptions
+---@return table
+function neori.spawn_sh(command, options) end
+
+---Builds a `create-virtual-output` action.
+---@param options? { name?: string, width?: integer, height?: integer, refresh_rate?: integer }
+---@return table
+function neori.create_virtual_output(options) end
+
+---Builds a `remove-virtual-output` action.
+---@param name string|{ name: string }
+---@return table
+function neori.remove_virtual_output(name) end
+
+---Moves the cursor to global logical coordinates. Only works inside a callback.
+---@param x number
+---@param y number
+function neori.warp(x, y) end
+
+-- Signals
+
+---Connects a function to a built-in event. Like `neori.connect`, but only takes built-in
+---events, and also takes a string or table action instead of a function.
+---@overload fun(event: "startup", handler: fun()|neori.Action)
+---@overload fun(event: "monitor-added", handler: fun(connector: string, output: neori.Output)|neori.Action)
+---@overload fun(event: "monitor-removed", handler: fun(connector: string, output: neori.Output)|neori.Action)
+---@overload fun(event: "lid-open", handler: fun()|neori.Action)
+---@overload fun(event: "lid-closed", handler: fun()|neori.Action)
+---@overload fun(event: "tablet-mode-on", handler: fun()|neori.Action)
+---@overload fun(event: "tablet-mode-off", handler: fun()|neori.Action)
+---@overload fun(event: "window-opening", handler: fun(window: neori.Window))
+---@overload fun(event: "window-opened", handler: fun(window: neori.Window))
+---@overload fun(event: "window-closed", handler: fun(window: neori.Window))
+---@overload fun(event: "window-focused", handler: fun(window: neori.Window))
+---@overload fun(event: "workspace-focused", handler: fun(workspace: neori.Workspace))
+---@overload fun(event: "workspace-added", handler: fun(workspace: neori.Workspace))
+---@overload fun(event: "workspace-removed", handler: fun(workspace: neori.Workspace))
+---@overload fun(event: "output-focused", handler: fun(output: neori.Output))
+---@overload fun(event: "layout-changed", handler: fun(layout: string))
+---@param event neori.Signal
+---@param handler function|neori.Action
+function neori.on(event, handler) end
+
+---Connects a function to a signal: a built-in one, or any other name for a signal of your own.
+---Returns the function, to disconnect it later.
+---@generic F: function
+---@overload fun(signal: "startup", handler: fun()): fun()
+---@overload fun(signal: "monitor-added", handler: fun(connector: string, output: neori.Output)): fun(connector: string, output: neori.Output)
+---@overload fun(signal: "monitor-removed", handler: fun(connector: string, output: neori.Output)): fun(connector: string, output: neori.Output)
+---@overload fun(signal: "lid-open", handler: fun()): fun()
+---@overload fun(signal: "lid-closed", handler: fun()): fun()
+---@overload fun(signal: "tablet-mode-on", handler: fun()): fun()
+---@overload fun(signal: "tablet-mode-off", handler: fun()): fun()
+---@overload fun(signal: "window-opening", handler: fun(window: neori.Window)): fun(window: neori.Window)
+---@overload fun(signal: "window-opened", handler: fun(window: neori.Window)): fun(window: neori.Window)
+---@overload fun(signal: "window-closed", handler: fun(window: neori.Window)): fun(window: neori.Window)
+---@overload fun(signal: "window-focused", handler: fun(window: neori.Window)): fun(window: neori.Window)
+---@overload fun(signal: "workspace-focused", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
+---@overload fun(signal: "workspace-added", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
+---@overload fun(signal: "workspace-removed", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
+---@overload fun(signal: "output-focused", handler: fun(output: neori.Output)): fun(output: neori.Output)
+---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
+---@param signal neori.Signal|string
+---@param handler F
+---@return F
+function neori.connect(signal, handler) end
+
+---Disconnects a function from a signal, or every function if `handler` is nil. Returns whether
+---anything was disconnected.
+---@param signal neori.Signal|string
+---@param handler? function
+---@return boolean
+function neori.disconnect(signal, handler) end
+
+---Calls every function connected to a signal, right away, with the given arguments.
+---@param signal neori.Signal|string
+---@param ... any
+function neori.emit(signal, ...) end
+
+---Lists every built-in signal, then every custom signal that has handlers.
+---@return neori.SignalInfo[]
+function neori.signals() end
+
+-- Queries (only return something inside callbacks)
+
+---Every mapped window.
+---@return neori.Window[]
+function neori.windows() end
+
+---The focused window.
+---@return neori.Window?
+function neori.focused_window() end
+
+---Every connected output that is on.
+---@return neori.Output[]
+function neori.outputs() end
+
+---The focused output.
+---@return neori.Output?
+function neori.focused_output() end
+
+---Every workspace, in global index order.
+---@return neori.Workspace[]
+function neori.workspaces() end
+
+---The focused workspace.
+---@return neori.Workspace?
+function neori.focused_workspace() end
+
+---Every input device.
+---@return neori.Device[]
+function neori.devices() end
+
+---The pointer position.
+---@return neori.Pointer?
+function neori.pointer() end
+
+---The name of the active keyboard layout, like `"English (US)"`.
+---@return string?
+function neori.keyboard_layout() end
+
+-- Config sections. Each call merges its table into the section; see the Configuration pages
+-- of the wiki for the fields.
+
+---@param config table
+function neori.input(config) end
+---@param config table
+function neori.layout(config) end
+---@param config table
+function neori.cursor(config) end
+---@param config table
+function neori.binds(config) end
+---@param config table
+function neori.animations(config) end
+---@param config table
+function neori.gestures(config) end
+---@param config table
+function neori.switch_events(config) end
+---@param config table
+function neori.recent_windows(config) end
+---@param config table
+function neori.hotkey_overlay(config) end
+---@param config table
+function neori.overview(config) end
+---@param config table
+function neori.blur(config) end
+---@param config table
+function neori.clipboard(config) end
+---@param config table
+function neori.config_notification(config) end
+---@param config table
+function neori.xwayland_satellite(config) end
+---Environment variables for programs spawned by neori.
+---@param variables table<string, string|number>
+function neori.environment(variables) end
+---@param config table
+function neori.debug(config) end
+---Ask apps to not draw their own title bars and borders.
+---@param prefer boolean
+function neori.prefer_no_csd(prefer) end
+---Where screenshots are saved, as a `strftime` pattern. `~` expands to the home directory.
+---@param path string
+function neori.screenshot_path(path) end
+---Replaces all window rules.
+---@param rules table[]
+function neori.window_rules(rules) end
+---Replaces all layer rules.
+---@param rules table[]
+function neori.layer_rules(rules) end
+---Replaces all scratchpads.
+---@param scratchpads table[]
+function neori.scratchpads(scratchpads) end
+
+---Adds a window rule.
+---@param rule table
+function neori.window_rule(rule) end
+
+---Adds a layer rule.
+---@param rule table
+function neori.layer_rule(rule) end
+
+---Configures an output, by connector name or `"make model serial"`.
+---@overload fun(config: table)
+---@param name string
+---@param config table
+function neori.output(name, config) end
+
+---Declares a named workspace.
+---@overload fun(config: table)
+---@param name string
+---@param config? table
+function neori.workspace(name, config) end
+
+---Declares a named scratchpad.
+---@overload fun(config: table)
+---@param name string
+---@param config table
+function neori.scratchpad(name, config) end
+
+-- Utilities (while the config loads)
+
+---Writes a value straight into the config data, for a field no section function covers.
+---@param key string
+---@param value any
+function neori.set(key, value) end
+
+---Turns strict parsing on (unknown config keys become errors) or off. Defaults to on.
+---@param enabled? boolean
+function neori.strict(enabled) end
+
+---Evaluates other Lua files or directories, relative to the config file.
+---@param ... string
+function neori.include(...) end
+
+--------------------------------------------------------------------------------
+-- Window
+--------------------------------------------------------------------------------
+
+---A window. Reads return its current state, even for a `Window` kept from an earlier callback;
+---once the window is closed they return its last known state. Changes apply right away.
+---@class neori.Window
+local Window = {}
+
+---Stable id, or 0 inside `window-opening`.
+---@return integer
+function Window:id() end
+---@return string?
+function Window:app_id() end
+---@return string?
+function Window:title() end
+---@return boolean
+function Window:is_focused() end
+---@return boolean
+function Window:is_floating() end
+---@return boolean
+function Window:is_fullscreen() end
+---@return neori.WindowWorkspace?
+function Window:workspace() end
+---Connector name of its output.
+---@return string?
+function Window:output() end
+
+function Window:close() end
+function Window:focus() end
+---Enters (true) or leaves (false) fullscreen, or toggles it (nil).
+---@param enable? boolean
+function Window:fullscreen(enable) end
+---Moves to the floating (true) or tiling (false) layout, or toggles it (nil).
+---@param enable? boolean
+function Window:float(enable) end
+---@param workspace integer|string A global 1-based index or a workspace name.
+function Window:send_to_workspace(workspace) end
+---@param output string Connector name.
+function Window:send_to_output(output) end
+
+---Inside `window-opening` only: open on this output.
+---@param output string
+function Window:open_on_output(output) end
+---Inside `window-opening` only: open on this named workspace.
+---@param workspace string
+function Window:open_on_workspace(workspace) end
+---Inside `window-opening` only: open fullscreen. Defaults to true.
+---@param enable? boolean
+function Window:open_fullscreen(enable) end
+---Inside `window-opening` only: open maximized. Defaults to true.
+---@param enable? boolean
+function Window:open_maximized(enable) end
+---Inside `window-opening` only: open floating. Defaults to true.
+---@param enable? boolean
+function Window:open_floating(enable) end
+
+---Connects a function to a signal of this window: `"focused"`, `"closed"`, or one of your own.
+---Returns the function.
+---@generic F: function
+---@param signal "focused"|"closed"|string
+---@param handler F
+---@return F
+function Window:connect(signal, handler) end
+---@param signal "focused"|"closed"|string
+---@param handler? function
+---@return boolean
+function Window:disconnect(signal, handler) end
+---Calls the functions connected to a signal of this window, with the window and `...`.
+---@param signal string
+---@param ... any
+function Window:emit(signal, ...) end
+---@return neori.SignalInfo[]
+function Window:signals() end
+
+--------------------------------------------------------------------------------
+-- Output
+--------------------------------------------------------------------------------
+
+---An output. Once it's turned off or unplugged, reads return its last known state and
+---`is_off()` returns true.
+---@class neori.Output
+local Output = {}
+
+---Connector name, like `"eDP-1"`.
+---@return string
+function Output:name() end
+---@return string?
+function Output:make() end
+---@return string?
+function Output:model() end
+---@return string?
+function Output:serial() end
+---Current mode, as `"WxH@HZ"`.
+---@return string?
+function Output:mode() end
+---@return string[]
+function Output:modes() end
+---@return number?
+function Output:scale() end
+---@return "normal"|"90"|"180"|"270"|"flipped"|"flipped-90"|"flipped-180"|"flipped-270"|nil
+function Output:transform() end
+---@return neori.Point?
+function Output:position() end
+---@return boolean
+function Output:is_focused() end
+---@return boolean
+function Output:is_virtual() end
+---@return boolean
+function Output:is_off() end
+---@return boolean
+function Output:vrr_supported() end
+---@return boolean
+function Output:vrr_enabled() end
+
+function Output:on() end
+function Output:off() end
+---Turns the output on (true) or off (false), or toggles it (nil).
+---@param enable? boolean
+function Output:enable(enable) end
+---@param mode string `"WxH@HZ"`, `"WxH"`, or `"auto"`.
+function Output:set_mode(mode) end
+---@param scale number|"auto"
+function Output:set_scale(scale) end
+---@param transform "normal"|"90"|"180"|"270"|"flipped"|"flipped-90"|"flipped-180"|"flipped-270"
+function Output:set_transform(transform) end
+---@param position neori.Point|"auto"
+function Output:set_position(position) end
+---@param enable boolean
+---@param on_demand? boolean
+function Output:set_vrr(enable, on_demand) end
+
+---Connects a function to a signal of this output: `"focused"`, `"added"`, `"removed"`, or one
+---of your own. Output signals are kept by connector name, so they survive a replug.
+---@generic F: function
+---@param signal "focused"|"added"|"removed"|string
+---@param handler F
+---@return F
+function Output:connect(signal, handler) end
+---@param signal "focused"|"added"|"removed"|string
+---@param handler? function
+---@return boolean
+function Output:disconnect(signal, handler) end
+---@param signal string
+---@param ... any
+function Output:emit(signal, ...) end
+---@return neori.SignalInfo[]
+function Output:signals() end
+
+--------------------------------------------------------------------------------
+-- Workspace
+--------------------------------------------------------------------------------
+
+---A workspace. Once it's removed, reads return its last known state.
+---@class neori.Workspace
+local Workspace = {}
+
+---Global 1-based index.
+---@return integer
+function Workspace:idx() end
+---Stable id.
+---@return integer
+function Workspace:id() end
+---@return string?
+function Workspace:name() end
+---Connector name of its output.
+---@return string?
+function Workspace:output() end
+---@return boolean
+function Workspace:is_focused() end
+---@return neori.Window[]
+function Workspace:windows() end
+
+function Workspace:focus() end
+---@param output string Connector name.
+function Workspace:send_to_output(output) end
+---@param name string
+function Workspace:set_name(name) end
+function Workspace:unset_name() end
+
+---Connects a function to a signal of this workspace: `"focused"`, `"removed"`, or one of your
+---own. Returns the function.
+---@generic F: function
+---@param signal "focused"|"removed"|string
+---@param handler F
+---@return F
+function Workspace:connect(signal, handler) end
+---@param signal "focused"|"removed"|string
+---@param handler? function
+---@return boolean
+function Workspace:disconnect(signal, handler) end
+---@param signal string
+---@param ... any
+function Workspace:emit(signal, ...) end
+---@return neori.SignalInfo[]
+function Workspace:signals() end
+
+--------------------------------------------------------------------------------
+-- Device
+--------------------------------------------------------------------------------
+
+---An input device. Changes last until the config is reloaded.
+---@class neori.Device
+local Device = {}
+
+---@return string
+function Device:name() end
+---Stable per-boot udev name, like `"event5"`.
+---@return string
+function Device:sysname() end
+---@return integer
+function Device:product_id() end
+---@return integer
+function Device:vendor_id() end
+---@return boolean
+function Device:is_pointer() end
+---@return boolean
+function Device:is_keyboard() end
+---@return boolean
+function Device:is_touch() end
+---@return boolean
+function Device:is_touchpad() end
+
+---@param enable boolean
+function Device:set_tap(enable) end
+---@param enable boolean
+function Device:set_natural_scroll(enable) end
+---@param speed number From -1.0 to 1.0.
+function Device:set_accel(speed) end
+---@param enable boolean
+function Device:set_left_handed(enable) end
+---@param disabled boolean
+function Device:set_disabled(disabled) end

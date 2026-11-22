@@ -760,6 +760,25 @@ index shifts (e.g. when workspaces on other monitors come and go). If the
 workspace has been destroyed since, the action is ignored — Lua methods never raise
 for that case.
 
+## Editor support
+
+neori ships type definitions of this API for [lua-language-server](https://luals.github.io/)
+(LuaLS), which most editors use for Lua. With them, the editor completes `neori.*` functions and
+the methods of `Window`, `Output`, `Workspace` and `Device`, knows what each event handler
+receives (`neori.on("window-closed", function(w) … end)` knows `w` is a `Window`), and warns
+about typos like `neori.fucused_window()`.
+
+The definitions are installed to `share/neori/lua/neori.lua` (on NixOS,
+`/run/current-system/sw/share/neori/lua`), and live in `resources/lua/neori.lua` in the source
+tree. Point LuaLS at that directory with a `.luarc.json` next to your config:
+
+```json
+{
+  "runtime.version": "Lua 5.4",
+  "workspace.library": ["/run/current-system/sw/share/neori/lua"]
+}
+```
+
 ## Known limitations (today)
 
 - Handlers that keep undoing each other across frames aren't stopped: a `window-focused`
