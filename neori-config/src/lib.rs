@@ -2489,6 +2489,141 @@ mod tests {
     }
 
     #[test]
+    fn section_calls_merge() {
+        let config = Config::parse_mem(
+            r#"
+            neori.layout {
+                gaps = 3,
+                focus_ring = { width = 2, active_color = "blue" },
+                preset_column_widths = { { proportion = 0.25 }, { proportion = 0.5 } },
+                struts = { left = 64, right = 64 },
+            }
+            neori.layout {
+                center_focused_column = "always",
+                focus_ring = { width = 5 },                  -- merges: the color stays
+                preset_column_widths = { { proportion = 1.0 } },  -- lists replace
+                struts = { top = 32 },                       -- struts replace
+            }
+            neori.input { keyboard = { numlock = true }, touchpad = { tap = true } }
+            neori.input { keyboard = { repeat_rate = 40 }, touchpad = { natural_scroll = true } }
+            neori.environment { A = "1" }
+            neori.environment { B = "2" }
+            "#,
+        )
+        .unwrap();
+        let layout = &config.layout;
+        assert_eq!(layout.gaps, 3.0);
+        assert_eq!(layout.center_focused_column, CenterFocusedColumn::Always);
+        assert_eq!(layout.focus_ring.width, 5.0);
+        assert_eq!(
+            layout.focus_ring.active_color,
+            Color::from_rgba8_unpremul(0, 0, 255, 255)
+        );
+        assert_eq!(layout.preset_column_widths, [PresetSize::Proportion(1.0)]);
+        assert_eq!(layout.struts.left.0, 0.0);
+        assert_eq!(layout.struts.top.0, 32.0);
+
+        // Keyboard settings merge; a pointing device section is replaced.
+        assert!(config.input.keyboard.numlock);
+        assert_eq!(config.input.keyboard.repeat_rate, 40);
+        assert!(!config.input.touchpad.tap);
+        assert!(config.input.touchpad.natural_scroll);
+
+        let mut env: Vec<_> = config
+            .environment
+            .0
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect();
+        env.sort();
+        assert_eq!(env, ["A", "B"]);
+    }
+
+    #[test]
+    fn section_merge_details() {
+        let (config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            -- A color replaces a gradient set before it.
+            neori.layout { focus_ring = { active_gradient = { from = "red", to = "blue" } } }
+            neori.layout { focus_ring = { active_color = "green" } }
+            -- Each animation is replaced as a whole.
+            neori.animations { window_open = { duration_ms = 100, curve = "linear" } }
+            neori.animations { window_open = { spring = { damping_ratio = 1.0, stiffness = 800, epsilon = 0.0001 } } }
+            -- The caller's tables aren't changed by later merges.
+            shared = { width = 1 }
+            neori.layout { border = shared }
+            neori.layout { border = { width = 9 } }
+            shared_width = shared.width
+            "#,
+        )
+        .config
+        .unwrap();
+        assert!(config.layout.focus_ring.active_gradient.is_none());
+        assert_eq!(
+            config.layout.focus_ring.active_color,
+            Color::from_rgba8_unpremul(0, 128, 0, 255)
+        );
+        assert!(matches!(
+            config.animations.window_open.anim.kind,
+            crate::animations::Kind::Spring(_)
+        ));
+        assert_eq!(config.layout.border.width, 9.0);
+        assert!(matches!(
+            host.read_global("shared_width").unwrap(),
+            mlua::Value::Integer(1)
+        ));
+    }
+
+    #[test]
+    fn section_merge_across_includes() {
+        // The examples from the Include wiki page.
+        let dir = std::env::temp_dir().join(format!("neori-merge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("colors.lua"),
+            r#"neori.layout { focus_ring = { active_color = "blue" }, border = { active_color = "green" } }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("struts.lua"),
+            "neori.layout { struts = { left = 64, right = 64 } }",
+        )
+        .unwrap();
+        let config_path = dir.join("config.lua");
+        let text = r#"
+            neori.include("colors.lua")
+            neori.layout { gaps = 8, border = { width = 8 } }
+            neori.layout { struts = { top = 64, bottom = 64 } }
+            neori.include("struts.lua")
+        "#;
+        let config = Config::parse(&config_path, text).config.unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let layout = &config.layout;
+        assert_eq!(layout.gaps, 8.0);
+        assert_eq!(layout.border.width, 8.0);
+        assert_eq!(
+            layout.border.active_color,
+            Color::from_rgba8_unpremul(0, 128, 0, 255)
+        );
+        assert_eq!(
+            layout.focus_ring.active_color,
+            Color::from_rgba8_unpremul(0, 0, 255, 255)
+        );
+        // Struts are replaced: only left and right remain.
+        assert_eq!(
+            (
+                layout.struts.left.0,
+                layout.struts.right.0,
+                layout.struts.top.0
+            ),
+            (64.0, 64.0, 0.0)
+        );
+    }
+
+    #[test]
     fn neori_misc() {
         let (config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),

@@ -130,6 +130,7 @@ neori.include("csd.lua")
 
 Some settings represent a single combined structure rather than independently mergeable properties.
 Examples are `struts`, the preset width/height lists, individual `animations` subsections, and the pointing device sections in `input`.
+Lists and gradients are always replaced as a whole, and setting a color (like `active_color`) clears a gradient set for it earlier, so the new color shows.
 
 ```lua
 -- struts.lua

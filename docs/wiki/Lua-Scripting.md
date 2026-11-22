@@ -335,8 +335,12 @@ neori.input = { keyboard = { numlock = true } }  -- same as calling neori.input 
 ```
 
 A read returns what the config has set so far, or `nil` for a field it hasn't set (it doesn't
-know neori's defaults). Inside callbacks it returns what the loaded config set. Calling a
-section with a table replaces what was set in it before.
+know neori's defaults). Inside callbacks it returns what the loaded config set.
+
+Calling a section with a table merges it into what was set before, following the rules on
+[Configuration: Include](Configuration:-Include.md#merging): subsections merge field by field,
+while lists, gradients and a few combined settings (like `struts`) are replaced. Assigning a
+field (`neori.layout.focus_ring = { … }`) replaces just that field.
 
 The options that aren't sections live in `neori.misc`, which works the same way:
 

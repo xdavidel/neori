@@ -253,7 +253,8 @@ function neori.pointer() end
 ---@return string?
 function neori.keyboard_layout() end
 
--- Config sections. Call one with a table to set the section, or read and assign its fields:
+-- Config sections. Call one with a table to merge it into the section, or read and assign its
+-- fields:
 --
 --     neori.layout { gaps = 10 }
 --     neori.layout.gaps = 16
@@ -262,7 +263,7 @@ function neori.keyboard_layout() end
 -- A read returns what the config has set so far, or nil. See the Configuration pages of the
 -- wiki for the fields.
 
----A config section: callable with a table, and indexable for its fields.
+---A config section: callable with a table to merge into it, and indexable for its fields.
 ---@class neori.Section
 ---@overload fun(config: table)
 ---@field [string] any

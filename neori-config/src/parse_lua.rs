@@ -1914,7 +1914,16 @@ fn setup_neori_api(
             .into_function()
             .map_err(err)?;
         for &name in CONFIG_SECTIONS {
-            let section: LuaTable = make_section.call((data.clone(), name)).map_err(err)?;
+            let replace = SECTION_REPLACE
+                .iter()
+                .find(|(section, _)| *section == name)
+                .map_or(&[][..], |(_, paths)| *paths);
+            let replace = lua
+                .create_sequence_from(replace.iter().copied())
+                .map_err(err)?;
+            let section: LuaTable = make_section
+                .call((data.clone(), name, replace))
+                .map_err(err)?;
             neori.set(name, section).map_err(err)?;
         }
         let make_misc: mlua::Function = lua
@@ -2181,16 +2190,98 @@ pub const CONFIG_SECTIONS: &[&str] = &[
     "environment",
 ];
 
+/// Fields of config sections that a call replaces as a whole instead of merging into, as Lua
+/// patterns matched against the field's path in its section (`"shadow.offset"`). Lists and
+/// gradients are always replaced. These follow niri's merge rules.
+const SECTION_REPLACE: &[(&str, &[&str])] = &[
+    (
+        "layout",
+        &[
+            "^struts$",
+            "^default_column_width$",
+            "^shadow%.offset$",
+            "^tab_indicator%.length$",
+        ],
+    ),
+    // Each animation is a single combined setting.
+    ("animations", &["^[^.]+$"]),
+    (
+        "input",
+        &[
+            "^touchpad$",
+            "^mouse$",
+            "^trackpoint$",
+            "^trackball$",
+            "^tablet$",
+            "^touch$",
+        ],
+    ),
+    ("overview", &["^workspace_shadow%.offset$"]),
+];
+
 /// Makes a config section object for `data[name]`.
 ///
-/// Calling it sets the section, like before. Reading a field returns what the config has set so
-/// far (nil if unset), and assigning a field sets just that field, creating the section if
-/// needed.
+/// Calling it merges a table into the section: fields it sets win, others stay. Subsections merge
+/// the same way, except lists, gradients and the fields in `replace` (see [`SECTION_REPLACE`]),
+/// which are replaced as a whole. Setting a `*_color` clears the matching `*_gradient`, so the
+/// new color shows. Merged values are copied, so the caller's tables are never changed.
+///
+/// Reading a field returns what the config has set so far (nil if unset), and assigning a field
+/// replaces just that field, creating the section if needed.
 const SECTION_LUA: &str = r#"
-local data, name = ...
+local data, name, replace = ...
+
+local function is_list(t)
+    return t[1] ~= nil
+end
+
+local function copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for k, v in pairs(value) do
+        result[k] = copy(v)
+    end
+    return result
+end
+
+local function replaced(path)
+    if path:find("_gradient$") then
+        return true
+    end
+    for _, pattern in ipairs(replace) do
+        if path:find(pattern) then
+            return true
+        end
+    end
+    return false
+end
+
+local function merge(into, from, prefix)
+    for key, value in pairs(from) do
+        local path = prefix .. tostring(key)
+        local old = into[key]
+        if type(key) == "string" and key:find("_color$") then
+            into[key:gsub("_color$", "_gradient")] = nil
+        end
+        if type(value) == "table" and type(old) == "table" and not is_list(value)
+            and not is_list(old) and not replaced(path) then
+            merge(old, value, path .. ".")
+        else
+            into[key] = copy(value)
+        end
+    end
+end
+
 return setmetatable({}, {
     __call = function(_, value)
-        data[name] = value
+        local section = data[name]
+        if type(value) == "table" and type(section) == "table" then
+            merge(section, value, "")
+        else
+            data[name] = copy(value)
+        end
     end,
     __index = function(_, key)
         local section = data[name]
