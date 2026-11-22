@@ -835,6 +835,29 @@ index shifts (e.g. when workspaces on other monitors come and go). If the
 workspace has been destroyed since, the action is ignored — Lua methods never raise
 for that case.
 
+## Running Lua from a shell
+
+`neori msg lua` runs Lua code in the compositor, in the config's Lua state, and prints what it
+returns:
+
+```sh
+neori msg lua 'neori.focused_window():title()'
+# Terminal
+neori msg lua 'neori.signals()'
+# { { args = "nothing", builtin = true, description = "the compositor started", … }, … }
+neori msg lua 'for _, w in ipairs(neori.windows()) do print(w:app_id(), w:title()) end'
+neori msg lua -f ~/snippet.lua
+```
+
+The code runs like a callback: reads are live, changes apply right away, and the config's
+globals and functions are there, so you can call helpers your config defined. An expression
+prints its values; statements can `return` values. What the code `print`s comes back to the
+terminal instead of the Lua log, and an error is reported with a non-zero exit code. `--json`
+prints `{ "printed": …, "values": [ … ] }`.
+
+The code can change anything a config callback can, so only processes of your own user can use
+it, through the IPC socket, like `neori msg action spawn`.
+
 ## Editor support
 
 neori ships type definitions of this API for [lua-language-server](https://luals.github.io/)

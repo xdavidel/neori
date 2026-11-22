@@ -2729,6 +2729,80 @@ mod tests {
     }
 
     #[test]
+    fn eval_lua_code() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            from_config = "set by the config"
+            neori.on("startup", function() end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext::new(
+            vec![WindowSnapshot {
+                id: 4,
+                title: Some("Terminal".into()),
+                ..Default::default()
+            }],
+            Some(4),
+        );
+        let mut eval = |code: &str| with_script_context(&mut ctx, || host.eval(code)?.run());
+        let values = |code: &str, eval: &mut dyn FnMut(&str) -> Result<_, String>| {
+            let out: parse_lua::LuaEvalOutput = eval(code).unwrap();
+            out.values
+        };
+
+        // Expressions, with every value they return.
+        assert_eq!(values("1 + 1", &mut eval), ["2"]);
+        assert_eq!(
+            values("1, 'two', nil, true", &mut eval),
+            ["1", "two", "nil", "true"]
+        );
+        assert_eq!(values("from_config", &mut eval), ["set by the config"]);
+        assert_eq!(
+            values("neori.focused_window():title()", &mut eval),
+            ["Terminal"]
+        );
+        assert_eq!(
+            values("neori.focused_window()", &mut eval),
+            [r#"Window(#4, app_id="?", title="Terminal")"#]
+        );
+        // Tables: the list part, then the fields sorted; strings quoted inside.
+        assert_eq!(
+            values("{ 'a', 2, z = { x = 1 }, b = 'c' }", &mut eval),
+            [r#"{ "a", 2, b = "c", z = { x = 1 } }"#]
+        );
+        assert_eq!(values("{}", &mut eval), ["{}"]);
+        assert_eq!(
+            values("{ { { { { 1 } } } } }", &mut eval),
+            ["{ { { { { … 1 entry } } } } }"]
+        );
+        let long = values(
+            "(function() local t = {} for i = 1, 150 do t[i] = i end return t end)()",
+            &mut eval,
+        );
+        assert!(long[0].ends_with(", 100, … }"), "{}", long[0]);
+
+        // Statements, which can return values; prints are collected, in order.
+        let out = eval("print('one') local x = 20 print('two', x) return x + 1").unwrap();
+        assert_eq!(out.printed, "one\ntwo\t20\n");
+        assert_eq!(out.values, ["21"]);
+        let out = eval("local y = 1").unwrap();
+        assert!(out.values.is_empty() && out.printed.is_empty());
+
+        // Errors, with what was printed before them.
+        let err = eval("print('before') error('boom')").unwrap_err();
+        assert!(err.starts_with("before\n") && err.contains("boom"), "{err}");
+        let err = eval("this is not lua").unwrap_err();
+        assert!(err.contains("syntax error"), "{err}");
+
+        // Prints go back to the log once the code is done.
+        let out = eval("return 1").unwrap();
+        assert!(out.printed.is_empty());
+    }
+
+    #[test]
     fn timers() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),

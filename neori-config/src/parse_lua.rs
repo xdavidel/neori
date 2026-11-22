@@ -52,6 +52,10 @@ pub type PrintSink = Arc<Mutex<Box<dyn Write + Send>>>;
 /// state has already been built.
 type PrintSinkSlot = Arc<Mutex<Option<PrintSink>>>;
 
+/// While `Some`, Lua `print(...)` output is collected here instead of being logged: used to send
+/// it back to `neori msg lua`.
+type PrintCapture = Arc<Mutex<Option<String>>>;
+
 /// The registry of Lua function callbacks registered via `neori.bind(key, function)`.
 ///
 /// Keyed by the [`Action::ScriptFunction`] id assigned at parse time.
@@ -1146,6 +1150,8 @@ pub struct ScriptHost {
     /// every call, so [`set_print_log`](Self::set_print_log) can swap it in at
     /// any time (including after a config reload).
     print_sink: PrintSinkSlot,
+    /// Collects `print(...)` output while `neori msg lua` code runs.
+    print_capture: PrintCapture,
 }
 
 impl ScriptHost {
@@ -1157,6 +1163,7 @@ impl ScriptHost {
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
         let print_sink: PrintSinkSlot = Arc::new(Mutex::new(None));
+        let print_capture: PrintCapture = Arc::default();
 
         // Stash the shared state that userdata methods (`w:connect(…)`, `w:open_*(…)`, …)
         // need on the Lua state, so they can reach it via `lua.app_data_ref` without a
@@ -1170,6 +1177,7 @@ impl ScriptHost {
         // line with a UTC timestamp prefix so logs are post-mortem-friendly.
         {
             let sink_slot = Arc::clone(&print_sink);
+            let capture = Arc::clone(&print_capture);
             let func = lua
                 .create_function(move |lua, args: mlua::Variadic<Value>| {
                     let tostring: mlua::Function = lua.globals().get("tostring")?;
@@ -1180,6 +1188,12 @@ impl ScriptHost {
                         }
                         let s: mlua::String = tostring.call(v)?;
                         body.push_str(&s.to_string_lossy());
+                    }
+
+                    if let Some(captured) = capture.lock().unwrap().as_mut() {
+                        captured.push_str(&body);
+                        captured.push('\n');
+                        return Ok(());
                     }
 
                     let ts = format_utc_timestamp(SystemTime::now());
@@ -1209,6 +1223,7 @@ impl ScriptHost {
             next_bind_fn_id,
             open_overrides,
             print_sink,
+            print_capture,
         })
     }
 
@@ -1447,6 +1462,33 @@ impl ScriptHost {
         })
     }
 
+    /// Compiles Lua code for `neori msg lua`.
+    ///
+    /// Like a REPL, the code is first tried as an expression, whose values are returned, then as
+    /// statements, which can `return` values. Run the result with [`LuaEval::run`], inside
+    /// [`with_script_context`](crate::context::with_script_context).
+    pub fn eval(&self, code: &str) -> Result<LuaEval, String> {
+        let expression = self
+            .lua
+            .load(format!("return {code}"))
+            .set_name("neori msg lua")
+            .into_function();
+        let fun = match expression {
+            Ok(fun) => fun,
+            Err(_) => self
+                .lua
+                .load(code)
+                .set_name("neori msg lua")
+                .into_function()
+                .map_err(|e| e.to_string())?,
+        };
+        Ok(LuaEval {
+            lua: self.lua.clone(),
+            fun,
+            capture: Arc::clone(&self.print_capture),
+        })
+    }
+
     /// Reads a global value from the Lua state, for introspection in tests.
     pub fn read_global(&self, key: &str) -> mlua::Result<Value> {
         self.lua.globals().get::<Value>(key)
@@ -1461,6 +1503,92 @@ impl ScriptHost {
     pub fn has_bind_function(&self, id: u64) -> bool {
         self.bind_functions.lock().unwrap().contains_key(&id)
     }
+}
+
+/// Lua code compiled by [`ScriptHost::eval`], ready to run.
+pub struct LuaEval {
+    lua: Lua,
+    fun: mlua::Function,
+    capture: PrintCapture,
+}
+
+/// What [`LuaEval::run`] produced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LuaEvalOutput {
+    /// What the code printed, one line per `print` call.
+    pub printed: String,
+    /// The values the code returned, formatted for reading.
+    pub values: Vec<String>,
+}
+
+impl LuaEval {
+    /// Runs the code, collecting what it prints. On error, the message starts with what it
+    /// printed before failing.
+    pub fn run(self) -> Result<LuaEvalOutput, String> {
+        *self.capture.lock().unwrap() = Some(String::new());
+        let result = self.fun.call::<mlua::MultiValue>(()).and_then(|values| {
+            values
+                .iter()
+                .map(|v| format_lua_value(&self.lua, v, 0))
+                .collect::<LuaResult<Vec<_>>>()
+        });
+        let printed = self.capture.lock().unwrap().take().unwrap_or_default();
+        match result {
+            Ok(values) => Ok(LuaEvalOutput { printed, values }),
+            Err(e) => Err(format!("{printed}{e}")),
+        }
+    }
+}
+
+/// Formats a Lua value for `neori msg lua`: strings as they are at the top level and quoted
+/// inside tables, tables as `{ … }`, and other values (objects, functions) with `tostring`.
+fn format_lua_value(lua: &Lua, value: &Value, depth: usize) -> LuaResult<String> {
+    const MAX_DEPTH: usize = 4;
+    const MAX_ENTRIES: usize = 100;
+    Ok(match value {
+        Value::String(s) if depth == 0 => s.to_string_lossy(),
+        Value::String(s) => format!("{:?}", s.to_string_lossy()),
+        Value::Table(t) if depth >= MAX_DEPTH => match t.pairs::<Value, Value>().count() {
+            1 => "{ … 1 entry }".to_owned(),
+            n => format!("{{ … {n} entries }}"),
+        },
+        Value::Table(t) => {
+            let len = t.raw_len();
+            let mut items = Vec::new();
+            for i in 1..=len.min(MAX_ENTRIES) {
+                items.push(format_lua_value(lua, &t.raw_get::<Value>(i)?, depth + 1)?);
+            }
+            let mut fields = Vec::new();
+            for pair in t.pairs::<Value, Value>() {
+                let (k, v) = pair?;
+                if let Value::Integer(i) = k {
+                    if i >= 1 && (i as usize) <= len {
+                        continue;
+                    }
+                }
+                let key = match &k {
+                    Value::String(s) => s.to_string_lossy(),
+                    other => format!("[{}]", format_lua_value(lua, other, depth + 1)?),
+                };
+                fields.push((key, format_lua_value(lua, &v, depth + 1)?));
+            }
+            fields.sort();
+            let total = len + fields.len();
+            items.extend(fields.into_iter().map(|(k, v)| format!("{k} = {v}")));
+            items.truncate(MAX_ENTRIES);
+            if items.is_empty() {
+                "{}".to_owned()
+            } else if total > MAX_ENTRIES {
+                format!("{{ {}, … }}", items.join(", "))
+            } else {
+                format!("{{ {} }}", items.join(", "))
+            }
+        }
+        other => {
+            let tostring: mlua::Function = lua.globals().get("tostring")?;
+            tostring.call::<String>(other.clone())?
+        }
+    })
 }
 
 /// Lua callbacks ready to run, detached from the [`ScriptHost`] they came from.

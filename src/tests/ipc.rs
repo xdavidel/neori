@@ -371,3 +371,85 @@ fn ipc_create_virtual_output_via_action_dispatches() {
 
     std::fs::remove_file(&path).ok();
 }
+
+/// A fixture whose config is `lua`, with its Lua host installed.
+fn fixture_with_lua(lua: &str) -> Fixture {
+    let (config, host) = Config::parse_with_host(Path::new("test.lua"), lua)
+        .config
+        .unwrap();
+    let mut fixture = Fixture::with_config(config);
+    fixture.state.server.state.install_script_host(host);
+    fixture
+}
+
+fn send_lua(fixture: &mut Fixture, path: &Path, code: &str) -> Reply {
+    send_request(
+        fixture,
+        path,
+        Request::Lua {
+            code: code.to_owned(),
+        },
+    )
+}
+
+#[test]
+fn ipc_lua_reads_and_changes_live_state() {
+    let mut fixture = fixture_with_lua("greeting = 'hello from the config'");
+    fixture.add_output(1, (1920, 1080));
+    let path = start_ipc(&mut fixture);
+
+    // An expression: its value comes back. Config globals are visible.
+    let reply = send_lua(
+        &mut fixture,
+        &path,
+        "neori.focused_output():name(), greeting",
+    );
+    let Ok(Response::LuaEvaluated(result)) = reply else {
+        panic!("unexpected reply: {reply:?}");
+    };
+    assert_eq!(result.values, ["headless-1", "hello from the config"]);
+
+    // Statements: a change applies right away, and prints come back.
+    let reply = send_lua(
+        &mut fixture,
+        &path,
+        r#"
+        neori.action("create-virtual-output", { name = "from-ipc" })
+        local names = {}
+        for _, out in ipairs(neori.outputs()) do names[#names + 1] = out:name() end
+        table.sort(names)
+        print("outputs:", #names)
+        return names
+        "#,
+    );
+    let Ok(Response::LuaEvaluated(result)) = reply else {
+        panic!("unexpected reply: {reply:?}");
+    };
+    assert_eq!(result.printed, "outputs:\t2\n");
+    assert_eq!(result.values, [r#"{ "from-ipc", "headless-1" }"#]);
+}
+
+#[test]
+fn ipc_lua_errors_are_replies() {
+    let mut fixture = fixture_with_lua("-- empty config\n");
+    fixture.add_output(1, (1920, 1080));
+    let path = start_ipc(&mut fixture);
+
+    let reply = send_lua(
+        &mut fixture,
+        &path,
+        "print('first') error('something broke')",
+    );
+    let Err(message) = reply else {
+        panic!("expected an error, got {reply:?}");
+    };
+    assert!(message.starts_with("first\n"), "{message}");
+    assert!(message.contains("something broke"), "{message}");
+
+    // Lua keeps working afterwards.
+    let reply = send_lua(&mut fixture, &path, "40 + 2");
+    assert!(
+        matches!(&reply, Ok(Response::LuaEvaluated(r)) if r.values == ["42"]),
+        "{reply:?}"
+    );
+}

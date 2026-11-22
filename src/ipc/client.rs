@@ -61,6 +61,15 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
         Msg::RequestError => Request::ReturnError,
         Msg::OverviewState => Request::OverviewState,
         Msg::Casts => Request::Casts,
+        Msg::Lua { code, file } => {
+            let code = match (code, file) {
+                (Some(code), _) => code.clone(),
+                (None, Some(file)) => std::fs::read_to_string(file)
+                    .with_context(|| format!("error reading {}", file.display()))?,
+                (None, None) => unreachable!("clap requires code or --file"),
+            };
+            Request::Lua { code }
+        }
         Msg::RawRequest => {
             let mut buf = Vec::new();
             let mut stdin = std::io::stdin().lock();
@@ -379,6 +388,22 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
             }
 
             println!("Created virtual output: {name}");
+        }
+        Msg::Lua { .. } => {
+            let Response::LuaEvaluated(result) = response else {
+                bail!("unexpected response: expected LuaEvaluated, got {response:?}");
+            };
+
+            if json {
+                let result = serde_json::to_string(&result).context("error formatting response")?;
+                println!("{result}");
+                return Ok(());
+            }
+
+            print!("{}", result.printed);
+            for value in &result.values {
+                println!("{value}");
+            }
         }
         Msg::RemoveVirtualOutput { name } => {
             let Response::Handled = response else {

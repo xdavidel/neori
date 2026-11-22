@@ -408,6 +408,25 @@ impl State {
         }
     }
 
+    /// Runs Lua code from `neori msg lua` in the config's Lua state, like a callback: reads are
+    /// live and changes apply right away. Lua events it causes are delivered after it.
+    pub fn eval_lua(
+        &mut self,
+        code: &str,
+    ) -> Result<neori_config::parse_lua::LuaEvalOutput, String> {
+        let eval = self.scripting.eval(code)?;
+        // Like an IPC action, it runs as if it didn't come from an input.
+        let running = Running {
+            depth: self.lua_events.next_depth(),
+            allow_when_locked: false,
+            time: InputTime::now(),
+        };
+        let result =
+            self.with_lua_running(running, |state| with_script_context(state, || eval.run()));
+        self.deliver_queued_lua_events();
+        result
+    }
+
     /// Installs a freshly loaded Lua host, replacing the current one: the old config's timers are
     /// dropped, and the timers the new config started while loading are armed.
     pub fn install_script_host(&mut self, host: neori_config::ScriptHost) {

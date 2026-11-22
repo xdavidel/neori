@@ -138,6 +138,15 @@ pub enum Request {
     OverviewState,
     /// Request information about screencasts.
     Casts,
+    /// Run Lua code in the config's Lua state, like a callback.
+    ///
+    /// The code can be an expression, whose values are returned, or statements, which can
+    /// `return` values. Changes it makes apply right away. Replies with
+    /// [`Response::LuaEvaluated`], or an error if the code fails.
+    Lua {
+        /// The Lua code to run.
+        code: String,
+    },
 }
 
 /// Reply from neori to client.
@@ -186,6 +195,18 @@ pub enum Response {
     OverviewState(Overview),
     /// Information about screencasts.
     Casts(Vec<Cast>),
+    /// Lua code ran.
+    LuaEvaluated(LuaEvaluated),
+}
+
+/// The result of running Lua code with [`Request::Lua`].
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct LuaEvaluated {
+    /// What the code printed with `print`, one line per call.
+    pub printed: String,
+    /// The values the code returned, formatted for reading.
+    pub values: Vec<String>,
 }
 
 /// Overview information.

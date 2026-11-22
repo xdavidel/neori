@@ -8,6 +8,15 @@ For example, `neori msg --json outputs`.
 > If you're getting parsing errors from `neori msg` after upgrading neori, make sure that you've restarted neori itself.
 > You might be trying to run a newer `neori msg` against an older `neori` compositor.
 
+### Running Lua
+
+`neori msg lua` runs Lua code in the compositor, in your config's Lua state, and prints what it
+returns. See [Lua Scripting](./Lua-Scripting.md#running-lua-from-a-shell).
+
+```sh
+neori msg lua 'neori.focused_window():title()'
+```
+
 ### Event Stream
 
 <sup>Since: 0.1.9</sup>

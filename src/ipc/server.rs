@@ -512,6 +512,21 @@ async fn process(ctx: &ClientCtx, request: Request) -> Reply {
             let is_open = state.overview.is_open;
             Response::OverviewState(Overview { is_open })
         }
+        Request::Lua { code } => {
+            let (tx, rx) = async_channel::bounded(1);
+            ctx.event_loop.insert_idle(move |state| {
+                let result = state.eval_lua(&code);
+                let _ = tx.send_blocking(result);
+            });
+            let result = rx
+                .recv()
+                .await
+                .map_err(|_| String::from("error running Lua code"))??;
+            Response::LuaEvaluated(neori_ipc::LuaEvaluated {
+                printed: result.printed,
+                values: result.values,
+            })
+        }
         Request::Casts => {
             let state = ctx.event_stream_state.borrow();
             let casts = state.casts.casts.values().cloned().collect();

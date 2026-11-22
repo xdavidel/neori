@@ -137,6 +137,18 @@ pub enum Msg {
     Casts,
     /// Send a raw JSON request to the compositor, reading from stdin.
     RawRequest,
+    /// Run Lua code in the compositor, in the config's Lua state.
+    ///
+    /// An expression prints its value: `neori msg lua 'neori.focused_window():title()'`.
+    /// Statements can `return` values. Changes apply right away.
+    Lua {
+        /// The Lua code to run.
+        #[arg(required_unless_present = "file", conflicts_with = "file")]
+        code: Option<String>,
+        /// Run the Lua code in this file instead.
+        #[arg(short, long)]
+        file: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]

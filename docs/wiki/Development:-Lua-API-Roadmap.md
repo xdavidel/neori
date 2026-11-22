@@ -37,7 +37,7 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   `window::workspace`, `workspace::name`, `output::mode`, fired from the existing IPC diff.
 - **Keybinding modes:** `neori.mode("resize", { ... })`, `neori.enter_mode(name)`,
   `neori.exit_mode()`, shown in the hotkey overlay.
-- **Lua over IPC:** `neori msg lua '<expr>'` and `neori msg lua -f script.lua`.
+- **Lua over IPC (done):** `neori msg lua '<expr>'` and `neori msg lua -f script.lua`.
   The socket is only accessible to the same user, like the existing `spawn` action.
 - **Lifecycle:** `neori.is_startup()`, plus `reload` and `shutdown` signals.
 
