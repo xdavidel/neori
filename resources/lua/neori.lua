@@ -151,6 +151,22 @@ function neori.remove_virtual_output(name) end
 ---@param y number
 function neori.warp(x, y) end
 
+-- Timers
+
+---Calls `callback` once, after `ms` milliseconds. Returns the timer, which the callback also
+---receives. Timers made while the config loads start once it has loaded; a config reload
+---drops the old config's timers.
+---@param ms integer
+---@param callback fun(timer: neori.Timer)
+---@return neori.Timer
+function neori.after(ms, callback) end
+
+---Calls `callback` every `ms` milliseconds, until the timer is stopped.
+---@param ms integer At least 1.
+---@param callback fun(timer: neori.Timer)
+---@return neori.Timer
+function neori.every(ms, callback) end
+
 -- Signals
 
 ---Connects a function to a built-in event. Like `neori.connect`, but only takes built-in
@@ -584,6 +600,28 @@ function Workspace:disconnect(signal, handler) end
 function Workspace:emit(signal, ...) end
 ---@return neori.SignalInfo[]
 function Workspace:signals() end
+
+--------------------------------------------------------------------------------
+-- Timer
+--------------------------------------------------------------------------------
+
+---A timer made with `neori.after` or `neori.every`.
+---@class neori.Timer
+local Timer = {}
+
+---Starts a stopped timer. A running one keeps its countdown.
+function Timer:start() end
+---Starts the countdown again from the full timeout, whether the timer was running or not.
+function Timer:again() end
+function Timer:stop() end
+---@return boolean
+function Timer:is_running() end
+---The timeout, in milliseconds.
+---@return integer
+function Timer:timeout() end
+---Changes the timeout, from the next `start` or `again`.
+---@param ms integer
+function Timer:set_timeout(ms) end
 
 --------------------------------------------------------------------------------
 -- Device

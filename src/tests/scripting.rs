@@ -19,7 +19,7 @@ fn fixture_from_lua(snippet: &str) -> Fixture {
         .config
         .expect("lua snippet failed to parse");
     let mut fixture = Fixture::with_config(config);
-    fixture.state.server.state.scripting = host;
+    fixture.state.server.state.install_script_host(host);
     fixture
 }
 
@@ -2572,4 +2572,133 @@ fn fullscreen_true_twice_stays_fullscreen() {
     // A second press, still before the app has acknowledged anything.
     press_first_function_bind(&mut f);
     assert!(wants_fullscreen(&mut f));
+}
+
+/// Lets `ms` milliseconds pass, then runs the event loop so that due timers fire.
+fn wait_ms(f: &mut Fixture, ms: u64) {
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+}
+
+#[test]
+fn after_fires_once() {
+    let mut f = fixture_from_lua(
+        r#"
+        fired = 0
+        neori.after(200, function(t) fired = fired + 1; still_running = t:is_running() end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+    // Far less than 200 ms since the config loaded, even on a slow machine.
+    assert_eq!(read_global_int(&f, "fired"), 0, "too early");
+
+    wait_ms(&mut f, 250);
+    assert_eq!(read_global_int(&f, "fired"), 1);
+    assert!(matches!(
+        f.state
+            .server
+            .state
+            .scripting
+            .read_global("still_running")
+            .unwrap(),
+        neori_config::mlua::Value::Boolean(false)
+    ));
+    wait_ms(&mut f, 30);
+    assert_eq!(
+        read_global_int(&f, "fired"),
+        1,
+        "a one-shot timer fires once"
+    );
+}
+
+#[test]
+fn every_repeats_until_stopped() {
+    let mut f = fixture_from_lua(
+        r#"
+        ticks = 0
+        ticker = neori.every(5, function() ticks = ticks + 1 end)
+        neori.bind("Mod+Alt+T", function() ticker:stop() end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    for _ in 0..4 {
+        wait_ms(&mut f, 10);
+    }
+    let ticks = read_global_int(&f, "ticks");
+    assert!(ticks >= 2, "should have repeated, got {ticks}");
+
+    press_first_function_bind(&mut f);
+    let stopped_at = read_global_int(&f, "ticks");
+    for _ in 0..3 {
+        wait_ms(&mut f, 10);
+    }
+    assert_eq!(read_global_int(&f, "ticks"), stopped_at);
+}
+
+#[test]
+fn timer_callback_can_stop_and_restart_its_timer() {
+    let mut f = fixture_from_lua(
+        r#"
+        ticks, restarts = 0, 0
+        neori.every(5, function(t)
+            ticks = ticks + 1
+            if ticks == 3 then t:stop() end
+        end)
+        neori.after(5, function(t)
+            restarts = restarts + 1
+            if restarts < 3 then t:again() end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    for _ in 0..10 {
+        wait_ms(&mut f, 10);
+    }
+    assert_eq!(read_global_int(&f, "ticks"), 3);
+    assert_eq!(read_global_int(&f, "restarts"), 3);
+}
+
+#[test]
+fn timer_callbacks_run_actions_and_survive_errors() {
+    let mut f = fixture_from_lua(
+        r#"
+        ticks = 0
+        neori.every(5, function()
+            ticks = ticks + 1
+            if ticks == 1 then
+                neori.action("create-virtual-output", { name = "from-timer" })
+            end
+            error("intentional")
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    for _ in 0..4 {
+        wait_ms(&mut f, 10);
+    }
+    assert!(has_output(&mut f, "from-timer"));
+    assert!(
+        read_global_int(&f, "ticks") >= 2,
+        "an error must not stop a repeating timer"
+    );
+    assert!(f.neori().config_error_notification.are_animations_ongoing());
+}
+
+#[test]
+fn reload_drops_the_old_configs_timers() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.after(20, function() neori.action("create-virtual-output", { name = "old-timer" }) end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let (_config, host) =
+        Config::parse_with_host(std::path::Path::new("test.lua"), "-- no timers\n")
+            .config
+            .unwrap();
+    f.state.server.state.install_script_host(host);
+    wait_ms(&mut f, 40);
+    assert!(!has_output(&mut f, "old-timer"));
 }

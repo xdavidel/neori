@@ -808,6 +808,8 @@ pub struct State {
     pub print_log_sink: Option<PrintSink>,
     /// Lua events that fired while Lua was already running, waiting to be delivered.
     pub lua_events: crate::script::LuaEventQueue,
+    /// Event loop timers of the Lua `neori.after` / `neori.every` timers.
+    pub lua_timers: crate::script::LuaTimerSources,
 }
 
 impl State {
@@ -857,6 +859,7 @@ impl State {
             scripting: ScriptHost::default(),
             print_log_sink: None,
             lua_events: Default::default(),
+            lua_timers: Default::default(),
         };
 
         // Create any declaratively-configured virtual outputs early, so that options like
@@ -2002,10 +2005,7 @@ impl State {
             }
         };
 
-        self.scripting = script_host;
-        if let Some(sink) = &self.print_log_sink {
-            self.scripting.set_print_log(Arc::clone(sink));
-        }
+        self.install_script_host(script_host);
 
         self.neori.config_error_notification.hide();
 

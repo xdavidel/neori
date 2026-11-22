@@ -557,6 +557,119 @@ impl LuaDevice {
     }
 }
 
+/// A timer created from Lua with `neori.after` or `neori.every`.
+struct TimerInfo {
+    fun: mlua::Function,
+    timeout: Duration,
+    repeat: bool,
+    running: bool,
+}
+
+/// The timers of a config, by id.
+#[derive(Default)]
+struct Timers {
+    timers: HashMap<u64, TimerInfo>,
+    next_id: u64,
+}
+
+type SharedTimers = Arc<Mutex<Timers>>;
+
+/// Lua `Timer` userdata, for a timer made with `neori.after` or `neori.every`.
+///
+/// Starting and stopping arm and disarm the timer in the compositor right away. While the config
+/// itself loads there is no compositor yet: the timers that are running then are armed once it
+/// has loaded.
+#[derive(Debug, Clone)]
+pub struct LuaTimer(pub u64);
+
+impl LuaTimer {
+    fn with<R>(&self, lua: &Lua, f: impl FnOnce(&mut TimerInfo) -> R) -> LuaResult<R> {
+        let timers = lua
+            .app_data_ref::<SharedTimers>()
+            .ok_or_else(|| LuaError::runtime("timers are not available"))?;
+        let mut timers = timers.lock().unwrap();
+        let timer = timers
+            .timers
+            .get_mut(&self.0)
+            .ok_or_else(|| LuaError::runtime("this timer belongs to an old config"))?;
+        Ok(f(timer))
+    }
+
+    /// Marks the timer running and arms it, restarting its countdown.
+    fn arm(&self, lua: &Lua) -> LuaResult<()> {
+        let timeout = self.with(lua, |t| {
+            t.running = true;
+            t.timeout
+        })?;
+        with_context(|ctx| ctx.arm_timer(self.0, timeout));
+        Ok(())
+    }
+}
+
+impl mlua::UserData for LuaTimer {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        // t:start() starts a stopped timer; a running one keeps its countdown.
+        methods.add_method("start", |lua, this, ()| {
+            if !this.with(lua, |t| t.running)? {
+                this.arm(lua)?;
+            }
+            Ok(())
+        });
+        // t:again() (re)starts the countdown from the full timeout.
+        methods.add_method("again", |lua, this, ()| this.arm(lua));
+        methods.add_method("stop", |lua, this, ()| {
+            if this.with(lua, |t| std::mem::replace(&mut t.running, false))? {
+                with_context(|ctx| ctx.disarm_timer(this.0));
+            }
+            Ok(())
+        });
+        methods.add_method("is_running", |lua, this, ()| this.with(lua, |t| t.running));
+        // Timeout in milliseconds.
+        methods.add_method("timeout", |lua, this, ()| {
+            this.with(lua, |t| t.timeout.as_millis() as u64)
+        });
+        // t:set_timeout(ms) applies from the next start or again.
+        methods.add_method("set_timeout", |lua, this, ms: u64| {
+            this.with(lua, |t| t.timeout = Duration::from_millis(ms))
+        });
+        methods.add_meta_method(mlua::MetaMethod::ToString, |lua, this, ()| {
+            let (ms, repeat, running) =
+                this.with(lua, |t| (t.timeout.as_millis(), t.repeat, t.running))?;
+            let kind = if repeat { "every" } else { "after" };
+            let state = if running { "running" } else { "stopped" };
+            Ok(format!("Timer({kind} {ms} ms, {state})"))
+        });
+    }
+}
+
+/// Creates a timer and starts it.
+fn create_timer(lua: &Lua, ms: u64, fun: mlua::Function, repeat: bool) -> LuaResult<LuaTimer> {
+    if repeat && ms == 0 {
+        return Err(LuaError::runtime(
+            "neori.every: the interval must be at least 1 ms",
+        ));
+    }
+    let id = {
+        let timers = lua
+            .app_data_ref::<SharedTimers>()
+            .ok_or_else(|| LuaError::runtime("timers are not available"))?;
+        let mut timers = timers.lock().unwrap();
+        timers.next_id += 1;
+        let id = timers.next_id;
+        let info = TimerInfo {
+            fun,
+            timeout: Duration::from_millis(ms),
+            repeat,
+            running: false,
+        };
+        timers.timers.insert(id, info);
+        id
+    };
+    let timer = LuaTimer(id);
+    timer.arm(lua)?;
+    Ok(timer)
+}
+
 impl mlua::UserData for LuaDevice {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Read-only accessors.
@@ -1018,6 +1131,8 @@ pub struct ScriptHost {
     lua: Lua,
     /// Lua functions connected to signals, with `neori.connect`, `neori.on` or `obj:connect`.
     signals: SharedSignals,
+    /// Timers made with `neori.after` and `neori.every`.
+    timers: SharedTimers,
     bind_functions: BindFnRegistry,
     /// Monotonic id counter for [`Action::ScriptFunction`] references.
     next_bind_fn_id: Arc<AtomicU64>,
@@ -1037,6 +1152,7 @@ impl ScriptHost {
     pub fn new() -> Result<Self, String> {
         let lua = Lua::new();
         let signals: SharedSignals = Arc::default();
+        let timers: SharedTimers = Arc::default();
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
@@ -1046,6 +1162,7 @@ impl ScriptHost {
         // need on the Lua state, so they can reach it via `lua.app_data_ref` without a
         // reference to Self.
         lua.set_app_data::<SharedSignals>(Arc::clone(&signals));
+        lua.set_app_data::<SharedTimers>(Arc::clone(&timers));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
 
         // Override Lua's default `print` so it routes to the installed sink
@@ -1087,6 +1204,7 @@ impl ScriptHost {
         Ok(Self {
             lua,
             signals,
+            timers,
             bind_functions,
             next_bind_fn_id,
             open_overrides,
@@ -1136,6 +1254,7 @@ impl ScriptHost {
             ParseLuaError { message, includes }
         };
         self.signals.lock().unwrap().clear();
+        *self.timers.lock().unwrap() = Timers::default();
         self.bind_functions.lock().unwrap().clear();
 
         set_strict_config(matches!(
@@ -1189,8 +1308,12 @@ impl ScriptHost {
             .load(text)
             .set_name(path.to_string_lossy().to_string());
 
+        // Run the chunk as a function, so that only an explicit `return` counts as its result.
+        // (`eval` would also treat a config made of a single expression, like
+        // `neori.after(…)`, as returning that expression's value.)
         let result: Value = chunk
-            .eval()
+            .into_function()
+            .and_then(|f| f.call(()))
             .map_err(|e| parse_err(format!("Lua error: {e}")))?;
 
         let table = match result {
@@ -1266,6 +1389,47 @@ impl ScriptHost {
     /// that handlers of closed windows and removed workspaces are cleaned up.
     pub fn has_object_signals(&self) -> bool {
         self.signals.lock().unwrap().has_objects()
+    }
+
+    /// The timers that are running, with their timeouts. The compositor arms them after
+    /// installing this host: while the config loads there's no compositor to arm them.
+    pub fn running_timers(&self) -> Vec<(u64, Duration)> {
+        let timers = self.timers.lock().unwrap();
+        let mut running: Vec<_> = timers
+            .timers
+            .iter()
+            .filter(|(_, t)| t.running)
+            .map(|(id, t)| (*id, t.timeout))
+            .collect();
+        running.sort_by_key(|(id, _)| *id);
+        running
+    }
+
+    /// Prepares the call of timer `id` when it fires, or returns `None` if it's gone or stopped.
+    ///
+    /// A one-shot timer is stopped first, so that it stays stopped unless its callback starts it
+    /// again. Call [`ScriptHost::timer_rearm`] after running the call.
+    pub fn timer_call(&self, id: u64) -> Option<LuaCall> {
+        let mut timers = self.timers.lock().unwrap();
+        let timer = timers.timers.get_mut(&id).filter(|t| t.running)?;
+        if !timer.repeat {
+            timer.running = false;
+        }
+        Some(LuaCall {
+            label: "timer".to_owned(),
+            funs: vec![timer.fun.clone()],
+        })
+    }
+
+    /// After timer `id` fired: its timeout if it should fire again (it repeats, or its callback
+    /// started it again), or `None` if it's done.
+    pub fn timer_rearm(&self, id: u64) -> Option<Duration> {
+        let timers = self.timers.lock().unwrap();
+        timers
+            .timers
+            .get(&id)
+            .filter(|t| t.running)
+            .map(|t| t.timeout)
     }
 
     /// Prepares a call to the Lua function bound with id `id`.
@@ -2152,6 +2316,17 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set("signals", func).map_err(err)?;
+    }
+
+    // neori.after(ms, fn) calls fn once after ms milliseconds; neori.every(ms, fn) calls it every
+    // ms milliseconds. Both return a Timer, which the callback also receives.
+    for (name, repeat) in [("after", false), ("every", true)] {
+        let func = lua
+            .create_function(move |lua, (ms, fun): (u64, mlua::Function)| {
+                create_timer(lua, ms, fun, repeat)
+            })
+            .map_err(err)?;
+        neori.set(name, func).map_err(err)?;
     }
 
     // neori.emit(name, ...) calls every function connected to the global signal with `...`.

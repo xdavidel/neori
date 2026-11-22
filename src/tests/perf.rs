@@ -28,7 +28,7 @@ fn fixture(lua: &str) -> Fixture {
         .config
         .expect("perf lua snippet failed to parse");
     let mut fixture = Fixture::with_config(config);
-    fixture.state.server.state.scripting = host;
+    fixture.state.server.state.install_script_host(host);
     fixture
 }
 

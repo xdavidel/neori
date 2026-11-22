@@ -31,7 +31,8 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 ### Phase 1: high value features
 
-- **Timers:** `neori.timer { timeout, callback, repeat }` and `neori.after(ms, fn)`, on calloop timers.
+- **Timers (done):** `neori.after(ms, fn)` and `neori.every(ms, fn)`, on calloop timers. (Not
+  `neori.timer { repeat = … }`: `repeat` is a Lua keyword.)
 - **Property signals:** `window::title`, `window::fullscreen`, `window::floating`, `window::urgent`,
   `window::workspace`, `workspace::name`, `output::mode`, fired from the existing IPC diff.
 - **Keybinding modes:** `neori.mode("resize", { ... })`, `neori.enter_mode(name)`,

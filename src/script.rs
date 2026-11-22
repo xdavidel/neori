@@ -11,18 +11,21 @@
 //! caused by a queued event are queued one level deeper; past [`MAX_LUA_EVENT_DEPTH`] levels they
 //! are dropped, so handlers that keep triggering each other can't loop forever.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::time::Duration;
 
 use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
 use neori_config::{
-    with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaWorkspace, OutputSnapshot,
-    PointerSnapshot, ScriptContext, SignalTarget, Window as LuaWindow, WindowSnapshot,
-    WorkspaceSnapshot,
+    with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaTimer, LuaWorkspace,
+    OutputSnapshot, PointerSnapshot, ScriptContext, SignalTarget, Window as LuaWindow,
+    WindowSnapshot, WorkspaceSnapshot,
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
 use smithay::output::Output as SmithayOutput;
+use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+use smithay::reexports::calloop::RegistrationToken;
 
 use crate::backend::VirtualOutputMarker;
 use crate::layout::{Layout, LayoutElement};
@@ -196,6 +199,15 @@ impl LuaEventQueue {
     }
 }
 
+/// The event loop timers of the Lua timers.
+#[derive(Default)]
+pub struct LuaTimerSources {
+    sources: HashMap<u64, RegistrationToken>,
+    /// The timer whose callback is running. Its event loop timer is re-armed or dropped by the
+    /// callback's return value, so it must not be touched meanwhile.
+    firing: Option<u64>,
+}
+
 impl ScriptContext for State {
     fn windows(&mut self) -> Vec<WindowSnapshot> {
         window_snapshots(&self.neori)
@@ -294,6 +306,20 @@ impl ScriptContext for State {
     fn device_op(&mut self, sysname: &str, op: DeviceOp) {
         apply_device_op(&mut self.neori, sysname, op);
     }
+
+    fn arm_timer(&mut self, id: u64, timeout: Duration) {
+        self.arm_lua_timer(id, timeout);
+    }
+
+    fn disarm_timer(&mut self, id: u64) {
+        if self.lua_timers.firing == Some(id) {
+            // Firing: fire_lua_timer() drops it after the callback.
+            return;
+        }
+        if let Some(token) = self.lua_timers.sources.remove(&id) {
+            self.neori.event_loop.remove(token);
+        }
+    }
 }
 
 impl State {
@@ -379,6 +405,60 @@ impl State {
         if let Err(err) = result {
             warn!("Lua {label} callback error: {err}");
             self.neori.config_error_notification.show();
+        }
+    }
+
+    /// Installs a freshly loaded Lua host, replacing the current one: the old config's timers are
+    /// dropped, and the timers the new config started while loading are armed.
+    pub fn install_script_host(&mut self, host: neori_config::ScriptHost) {
+        for (_, token) in self.lua_timers.sources.drain() {
+            self.neori.event_loop.remove(token);
+        }
+        self.scripting = host;
+        if let Some(sink) = &self.print_log_sink {
+            self.scripting.set_print_log(std::sync::Arc::clone(sink));
+        }
+        for (id, timeout) in self.scripting.running_timers() {
+            self.arm_lua_timer(id, timeout);
+        }
+    }
+
+    /// Arms the event loop timer of Lua timer `id`, restarting it if it's already armed.
+    fn arm_lua_timer(&mut self, id: u64, timeout: Duration) {
+        if self.lua_timers.firing == Some(id) {
+            // Firing: fire_lua_timer() re-arms it after the callback.
+            return;
+        }
+        if let Some(token) = self.lua_timers.sources.remove(&id) {
+            self.neori.event_loop.remove(token);
+        }
+        let token = self
+            .neori
+            .event_loop
+            .insert_source(Timer::from_duration(timeout), move |_, _, state| {
+                state.fire_lua_timer(id)
+            });
+        match token {
+            Ok(token) => {
+                self.lua_timers.sources.insert(id, token);
+            }
+            Err(err) => warn!("error arming a Lua timer: {err:?}"),
+        }
+    }
+
+    /// Runs the callback of Lua timer `id`, and tells the event loop whether to fire it again.
+    fn fire_lua_timer(&mut self, id: u64) -> TimeoutAction {
+        if let Some(call) = self.scripting.timer_call(id) {
+            self.lua_timers.firing = Some(id);
+            self.run_lua("timer", call, LuaTimer(id), false, InputTime::now());
+            self.lua_timers.firing = None;
+        }
+        match self.scripting.timer_rearm(id) {
+            Some(timeout) => TimeoutAction::ToDuration(timeout),
+            None => {
+                self.lua_timers.sources.remove(&id);
+                TimeoutAction::Drop
+            }
         }
     }
 

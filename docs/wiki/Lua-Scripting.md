@@ -32,7 +32,8 @@ The compositor:
 
 Because the call is synchronous and on the compositor thread, keep it short — do slow
 work by spawning a helper process (`neori.action("spawn", { … })`) instead of blocking in
-Lua. A long-running function blocks input, and there is no Lua-side timer API today.
+Lua. A long-running function blocks input; to do something later, use a [timer](#timers)
+instead of waiting.
 
 ### Bind options
 
@@ -147,6 +148,43 @@ Workspace / output lifecycle events fire whenever the compositor notices a
 change (per refresh tick), so a bind that focuses a different workspace,
 plugging in a monitor, or opening a window on a not-yet-materialized workspace
 all generate the matching events.
+
+## Timers
+
+`neori.after(ms, fn)` calls `fn` once, after `ms` milliseconds. `neori.every(ms, fn)` calls it
+every `ms` milliseconds until the timer is stopped. Both return a `Timer`, and `fn` receives it
+too, so a callback can stop or restart its own timer.
+
+```lua
+-- Remind me to stretch every 50 minutes.
+neori.every(50 * 60 * 1000, function()
+    neori.action("spawn", { "notify-send", "Stand up and stretch" })
+end)
+
+-- Start the bar a moment after login, once the outputs have settled.
+neori.on("startup", function()
+    neori.after(2000, function() neori.action("spawn", { "waybar" }) end)
+end)
+
+-- Notify five seconds after the last press of a key: each press restarts the countdown.
+local quiet = neori.after(5000, function() neori.action("spawn", { "notify-send", "quiet now" }) end)
+quiet:stop()
+neori.bind("Mod+Alt+H", function() quiet:again() end)
+```
+
+| method              | does                                                               |
+|---                  |---                                                                 |
+| `t:start()`         | Start a stopped timer. A running one keeps its countdown.          |
+| `t:again()`         | Start the countdown again from the full timeout.                   |
+| `t:stop()`          | Stop the timer.                                                    |
+| `t:is_running()`    | Whether it's running.                                              |
+| `t:timeout()`       | The timeout, in milliseconds.                                      |
+| `t:set_timeout(ms)` | Change the timeout, from the next `start` or `again`.              |
+
+Timers can be made anywhere, including at the top level of the config: they start once the
+config has loaded. A config reload drops the old config's timers. Timer callbacks run like any
+other Lua callback: their changes apply right away, an error shows the config error
+notification, and a repeating timer keeps running after an error.
 
 ## Signals
 

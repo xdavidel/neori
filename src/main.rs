@@ -202,7 +202,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.session,
     )
     .unwrap();
-    state.scripting = script_host;
+    state.install_script_host(script_host);
 
     // Route Lua `print(...)` to a log file under the XDG state dir. If opening
     // fails we warn once and leave the default stdout fallback in place.

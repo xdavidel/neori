@@ -61,8 +61,9 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides, OutputSnapshot,
-    PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot, WorkspaceSnapshot,
+    DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace, OpenOverrides,
+    OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot,
+    WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
@@ -402,6 +403,8 @@ mod tests {
         output_ops: Vec<(String, neori_ipc::OutputAction)>,
         warps: Vec<(f64, f64)>,
         device_ops: Vec<(String, DeviceOp)>,
+        /// Timer arm and disarm calls: `(id, Some(timeout ms))` or `(id, None)`.
+        timer_calls: Vec<(u64, Option<u128>)>,
     }
 
     impl FakeContext {
@@ -491,6 +494,14 @@ mod tests {
 
         fn device_op(&mut self, sysname: &str, op: DeviceOp) {
             self.device_ops.push((sysname.to_owned(), op));
+        }
+
+        fn arm_timer(&mut self, id: u64, timeout: std::time::Duration) {
+            self.timer_calls.push((id, Some(timeout.as_millis())));
+        }
+
+        fn disarm_timer(&mut self, id: u64) {
+            self.timer_calls.push((id, None));
         }
     }
 
@@ -2700,6 +2711,110 @@ mod tests {
             Config::parse_mem("neori.strict(true) neori.screenshot_path(true)").unwrap_err()
         );
         assert!(msg.contains("screenshot_path"), "{msg}");
+    }
+
+    #[test]
+    fn config_of_a_single_expression_parses() {
+        // Only an explicit `return` is the config's result: a config that is a single call
+        // returning a value must not have that value taken as its config table.
+        for lua in [
+            r#"neori.connect("x", function() end)"#,
+            r#"neori.spawn("kitty")"#,
+            r#"neori.after(1000, function() end)"#,
+        ] {
+            assert!(Config::parse_mem(lua).is_ok(), "{lua}");
+        }
+        let config = Config::parse_mem("return { layout = { gaps = 7 } }").unwrap();
+        assert_eq!(config.layout.gaps, 7.0);
+    }
+
+    #[test]
+    fn timers() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            -- Made while the config loads: running, armed once it has loaded.
+            once = neori.after(100, function() end)
+            ticker = neori.every(50, function() end)
+            stopped = neori.every(10, function() end)
+            stopped:stop()
+            loading = { tostring(once), tostring(stopped), ticker:timeout() }
+            neori.bind("Mod+T", function()
+                ticker:stop()
+                ticker:stop()        -- already stopped: nothing to do
+                ticker:set_timeout(75)
+                ticker:start()
+                ticker:start()       -- already running: keeps its countdown
+                once:again()         -- restarts it
+                running = ticker:is_running()
+            end)
+            ok, err = pcall(neori.every, 0, function() end)
+            err = tostring(err)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mlua::Value::Table(loading) = host.read_global("loading").unwrap() else {
+            panic!("loading is not a table");
+        };
+        assert_eq!(
+            loading.get::<String>(1).unwrap(),
+            "Timer(after 100 ms, running)"
+        );
+        assert_eq!(
+            loading.get::<String>(2).unwrap(),
+            "Timer(every 10 ms, stopped)"
+        );
+        assert_eq!(loading.get::<i64>(3).unwrap(), 50);
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(err.to_str().unwrap().contains("at least 1 ms"));
+
+        // The compositor arms the running ones after loading the config.
+        let running = host.running_timers();
+        let ids: Vec<u64> = running.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids.len(), 2);
+        assert_eq!(running[0].1, std::time::Duration::from_millis(100));
+        assert_eq!(running[1].1, std::time::Duration::from_millis(50));
+        let (once, ticker) = (ids[0], ids[1]);
+
+        let mut ctx = FakeContext::default();
+        run_bind(&host, &mut ctx);
+        assert_eq!(
+            ctx.timer_calls,
+            [(ticker, None), (ticker, Some(75)), (once, Some(100))]
+        );
+        assert!(matches!(
+            host.read_global("running").unwrap(),
+            mlua::Value::Boolean(true)
+        ));
+    }
+
+    #[test]
+    fn firing_a_one_shot_timer_stops_it() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.after(5, function() end)
+            neori.every(5, function() end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let ids: Vec<u64> = host.running_timers().iter().map(|(id, _)| *id).collect();
+        let mut ctx = FakeContext::default();
+        for &id in &ids {
+            let call = host.timer_call(id).unwrap();
+            with_script_context(&mut ctx, || call.run(LuaTimer(id))).unwrap();
+        }
+        // The one-shot is done; the repeating one fires again.
+        assert_eq!(host.timer_rearm(ids[0]), None);
+        assert_eq!(
+            host.timer_rearm(ids[1]),
+            Some(std::time::Duration::from_millis(5))
+        );
+        assert!(host.timer_call(ids[0]).is_none());
     }
 
     #[test]

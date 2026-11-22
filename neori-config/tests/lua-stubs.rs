@@ -1,8 +1,8 @@
 //! Keeps the LuaLS type stubs in `resources/lua/neori.lua` in sync with the real Lua API.
 //!
 //! Every function and namespace of the `neori` table, every method of the `Window`, `Output`,
-//! `Workspace` and `Device` userdata, the built-in signals and the bind options must be declared in
-//! the stubs, and the stubs must not declare anything that doesn't exist.
+//! `Workspace`, `Device` and `Timer` userdata, the built-in signals and the bind options must be
+//! declared in the stubs, and the stubs must not declare anything that doesn't exist.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -101,6 +101,7 @@ fn stubs_declare_every_method() {
         ("LuaOutput", "Output"),
         ("LuaWorkspace", "Workspace"),
         ("LuaDevice", "Device"),
+        ("LuaTimer", "Timer"),
     ];
     let method = Regex::new(r#"add_(?:method|function)\(\s*"(\w+)""#).unwrap();
 

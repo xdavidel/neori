@@ -19,6 +19,7 @@
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+use std::time::Duration;
 
 use neori_ipc::{Action, OutputAction};
 
@@ -97,6 +98,16 @@ pub trait ScriptContext {
     fn warp(&mut self, x: f64, y: f64);
     /// Changes a setting of the input device with this sysname right away.
     fn device_op(&mut self, sysname: &str, op: DeviceOp);
+
+    /// Arms Lua timer `id` to fire after `timeout`, replacing its countdown if it's already
+    /// armed.
+    fn arm_timer(&mut self, id: u64, timeout: Duration) {
+        let _ = (id, timeout);
+    }
+    /// Disarms Lua timer `id`, if it's armed.
+    fn disarm_timer(&mut self, id: u64) {
+        let _ = id;
+    }
 }
 
 type ContextPtr = NonNull<dyn ScriptContext + 'static>;

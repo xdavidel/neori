@@ -653,8 +653,14 @@ end
 -- function, call neori.action(name, args) to run any IPC action. Actions run
 -- right away, in order, so the next line already sees their result.
 --
--- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and the
--- known limitations (no timers yet).
+-- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and its
+-- known limitations.
+--
+-- Timers: neori.after(ms, fn) runs fn once, neori.every(ms, fn) repeatedly. Both
+-- return a timer with start/stop/again:
+-- neori.every(50 * 60 * 1000, function()
+--   neori.action("spawn", { "notify-send", "Stand up and stretch" })
+-- end)
 --
 -- Bind options go in an optional third argument, for any kind of action:
 -- neori.bind("Mod+Alt+G", function() ... end, { hotkey_overlay_title = "…", ["repeat"] = false })

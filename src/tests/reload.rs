@@ -28,7 +28,7 @@ fn parse(lua: &str) -> (Config, neori_config::ScriptHost) {
 fn fixture_from(lua: &str) -> Fixture {
     let (config, host) = parse(lua);
     let mut fixture = Fixture::with_config(config);
-    fixture.state.server.state.scripting = host;
+    fixture.state.server.state.install_script_host(host);
     fixture
 }
 
