@@ -896,11 +896,7 @@ impl State {
             //
             // We check both the compositor output list (connected outputs) and the IPC output
             // state, because virtual outputs can exist while being currently disconnected (`off`).
-            let exists = self
-                .neori
-                .global_space
-                .outputs()
-                .any(|o| o.name() == name)
+            let exists = self.neori.global_space.outputs().any(|o| o.name() == name)
                 || self
                     .backend
                     .ipc_outputs()

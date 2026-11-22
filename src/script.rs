@@ -174,7 +174,8 @@ impl State {
         } else {
             self.scripting.clear_pointer_cache();
         }
-        self.scripting.set_device_cache(build_device_cache(&self.neori));
+        self.scripting
+            .set_device_cache(build_device_cache(&self.neori));
     }
 
     /// Dispatch actions returned from the Lua call plus any pending output ops the
@@ -231,9 +232,7 @@ impl State {
         self.refresh_script_caches();
         self.scripting.begin_open_overrides();
         let window = LuaWindow(snapshot);
-        let result = self
-            .scripting
-            .call_event_with("window-opening", window);
+        let result = self.scripting.call_event_with("window-opening", window);
         let overrides = self.scripting.take_open_overrides();
         self.scripting.clear_script_caches();
         self.drain_and_dispatch("window-opening", result);
@@ -328,10 +327,7 @@ pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
 /// Look up `(vrr_supported, vrr_enabled)` for `output_name` in the backend's
 /// IPC-output mirror. Holds the lock just long enough to read the two bools
 /// — critical because the IPC server thread reads the same mirror.
-pub fn lookup_vrr(
-    backend: &crate::backend::Backend,
-    output_name: &str,
-) -> (bool, bool) {
+pub fn lookup_vrr(backend: &crate::backend::Backend, output_name: &str) -> (bool, bool) {
     let ipc = backend.ipc_outputs();
     let guard = ipc.lock().unwrap();
     guard
@@ -346,11 +342,7 @@ pub fn lookup_vrr(
 /// `vrr` is `(vrr_supported, vrr_enabled)`; callers either pass [`lookup_vrr`]
 /// for a single-output path or iterate the full IPC mirror once for a bulk
 /// build (`build_output_cache`).
-pub fn output_snapshot(
-    neori: &Neori,
-    output: &SmithayOutput,
-    vrr: (bool, bool),
-) -> OutputSnapshot {
+pub fn output_snapshot(neori: &Neori, output: &SmithayOutput, vrr: (bool, bool)) -> OutputSnapshot {
     let props = output.physical_properties();
     let serial = if props.serial_number.is_empty() {
         None

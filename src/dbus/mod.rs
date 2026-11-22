@@ -113,7 +113,8 @@ impl DBusServers {
             dbus.conn_screen_shot = try_start(screenshot, is_session_instance);
 
             let (to_neori, from_gnome_shell) = calloop::channel::channel();
-            neori.event_loop
+            neori
+                .event_loop
                 .insert_source(from_gnome_shell, move |event, _, state| match event {
                     calloop::channel::Event::Msg(msg) => state.on_gnome_shell_msg(msg),
                     calloop::channel::Event::Closed => (),

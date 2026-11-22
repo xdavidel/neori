@@ -50,9 +50,7 @@ pub(super) fn virtual_output_name_in_use(
     neori: &Neori,
 ) -> bool {
     let name_lower = name.to_ascii_lowercase();
-    managed
-        .keys()
-        .any(|k| k.eq_ignore_ascii_case(&name_lower))
+    managed.keys().any(|k| k.eq_ignore_ascii_case(&name_lower))
         || neori
             .global_space
             .outputs()

@@ -1131,9 +1131,8 @@ impl State {
         // MappedId yet (id=0); only app_id / title are meaningful.
         let pre_snapshot = {
             use crate::utils::with_toplevel_role;
-            let (app_id, title) = with_toplevel_role(toplevel, |role| {
-                (role.app_id.clone(), role.title.clone())
-            });
+            let (app_id, title) =
+                with_toplevel_role(toplevel, |role| (role.app_id.clone(), role.title.clone()));
             neori_config::WindowSnapshot {
                 id: 0,
                 app_id,

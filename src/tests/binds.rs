@@ -2248,13 +2248,25 @@ fn redundant_modifier_binds() {
     // Binds should behave identically with or without redundant modifiers.
     let input = "+LALT -LALT";
     assert_eq!(
-        run(r#"neori.bind("Alt_L", { release = "close-window" })"#, input),
-        run(r#"neori.bind("Alt+Alt_L", { release = "close-window" })"#, input)
+        run(
+            r#"neori.bind("Alt_L", { release = "close-window" })"#,
+            input
+        ),
+        run(
+            r#"neori.bind("Alt+Alt_L", { release = "close-window" })"#,
+            input
+        )
     );
 
     let input = "+LALT +LatQ -LatQ -LALT";
     assert_eq!(
-        run(r#"neori.bind("Alt+Q", { release = "close-window" })"#, input),
-        run(r#"neori.bind("Alt+Alt+Q", { release = "close-window" })"#, input)
+        run(
+            r#"neori.bind("Alt+Q", { release = "close-window" })"#,
+            input
+        ),
+        run(
+            r#"neori.bind("Alt+Alt+Q", { release = "close-window" })"#,
+            input
+        )
     );
 }

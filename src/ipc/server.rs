@@ -778,12 +778,8 @@ impl State {
                 let Some(ipc_ws) = state.workspaces.get(&id) else {
                     // A new workspace was added.
                     need_workspaces_changed = true;
-                    let snap = crate::script::snapshot_workspace(
-                        mon,
-                        global_idx,
-                        ws,
-                        focused_ws_id,
-                    );
+                    let snap =
+                        crate::script::snapshot_workspace(mon, global_idx, ws, focused_ws_id);
                     if is_focused_now {
                         lua_focused_changed = Some(snap.clone());
                     }

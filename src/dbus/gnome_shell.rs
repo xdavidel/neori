@@ -63,7 +63,10 @@ impl GlobalShortcutsPortalBinds {
         let mut unbound = false;
         self.binds.retain(|bind| {
             let BoundAction::Both {
-                press: Action::GlobalShortcutActivateAction { action: bound_action },
+                press:
+                    Action::GlobalShortcutActivateAction {
+                        action: bound_action,
+                    },
                 ..
             } = bind.action
             else {

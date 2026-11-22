@@ -305,14 +305,15 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
     ]);
 
     // Screenshot is not as important, can omit if not bound.
-    if let Some(action) = binds
-        .iter()
-        .flat_map(bind_actions)
-        .find(|action| matches!(action, Action::Screenshot {
-                    show_pointer: _,
-                    path: _,
-                }))
-    {
+    if let Some(action) = binds.iter().flat_map(bind_actions).find(|action| {
+        matches!(
+            action,
+            Action::Screenshot {
+                show_pointer: _,
+                path: _,
+            }
+        )
+    }) {
         actions.push(action);
     }
 
@@ -338,8 +339,12 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
         if bind.key.trigger.is_keyboard()
             && modifiers.intersects(Modifiers::COMPOSITOR | Modifiers::SUPER)
         {
-            bind_actions(bind)
-                .find(|action| matches!(action, Action::Spawn { command: _ } | Action::SpawnSh { command: _ }))
+            bind_actions(bind).find(|action| {
+                matches!(
+                    action,
+                    Action::Spawn { command: _ } | Action::SpawnSh { command: _ }
+                )
+            })
         } else {
             None
         }
@@ -930,8 +935,13 @@ mod tests {
         .unwrap();
 
         let actions = collect_actions(&config);
-        assert!(actions.contains(&&Action::Screenshot { show_pointer: true, path: None }));
-        assert!(actions.contains(&&Action::Spawn { command: vec![String::from("foot")] }));
+        assert!(actions.contains(&&Action::Screenshot {
+            show_pointer: true,
+            path: None
+        }));
+        assert!(actions.contains(&&Action::Spawn {
+            command: vec![String::from("foot")]
+        }));
 
         // Release binds keep actions in the list with hide-not-bound.
         let config = Config::parse_mem(
@@ -996,25 +1006,33 @@ mod tests {
         for (config_text, expected_match) in [
             (
                 r#"neori.bind("Mod+Q", { quit = true, skip_confirmation = true })"#,
-                Some(&Action::Quit { skip_confirmation: true }),
+                Some(&Action::Quit {
+                    skip_confirmation: true,
+                }),
             ),
             (
                 r#"neori.bind("Mod+Q", { quit = true, skip_confirmation = false })"#,
-                Some(&Action::Quit { skip_confirmation: false }),
+                Some(&Action::Quit {
+                    skip_confirmation: false,
+                }),
             ),
             (
                 r#"
                 neori.bind("Mod+Shift+Q", { quit = true, skip_confirmation = true })
                 neori.bind("Mod+Q", { quit = true, skip_confirmation = false })
                 "#,
-                Some(&Action::Quit { skip_confirmation: false }),
+                Some(&Action::Quit {
+                    skip_confirmation: false,
+                }),
             ),
             (
                 r#"
                 neori.bind("Mod+Shift+Q", { quit = true, skip_confirmation = false })
                 neori.bind("Mod+Q", { quit = true, skip_confirmation = true })
                 "#,
-                Some(&Action::Quit { skip_confirmation: false }),
+                Some(&Action::Quit {
+                    skip_confirmation: false,
+                }),
             ),
             ("", None),
         ] {

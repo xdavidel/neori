@@ -41,8 +41,11 @@ fn toggle_empty_scratchpad_spawns_configured_command() {
     f.add_output(1, (1920, 1080));
 
     // Toggling the empty scratchpad marks a spawn as pending and runs the command.
-    f.neori_state()
-        .do_action(Action::ToggleScratchpad { name: None }, false, InputTime::now());
+    f.neori_state().do_action(
+        Action::ToggleScratchpad { name: None },
+        false,
+        InputTime::now(),
+    );
     assert!(f.neori().layout.has_pending_scratchpad_spawn(None));
     assert!(
         wait_for_file(&spawned, Duration::from_secs(5)),
@@ -52,8 +55,11 @@ fn toggle_empty_scratchpad_spawns_configured_command() {
     // The scratchpad is still empty (no window adopted), but the pending spawn blocks a
     // second launch until a window shows up.
     let _ = std::fs::remove_file(&spawned);
-    f.neori_state()
-        .do_action(Action::ToggleScratchpad { name: None }, false, InputTime::now());
+    f.neori_state().do_action(
+        Action::ToggleScratchpad { name: None },
+        false,
+        InputTime::now(),
+    );
     std::thread::sleep(Duration::from_millis(500));
     assert!(
         !spawned.exists(),
@@ -78,7 +84,8 @@ fn toggle_named_scratchpad_spawns_its_own_command() {
         Action::ToggleScratchpad {
             name: Some("term".to_string()),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
     assert!(f.neori().layout.has_pending_scratchpad_spawn(Some("term")));
     assert!(
@@ -87,8 +94,11 @@ fn toggle_named_scratchpad_spawns_its_own_command() {
     );
 
     // The default scratchpad has no configured command: no pending spawn for it.
-    f.neori_state()
-        .do_action(Action::ToggleScratchpad { name: None }, false, InputTime::now());
+    f.neori_state().do_action(
+        Action::ToggleScratchpad { name: None },
+        false,
+        InputTime::now(),
+    );
     assert!(!f.neori().layout.has_pending_scratchpad_spawn(None));
     assert!(f.neori().layout.has_pending_scratchpad_spawn(Some("term")));
 }
@@ -105,13 +115,17 @@ fn toggle_scratchpad_without_spawn_command_sets_no_pending() {
         Action::ToggleScratchpad {
             name: Some("bare".to_string()),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
     assert!(!f.neori().layout.has_pending_scratchpad_spawn(Some("bare")));
 
     // Same for a scratchpad that was never declared at all.
-    f.neori_state()
-        .do_action(Action::ToggleScratchpad { name: None }, false, InputTime::now());
+    f.neori_state().do_action(
+        Action::ToggleScratchpad { name: None },
+        false,
+        InputTime::now(),
+    );
     assert!(!f.neori().layout.has_pending_scratchpad_spawn(None));
 }
 
@@ -127,8 +141,11 @@ fn window_mapped_after_toggle_is_adopted_into_scratchpad() {
     f.add_output(1, (1920, 1080));
 
     // Toggle to arm the pending spawn.
-    f.neori_state()
-        .do_action(Action::ToggleScratchpad { name: None }, false, InputTime::now());
+    f.neori_state().do_action(
+        Action::ToggleScratchpad { name: None },
+        false,
+        InputTime::now(),
+    );
     assert!(f.neori().layout.has_pending_scratchpad_spawn(None));
 
     // Map the next window; the compositor must adopt it into the waiting scratchpad

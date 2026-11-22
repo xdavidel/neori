@@ -41,6 +41,10 @@ pub mod utils;
 pub mod window_rule;
 pub mod workspace;
 
+/// Re-exported so downstream crates (compositor, tests) can read Lua values via
+/// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
+pub use mlua;
+
 pub use crate::animations::{Animation, Animations};
 pub use crate::appearance::*;
 pub use crate::binds::*;
@@ -58,9 +62,6 @@ pub use crate::parse_lua::{
     OutputCache, OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowCache,
     WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
 };
-/// Re-exported so downstream crates (compositor, tests) can read Lua values via
-/// [`ScriptHost::read_global`] without taking a direct dependency on `mlua`.
-pub use mlua;
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
 pub use crate::utils::FloatOrInt;
@@ -574,7 +575,10 @@ mod tests {
             model: Some("HEADLESS-1".to_string()),
             serial: None,
             mode: Some("1920x1080@60.000".to_string()),
-            modes: vec!["1920x1080@60.000".to_string(), "1280x720@60.000".to_string()],
+            modes: vec![
+                "1920x1080@60.000".to_string(),
+                "1280x720@60.000".to_string(),
+            ],
             scale: Some(1.25),
             transform: Some("90".to_string()),
             position: Some((100, 200)),
@@ -664,8 +668,17 @@ mod tests {
         assert_eq!(
             kinds,
             vec![
-                "off", "on", "off", "mode", "mode", "scale", "scale", "transform", "position",
-                "position", "vrr",
+                "off",
+                "on",
+                "off",
+                "mode",
+                "mode",
+                "scale",
+                "scale",
+                "transform",
+                "position",
+                "position",
+                "vrr",
             ],
             "unexpected ops: {kinds:?}"
         );
@@ -904,7 +917,7 @@ mod tests {
         }
 
         let sink: PrintSink = Arc::new(Mutex::new(
-            Box::new(Capture(Arc::clone(&captured))) as Box<dyn Write + Send>,
+            Box::new(Capture(Arc::clone(&captured))) as Box<dyn Write + Send>
         ));
 
         let (_config, host) = Config::parse_with_host(
@@ -1010,11 +1023,22 @@ mod tests {
         );
 
         let by_sys = |target: &str| -> Vec<&DeviceOp> {
-            ops.iter().filter(|(s, _)| s == target).map(|(_, o)| o).collect()
+            ops.iter()
+                .filter(|(s, _)| s == target)
+                .map(|(_, o)| o)
+                .collect()
         };
-        assert!(matches!(by_sys("event4")[..], [DeviceOp::SetTap(true), DeviceOp::SetNaturalScroll(true), DeviceOp::SetAccel(x)] if (x - 0.5).abs() < 1e-9));
-        assert!(matches!(by_sys("event6")[..], [DeviceOp::SetLeftHanded(true)]));
-        assert!(matches!(by_sys("event3")[..], [DeviceOp::SetDisabled(true)]));
+        assert!(
+            matches!(by_sys("event4")[..], [DeviceOp::SetTap(true), DeviceOp::SetNaturalScroll(true), DeviceOp::SetAccel(x)] if (x - 0.5).abs() < 1e-9)
+        );
+        assert!(matches!(
+            by_sys("event6")[..],
+            [DeviceOp::SetLeftHanded(true)]
+        ));
+        assert!(matches!(
+            by_sys("event3")[..],
+            [DeviceOp::SetDisabled(true)]
+        ));
 
         // Metadata round-trips.
         let seen = host.read_global("seen").unwrap();
@@ -1023,7 +1047,10 @@ mod tests {
         };
         let names: mlua::Table = t.get("names").unwrap();
         assert_eq!(names.get::<String>(1).unwrap(), "SynPS/2 Touchpad");
-        assert_eq!(names.get::<String>(3).unwrap(), "AT Translated Set 2 keyboard");
+        assert_eq!(
+            names.get::<String>(3).unwrap(),
+            "AT Translated Set 2 keyboard"
+        );
         let syses: mlua::Table = t.get("syses").unwrap();
         assert_eq!(syses.get::<String>(2).unwrap(), "event6");
     }
@@ -1196,7 +1223,8 @@ mod tests {
             title: Some("Example".into()),
             ..Default::default()
         };
-        host.call_event_with("window-opening", Window(snap)).unwrap();
+        host.call_event_with("window-opening", Window(snap))
+            .unwrap();
 
         let seen = host.read_global("seen").unwrap();
         let mlua::Value::Table(t) = seen else {
@@ -1597,7 +1625,8 @@ mod tests {
             workspace_name: Some("browser".to_string()),
             output_name: Some("eDP-1".to_string()),
         };
-        host.call_event_with("window-focused", Window(snap)).unwrap();
+        host.call_event_with("window-focused", Window(snap))
+            .unwrap();
 
         let captured = host
             .read_global("captured")
@@ -1679,7 +1708,10 @@ mod tests {
 
         // The function bind carries a ScriptFunction action registered with the host.
         let Some(&Action::ScriptFunction { id }) = config.binds.0[0].press_action() else {
-            panic!("expected a function bind, got {:?}", config.binds.0[0].action);
+            panic!(
+                "expected a function bind, got {:?}",
+                config.binds.0[0].action
+            );
         };
         assert!(
             host.has_bind_function(id),
@@ -2110,8 +2142,9 @@ mod tests {
         );
 
         // An explicit keycode request on a modifier keysym also keeps the keysym.
-        let config = Config::parse_mem(r#"neori.bind("Alt_L", { close_window = true, keycode = true })"#)
-            .unwrap();
+        let config =
+            Config::parse_mem(r#"neori.bind("Alt_L", { close_window = true, keycode = true })"#)
+                .unwrap();
         assert_eq!(
             config.binds.0[0].key.trigger,
             Trigger::Keysym(smithay::input::keyboard::Keysym::Alt_L)
@@ -2166,7 +2199,10 @@ mod tests {
         .unwrap();
         let binds = &config.binds.0;
 
-        assert_eq!(binds[0].action, BoundAction::Release(Action::ToggleOverview {}));
+        assert_eq!(
+            binds[0].action,
+            BoundAction::Release(Action::ToggleOverview {})
+        );
         // Binds with a release action don't repeat by default.
         assert!(!binds[0].repeat);
 
@@ -2193,7 +2229,10 @@ mod tests {
         assert!(host.has_bind_function(release));
 
         // A press-only slot is the same as a direct action, and still repeats.
-        assert_eq!(binds[3].action, BoundAction::Press(Action::ToggleOverview {}));
+        assert_eq!(
+            binds[3].action,
+            BoundAction::Press(Action::ToggleOverview {})
+        );
         assert!(binds[3].repeat);
 
         // The inhibit toggle is never inhibitable, even as a release action.
@@ -2257,7 +2296,10 @@ mod tests {
             r#"neori.window_rule { block_out_from = "everything" }"#,
             r#"neori.window_rule { block_out_from = { "screencast", kind = "blur" } }"#,
         ] {
-            assert!(Config::parse_mem(&format!("neori.strict()\n{text}")).is_err(), "{text}");
+            assert!(
+                Config::parse_mem(&format!("neori.strict()\n{text}")).is_err(),
+                "{text}"
+            );
         }
     }
 
@@ -2281,22 +2323,33 @@ mod tests {
             r#"neori.bind("Mod+MouseLeft", { close_window = true, pass_through = true })"#,
         )
         .unwrap_err();
-        assert!(err.main.contains("only supported for keyboard binds"), "{err}");
+        assert!(
+            err.main.contains("only supported for keyboard binds"),
+            "{err}"
+        );
     }
 
     #[test]
     fn press_and_release_bind_errors() {
         let err = |text: &str| Config::parse_mem(text).unwrap_err().main;
 
-        assert!(err(r#"neori.bind("Mod+Q", { close_window = true, release = "toggle-overview" })"#)
-            .contains("cannot mix a direct action with press/release actions"));
-        assert!(err(r#"neori.bind("Mod+WheelScrollDown", { release = "focus-workspace-down" })"#)
-            .contains("release actions are not supported for scroll binds"));
-        assert!(err(r#"neori.bind("Mod", { release = "toggle-overview", ["repeat"] = true })"#)
-            .contains("release-only binds cannot repeat"));
+        assert!(err(
+            r#"neori.bind("Mod+Q", { close_window = true, release = "toggle-overview" })"#
+        )
+        .contains("cannot mix a direct action with press/release actions"));
+        assert!(
+            err(r#"neori.bind("Mod+WheelScrollDown", { release = "focus-workspace-down" })"#)
+                .contains("release actions are not supported for scroll binds")
+        );
+        assert!(
+            err(r#"neori.bind("Mod", { release = "toggle-overview", ["repeat"] = true })"#)
+                .contains("release-only binds cannot repeat")
+        );
         assert!(err(r#"neori.bind("Mod", { release = "no-such-action" })"#).contains("release"));
-        assert!(err(r#"neori.bind("Mod", { release = { allow_when_locked = true } })"#)
-            .contains("bind options go on the bind itself"));
+        assert!(
+            err(r#"neori.bind("Mod", { release = { allow_when_locked = true } })"#)
+                .contains("bind options go on the bind itself")
+        );
     }
 
     #[test]
@@ -2535,7 +2588,8 @@ mod tests {
         let config = Config::parse_mem("neori.debug { disable_pipewire_dmabuf = true }").unwrap();
         assert!(config.debug.disable_pipewire_dmabuf);
 
-        let config = Config::parse_mem(r#"neori.debug { ["disable-pipewire-dmabuf"] = true }"#).unwrap();
+        let config =
+            Config::parse_mem(r#"neori.debug { ["disable-pipewire-dmabuf"] = true }"#).unwrap();
         assert!(config.debug.disable_pipewire_dmabuf);
 
         let config = Config::parse_mem("").unwrap();
@@ -2547,7 +2601,8 @@ mod tests {
         let config = Config::parse_mem("neori.debug { nested_show_host_cursor = true }").unwrap();
         assert!(config.debug.nested_show_host_cursor);
 
-        let config = Config::parse_mem(r#"neori.debug { ["nested-show-host-cursor"] = true }"#).unwrap();
+        let config =
+            Config::parse_mem(r#"neori.debug { ["nested-show-host-cursor"] = true }"#).unwrap();
         assert!(config.debug.nested_show_host_cursor);
 
         let config = Config::parse_mem("").unwrap();
@@ -2857,10 +2912,9 @@ mod tests {
         assert!(config.outputs.0[0].create_virtual);
 
         // kebab-case alias
-        let config = Config::parse_mem(
-            r#"neori.output { name = "HEADLESS-1", ["create-virtual"] = true }"#,
-        )
-        .unwrap();
+        let config =
+            Config::parse_mem(r#"neori.output { name = "HEADLESS-1", ["create-virtual"] = true }"#)
+                .unwrap();
         assert!(config.outputs.0[0].create_virtual);
 
         // Default is false.
@@ -3049,8 +3103,7 @@ mod tests {
         // Non-string/table/function action is still rejected.
         let err = Config::parse_mem(r#"neori.bind("Mod+Q", 42)"#).unwrap_err();
         assert!(
-            err.main.contains("action must be")
-                || err.main.contains("no action or Lua function"),
+            err.main.contains("action must be") || err.main.contains("no action or Lua function"),
             "{err}"
         );
     }
@@ -3088,8 +3141,14 @@ mod tests {
 
         let anims = &config.animations;
         assert_eq!(anims.window_open.custom_shader.as_deref(), Some("open();"));
-        assert_eq!(anims.window_close.custom_shader.as_deref(), Some("close();"));
-        assert_eq!(anims.window_resize.custom_shader.as_deref(), Some("resize();"));
+        assert_eq!(
+            anims.window_close.custom_shader.as_deref(),
+            Some("close();")
+        );
+        assert_eq!(
+            anims.window_resize.custom_shader.as_deref(),
+            Some("resize();")
+        );
         // Other animation settings in the same table still apply.
         let crate::animations::Kind::Easing(params) = anims.window_open.anim.kind else {
             panic!("expected an easing animation");
@@ -3147,7 +3206,11 @@ mod tests {
             r#"neori.animations { window_open = { custom_shader = { path = "missing.frag" } } }"#,
         );
         let err = res.config.unwrap_err();
-        assert!(err.main.contains("failed to read custom shader"), "{}", err.main);
+        assert!(
+            err.main.contains("failed to read custom shader"),
+            "{}",
+            err.main
+        );
         assert!(res.includes.contains(&missing));
 
         // The table form requires a path.
@@ -3226,8 +3289,8 @@ mod tests {
         let ffm = parse("neori.input { focus_follows_mouse = { outputs_only = true } }").unwrap();
         assert_eq!(ffm.outputs_only, Some(true));
 
-        let ffm = parse(r#"neori.input { focus_follows_mouse = { ["outputs-only"] = false } }"#)
-            .unwrap();
+        let ffm =
+            parse(r#"neori.input { focus_follows_mouse = { ["outputs-only"] = false } }"#).unwrap();
         assert_eq!(ffm.outputs_only, Some(false));
 
         let ffm = parse("neori.input { focus_follows_mouse = true }").unwrap();
@@ -3246,9 +3309,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(config.input.touchpad.pinch_sensitivity, Some(FloatOrInt(1.5)));
-        assert_eq!(config.window_rules[0].pinch_sensitivity, Some(FloatOrInt(1.25)));
-        assert_eq!(config.window_rules[1].pinch_sensitivity, Some(FloatOrInt(2.)));
+        assert_eq!(
+            config.input.touchpad.pinch_sensitivity,
+            Some(FloatOrInt(1.5))
+        );
+        assert_eq!(
+            config.window_rules[0].pinch_sensitivity,
+            Some(FloatOrInt(1.25))
+        );
+        assert_eq!(
+            config.window_rules[1].pinch_sensitivity,
+            Some(FloatOrInt(2.))
+        );
         assert_eq!(config.window_rules[2].pinch_sensitivity, None);
 
         let config = Config::parse_mem("").unwrap();

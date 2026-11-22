@@ -197,7 +197,10 @@ impl Trigger {
     pub fn is_keyboard(self) -> bool {
         matches!(
             self,
-            Trigger::Keysym(_) | Trigger::Keycode(_) | Trigger::CompositorMod | Trigger::Modifier(_)
+            Trigger::Keysym(_)
+                | Trigger::Keycode(_)
+                | Trigger::CompositorMod
+                | Trigger::Modifier(_)
         )
     }
 

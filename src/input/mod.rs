@@ -1084,10 +1084,7 @@ impl State {
                 }
             }
             Action::RemoveVirtualOutput { name } => {
-                if let Err(err) = self
-                    .backend
-                    .remove_virtual_output(&mut self.neori, &name)
-                {
+                if let Err(err) = self.backend.remove_virtual_output(&mut self.neori, &name) {
                     warn!("error removing virtual output '{name}': {err}");
                 }
             }
@@ -1505,7 +1502,9 @@ impl State {
             Action::ConsumeOrExpelWindowLeft { id: Some(id) } => {
                 let id = MappedId::specific(id);
                 if let Some(window) = self.neori.find_window_by_id(id) {
-                    self.neori.layout.consume_or_expel_window_left(Some(&window));
+                    self.neori
+                        .layout
+                        .consume_or_expel_window_left(Some(&window));
                     self.maybe_warp_cursor_to_focus();
                     // FIXME: granular
                     self.neori.queue_redraw_all();
@@ -4383,11 +4382,12 @@ impl State {
             match event.state() {
                 ProximityState::In => {
                     if !tool.is_grabbed() && self.neori.popup_grab.is_none() {
-                        let prev_location = self.neori.tablet_cursor_location.unwrap_or_else(|| {
-                            // Do focus-follows-mouse when entering the tablet.
-                            let pointer = self.neori.seat.get_pointer().unwrap();
-                            pointer.current_location()
-                        });
+                        let prev_location =
+                            self.neori.tablet_cursor_location.unwrap_or_else(|| {
+                                // Do focus-follows-mouse when entering the tablet.
+                                let pointer = self.neori.seat.get_pointer().unwrap();
+                                pointer.current_location()
+                            });
                         self.neori.handle_focus_follows_mouse(prev_location, &under);
                     }
 
@@ -4487,7 +4487,11 @@ impl State {
                     let mods = self.neori.seat.get_keyboard().unwrap().modifier_state();
                     let modifiers = modifiers_from_state(mods);
 
-                    if self.neori.mods_with_tablet_stylus_binds.contains(&modifiers) {
+                    if self
+                        .neori
+                        .mods_with_tablet_stylus_binds
+                        .contains(&modifiers)
+                    {
                         if let Some(bind) = self.find_pointer_bind(mod_key, trigger, mods) {
                             self.neori.suppressed_buttons.insert(button);
                             if should_record_release_bind(
@@ -6750,7 +6754,9 @@ mod tests {
 
     #[test]
     fn release_only_bind_is_recorded_on_press_and_runs_on_release() {
-        let bindings = Binds(vec![close_bind(BoundAction::Release(Action::CloseWindow { id: None }))]);
+        let bindings = Binds(vec![close_bind(BoundAction::Release(
+            Action::CloseWindow { id: None },
+        ))]);
 
         let mut state = create_test_state();
         let result = press_close_key(&mut state, &bindings, Modifiers::SUPER);
@@ -6796,7 +6802,9 @@ mod tests {
 
     #[test]
     fn release_only_bind_not_allowed_while_locked_is_not_recorded_while_locked() {
-        let bindings = Binds(vec![close_bind(BoundAction::Release(Action::CloseWindow { id: None }))]);
+        let bindings = Binds(vec![close_bind(BoundAction::Release(
+            Action::CloseWindow { id: None },
+        ))]);
 
         let mut state = TestState {
             is_locked: true,
@@ -6817,15 +6825,24 @@ mod tests {
         // allowed while the screenshot UI is open.
         let both = |press, release| close_bind(BoundAction::Both { press, release });
         assert!(!bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft { focus: true }, Action::CloseWindow { id: None }),
+            &both(
+                Action::MoveColumnLeft { focus: true },
+                Action::CloseWindow { id: None }
+            ),
             true
         ));
         assert!(!bind_allowed_during_screenshot(
-            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft { focus: true }),
+            &both(
+                Action::CloseWindow { id: None },
+                Action::MoveColumnLeft { focus: true }
+            ),
             true
         ));
         assert!(bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft { focus: true }, Action::MoveWindowUp { focus: true }),
+            &both(
+                Action::MoveColumnLeft { focus: true },
+                Action::MoveWindowUp { focus: true }
+            ),
             true
         ));
     }
@@ -6848,11 +6865,17 @@ mod tests {
         // not block it.
         let both = |press, release| close_bind(BoundAction::Both { press, release });
         assert!(bind_allowed_during_screenshot(
-            &both(Action::MoveColumnLeft { focus: true }, Action::CloseWindow { id: None }),
+            &both(
+                Action::MoveColumnLeft { focus: true },
+                Action::CloseWindow { id: None }
+            ),
             false
         ));
         assert!(bind_allowed_during_screenshot(
-            &both(Action::CloseWindow { id: None }, Action::MoveColumnLeft { focus: true }),
+            &both(
+                Action::CloseWindow { id: None },
+                Action::MoveColumnLeft { focus: true }
+            ),
             false
         ));
 

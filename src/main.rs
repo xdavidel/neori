@@ -380,8 +380,8 @@ fn system_config_path() -> PathBuf {
 /// The file lives under `ProjectDirs::state_dir()` (`~/.local/state/neori` on
 /// Linux), falling back to the data-local dir if XDG state isn't available.
 fn open_lua_print_log() -> Result<(PrintSink, PathBuf), String> {
-    let dirs =
-        ProjectDirs::from("", "", "neori").ok_or_else(|| "home directory unavailable".to_string())?;
+    let dirs = ProjectDirs::from("", "", "neori")
+        .ok_or_else(|| "home directory unavailable".to_string())?;
     let dir: &Path = dirs.state_dir().unwrap_or_else(|| dirs.data_local_dir());
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join("lua.log");

@@ -960,7 +960,8 @@ neori.window_rule {
         Action::FocusWorkspace {
             reference: WorkspaceReference::Index(ws2 as u8),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
 
     assert!(

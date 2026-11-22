@@ -30,7 +30,6 @@ use smithay::reexports::wayland_protocols::wp::presentation_time::server::wp_pre
 #[cfg(feature = "xdp-gnome-screencast")]
 use smithay::utils::DeviceFd;
 use smithay::utils::Size;
-
 use smithay::wayland::dmabuf::{DmabufFeedbackBuilder, DmabufGlobal};
 use smithay::wayland::presentation::Refresh;
 

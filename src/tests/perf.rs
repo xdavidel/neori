@@ -58,9 +58,7 @@ fn perf_fire_window_event_no_handler() {
     }
     let elapsed = start.elapsed();
     let per_op = elapsed / u32::try_from(N).unwrap();
-    println!(
-        "fire_window_event no handler: {N} iterations, {elapsed:?}, {per_op:?} per op",
-    );
+    println!("fire_window_event no handler: {N} iterations, {elapsed:?}, {per_op:?} per op",);
 
     // Generous budget — 10k lookups should be well under 10ms even on a slow
     // CI runner. Regressions that reintroduce cache priming here will blow
@@ -96,9 +94,7 @@ fn perf_fire_window_event_with_handler() {
     }
     let elapsed = start.elapsed();
     let per_op = elapsed / u32::try_from(N).unwrap();
-    println!(
-        "fire_window_event with handler: {N} iterations, {elapsed:?}, {per_op:?} per op",
-    );
+    println!("fire_window_event with handler: {N} iterations, {elapsed:?}, {per_op:?} per op",);
 
     // Loose 5-second cap — real baseline is on the order of 100ms. If this
     // blows the cap, something major regressed (eager allocations per fire,
@@ -134,9 +130,7 @@ fn perf_ipc_refresh_layout_steady_state() {
     }
     let elapsed = start.elapsed();
     let per_op = elapsed / u32::try_from(N).unwrap();
-    println!(
-        "ipc_refresh_layout steady-state: {N} iterations, {elapsed:?}, {per_op:?} per op",
-    );
+    println!("ipc_refresh_layout steady-state: {N} iterations, {elapsed:?}, {per_op:?} per op",);
 
     // 10k ticks in steady state should be well under 1 second. The window
     // + workspace walks over ~1 workspace / 0 windows are trivially small.

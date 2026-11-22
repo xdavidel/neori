@@ -122,9 +122,7 @@ impl Backend {
         match self {
             Backend::Tty(tty) => tty.render(neori, output, target_presentation_time),
             Backend::Winit(winit) => winit.render(neori, output),
-            Backend::Headless(headless) => {
-                headless.render(neori, output, target_presentation_time)
-            }
+            Backend::Headless(headless) => headless.render(neori, output, target_presentation_time),
         }
     }
 

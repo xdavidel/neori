@@ -7,10 +7,10 @@
 //!
 //! - Handlers from the old config stop firing after a successful reload.
 //! - Handlers from the new config fire after reload.
-//! - A failed reload (parse error) does NOT touch the current ScriptHost
-//!   — old handlers keep firing.
-//! - The tracking fields on `Neori` that back lifecycle-event diffs
-//!   (currently just `last_focused_window_id`) survive the reload.
+//! - A failed reload (parse error) does NOT touch the current ScriptHost — old handlers keep
+//!   firing.
+//! - The tracking fields on `Neori` that back lifecycle-event diffs (currently just
+//!   `last_focused_window_id`) survive the reload.
 
 use neori_config::Config;
 
@@ -142,13 +142,7 @@ fn parse_error_reload_keeps_old_handlers_alive() {
         .call_event("startup")
         .unwrap();
 
-    let fires = f
-        .state
-        .server
-        .state
-        .scripting
-        .read_global("fires")
-        .unwrap();
+    let fires = f.state.server.state.scripting.read_global("fires").unwrap();
     assert!(
         matches!(fires, neori_config::mlua::Value::Integer(2)),
         "parse-error reload should preserve old handlers; expected 2 fires, got {fires:?}"

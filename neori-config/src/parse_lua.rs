@@ -428,23 +428,20 @@ impl mlua::UserData for LuaOutput {
         });
 
         // out:set_vrr(true/false) — on-demand defaults to false
-        methods.add_method(
-            "set_vrr",
-            |lua, this, args: (bool, Option<bool>)| {
-                let (enable, on_demand) = args;
-                enqueue_output_op(
-                    lua,
-                    &this.0.name,
-                    neori_ipc::OutputAction::Vrr {
-                        vrr: neori_ipc::VrrToSet {
-                            vrr: enable,
-                            on_demand: on_demand.unwrap_or(false),
-                        },
+        methods.add_method("set_vrr", |lua, this, args: (bool, Option<bool>)| {
+            let (enable, on_demand) = args;
+            enqueue_output_op(
+                lua,
+                &this.0.name,
+                neori_ipc::OutputAction::Vrr {
+                    vrr: neori_ipc::VrrToSet {
+                        vrr: enable,
+                        on_demand: on_demand.unwrap_or(false),
                     },
-                );
-                Ok(())
-            },
-        );
+                },
+            );
+            Ok(())
+        });
 
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
             let mode = this.0.mode.as_deref().unwrap_or("?");
@@ -457,10 +454,7 @@ impl mlua::UserData for LuaOutput {
 /// queue stashed on the Lua state via [`Lua::set_app_data`].
 fn enqueue_output_op(lua: &Lua, output_name: &str, op: neori_ipc::OutputAction) {
     if let Some(pending) = lua.app_data_ref::<PendingOutputOps>() {
-        pending
-            .lock()
-            .unwrap()
-            .push((output_name.to_string(), op));
+        pending.lock().unwrap().push((output_name.to_string(), op));
     }
 }
 
@@ -515,8 +509,7 @@ impl mlua::UserData for LuaWorkspace {
         // ws:windows() returns the windows that live on this workspace, filtered
         // from the compositor-primed window cache.
         methods.add_method("windows", |lua, this, ()| {
-            let ids: std::collections::HashSet<u64> =
-                this.0.window_ids.iter().copied().collect();
+            let ids: std::collections::HashSet<u64> = this.0.window_ids.iter().copied().collect();
             let arr = lua.create_table()?;
             if let Some(cache) = lua.app_data_ref::<SharedWindowCache>() {
                 let locked = cache.lock().unwrap();
@@ -709,7 +702,12 @@ impl mlua::UserData for Window {
         // stashed in a Lua local across callbacks.
 
         methods.add_method("close", |lua, this, ()| {
-            enqueue_action(lua, Action::CloseWindow { id: Some(this.0.id) });
+            enqueue_action(
+                lua,
+                Action::CloseWindow {
+                    id: Some(this.0.id),
+                },
+            );
             Ok(())
         });
 
@@ -724,18 +722,20 @@ impl mlua::UserData for Window {
         // was stale (the user stashed `w` across callbacks and state changed), a
         // mismatched toggle can still land — re-query via neori.focused_window() /
         // neori.windows() when you need the current state.
-        methods.add_method(
-            "fullscreen",
-            |lua, this, enable: Option<bool>| {
-                if let Some(desired) = enable {
-                    if desired == this.0.is_fullscreen {
-                        return Ok(());
-                    }
+        methods.add_method("fullscreen", |lua, this, enable: Option<bool>| {
+            if let Some(desired) = enable {
+                if desired == this.0.is_fullscreen {
+                    return Ok(());
                 }
-                enqueue_action(lua, Action::FullscreenWindow { id: Some(this.0.id) });
-                Ok(())
-            },
-        );
+            }
+            enqueue_action(
+                lua,
+                Action::FullscreenWindow {
+                    id: Some(this.0.id),
+                },
+            );
+            Ok(())
+        });
 
         // `w:float(true)` / `w:float(false)` / `w:float()` (toggle). The explicit
         // MoveWindowToFloating / MoveWindowToTiling IPC actions make this truly
@@ -746,45 +746,43 @@ impl mlua::UserData for Window {
                 return Ok(());
             }
             let action = if desired {
-                Action::MoveWindowToFloating { id: Some(this.0.id) }
+                Action::MoveWindowToFloating {
+                    id: Some(this.0.id),
+                }
             } else {
-                Action::MoveWindowToTiling { id: Some(this.0.id) }
+                Action::MoveWindowToTiling {
+                    id: Some(this.0.id),
+                }
             };
             enqueue_action(lua, action);
             Ok(())
         });
 
         // `w:send_to_workspace(2)` / `w:send_to_workspace("browser")`.
-        methods.add_method(
-            "send_to_workspace",
-            |lua, this, target: mlua::Value| {
-                let reference = workspace_reference_from_lua(&target)?;
-                enqueue_action(
-                    lua,
-                    Action::MoveWindowToWorkspace {
-                        window_id: Some(this.0.id),
-                        reference,
-                        focus: true,
-                    },
-                );
-                Ok(())
-            },
-        );
+        methods.add_method("send_to_workspace", |lua, this, target: mlua::Value| {
+            let reference = workspace_reference_from_lua(&target)?;
+            enqueue_action(
+                lua,
+                Action::MoveWindowToWorkspace {
+                    window_id: Some(this.0.id),
+                    reference,
+                    focus: true,
+                },
+            );
+            Ok(())
+        });
 
         // `w:send_to_output("eDP-1")`.
-        methods.add_method(
-            "send_to_output",
-            |lua, this, output: String| {
-                enqueue_action(
-                    lua,
-                    Action::MoveWindowToMonitor {
-                        id: Some(this.0.id),
-                        output,
-                    },
-                );
-                Ok(())
-            },
-        );
+        methods.add_method("send_to_output", |lua, this, output: String| {
+            enqueue_action(
+                lua,
+                Action::MoveWindowToMonitor {
+                    id: Some(this.0.id),
+                    output,
+                },
+            );
+            Ok(())
+        });
 
         // Pre-placement overrides. These only have an effect from inside a
         // `window-opening` handler: the compositor sets the overrides guard
@@ -825,7 +823,10 @@ impl mlua::UserData for Window {
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
             let app = this.0.app_id.as_deref().unwrap_or("?");
             let title = this.0.title.as_deref().unwrap_or("?");
-            Ok(format!("Window(#{}, app_id={app:?}, title={title:?})", this.0.id))
+            Ok(format!(
+                "Window(#{}, app_id={app:?}, title={title:?})",
+                this.0.id
+            ))
         });
     }
 }
@@ -1364,9 +1365,7 @@ impl Default for ScriptHost {
 /// `print` override's timestamp prefix, so precision is capped at milliseconds
 /// and timezone is fixed to UTC.
 fn format_utc_timestamp(now: SystemTime) -> String {
-    let d = now
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO);
+    let d = now.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO);
     let secs = d.as_secs() as i64;
     let millis = d.subsec_millis();
     let days = secs.div_euclid(86_400);
@@ -1754,11 +1753,7 @@ fn setup_neori_api(
                             "neori.action: first argument must be a string",
                         ))
                     }
-                    None => {
-                        return Err(LuaError::runtime(
-                            "neori.action: expected an action name",
-                        ))
-                    }
+                    None => return Err(LuaError::runtime("neori.action: expected an action name")),
                 };
                 let arg = iter.next().unwrap_or(Value::Nil);
                 let extra = iter.next();
@@ -2950,7 +2945,9 @@ fn parse_block_out_from(value: &Value) -> Result<Option<BlockOutFrom>, String> {
         Value::Table(t) => {
             let target: Value = t.get(1).map_err(|e| format!("block_out_from: {e}"))?;
             let target = match target {
-                Value::Nil => t.get("target").map_err(|e| format!("block_out_from: {e}"))?,
+                Value::Nil => t
+                    .get("target")
+                    .map_err(|e| format!("block_out_from: {e}"))?,
                 v => v,
             };
             let kind: Value = t.get("kind").map_err(|e| format!("block_out_from: {e}"))?;
@@ -3562,11 +3559,8 @@ fn parse_workspaces(table: LuaTable, config: &mut Config) -> Result<(), String> 
     for item in table.sequence_values::<LuaTable>() {
         let t = item.map_err(|e| format!("workspace error: {e}"))?;
         let name: String = t.get("name").unwrap_or_default();
-        let open_on_output = parse_open_on_output(&table_get_alias(
-            &t,
-            "open_on_output",
-            "open-on-output",
-        )?)?;
+        let open_on_output =
+            parse_open_on_output(&table_get_alias(&t, "open_on_output", "open-on-output")?)?;
         let layout_table: Option<LuaTable> = t
             .get("layout")
             .map_err(|e| format!("workspace layout error: {e}"))?;
@@ -4576,7 +4570,10 @@ fn validate_recent_windows_bind(name: &str, bind: &Bind, previous: &[Bind]) -> R
         ));
     }
 
-    if previous.iter().any(|prev| prev.key.conflicts_with(&bind.key)) {
+    if previous
+        .iter()
+        .any(|prev| prev.key.conflicts_with(&bind.key))
+    {
         return Err(format!(
             "recent_windows bind `{name}` conflicts with another recent_windows bind"
         ));
@@ -4716,7 +4713,9 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
 
     match &value {
         Value::String(s) => {
-            action = Some(parse_action_string(&s.to_str().map_err(|e| format!("{e}"))?)?);
+            action = Some(parse_action_string(
+                &s.to_str().map_err(|e| format!("{e}"))?,
+            )?);
         }
         Value::Table(t) => {
             for pair in t.clone().pairs::<Value, Value>() {
@@ -4811,9 +4810,13 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
 
     // The toggle-inhibit action must always be uninhibitable.
     // Otherwise, it would be impossible to trigger it.
-    if matches!(press_action, Some(Action::ToggleKeyboardShortcutsInhibit {}))
-        || matches!(release_action, Some(Action::ToggleKeyboardShortcutsInhibit {}))
-    {
+    if matches!(
+        press_action,
+        Some(Action::ToggleKeyboardShortcutsInhibit {})
+    ) || matches!(
+        release_action,
+        Some(Action::ToggleKeyboardShortcutsInhibit {})
+    ) {
         allow_inhibiting = false;
     }
 
@@ -4997,8 +5000,7 @@ fn create_virtual_output_action(lua: &Lua, args: Vec<Value>) -> Result<LuaTable,
         [Value::Table(t)] => Some(t.clone()),
         _ => {
             return Err(
-                "create_virtual_output expects a single options table or no arguments"
-                    .to_string(),
+                "create_virtual_output expects a single options table or no arguments".to_string(),
             )
         }
     };
@@ -5049,8 +5051,7 @@ fn remove_virtual_output_action(lua: &Lua, args: Vec<Value>) -> Result<LuaTable,
                 .get::<Option<String>>("name")
                 .map_err(|e| format!("{e}"))?
                 .ok_or_else(|| {
-                    "remove_virtual_output requires a `name` field in the options table"
-                        .to_string()
+                    "remove_virtual_output requires a `name` field in the options table".to_string()
                 })?;
             (name, Some(t.clone()))
         }
@@ -5112,11 +5113,7 @@ fn parse_size_change(value: &Value) -> Result<SizeChange, String> {
 /// `wrapper` is a freshly-built Lua table that holds `{ [name] = effective_arg }`; the
 /// caller provides it because it already has the live Lua context. The caller must set the
 /// `name` key on `wrapper` before calling.
-fn resolve_runtime_action(
-    name: &str,
-    arg: &Value,
-    wrapper: &LuaTable,
-) -> Result<Action, String> {
+fn resolve_runtime_action(name: &str, arg: &Value, wrapper: &LuaTable) -> Result<Action, String> {
     // Nil arg: try the no-argument string form first (handles "focus-column-left",
     // "close-window", "toggle-overview", "create-virtual-output", …).
     if matches!(arg, Value::Nil) {
@@ -5137,12 +5134,24 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
     let action = match s {
         "close_window" | "close-window" => Action::CloseWindow { id: None },
         "fullscreen_window" | "fullscreen-window" => Action::FullscreenWindow { id: None },
-        "set_window_fullscreen" | "set-window-fullscreen" => Action::SetWindowFullscreen { id: None },
-        "unset_window_fullscreen" | "unset-window-fullscreen" => Action::UnsetWindowFullscreen { id: None },
-        "set_windowed_fullscreen" | "set-windowed-fullscreen" => Action::SetWindowedFullscreen { id: None },
-        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => Action::UnsetWindowedFullscreen { id: None },
-        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => Action::SetWindowMaximizedToEdges { id: None },
-        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => Action::UnsetWindowMaximizedToEdges { id: None },
+        "set_window_fullscreen" | "set-window-fullscreen" => {
+            Action::SetWindowFullscreen { id: None }
+        }
+        "unset_window_fullscreen" | "unset-window-fullscreen" => {
+            Action::UnsetWindowFullscreen { id: None }
+        }
+        "set_windowed_fullscreen" | "set-windowed-fullscreen" => {
+            Action::SetWindowedFullscreen { id: None }
+        }
+        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => {
+            Action::UnsetWindowedFullscreen { id: None }
+        }
+        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => {
+            Action::SetWindowMaximizedToEdges { id: None }
+        }
+        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => {
+            Action::UnsetWindowMaximizedToEdges { id: None }
+        }
         "quit" => Action::Quit {
             skip_confirmation: false,
         },
@@ -5255,7 +5264,9 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         }
         "focus_column_first" | "focus-column-first" => Action::FocusColumnFirst {},
         "focus_column_last" | "focus-column-last" => Action::FocusColumnLast {},
-        "move_column_to_first" | "move-column-to-first" => Action::MoveColumnToFirst { focus: true },
+        "move_column_to_first" | "move-column-to-first" => {
+            Action::MoveColumnToFirst { focus: true }
+        }
         "move_column_to_last" | "move-column-to-last" => Action::MoveColumnToLast { focus: true },
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
             Action::MoveColumnToMonitorLeft {}
@@ -5405,12 +5416,12 @@ fn action_from_table_key(
         "create_virtual_output" | "create-virtual-output" => {
             let (name, width, height, refresh_rate) = match value {
                 Value::Table(t) => (
-                    t.get::<Option<String>>("name").map_err(|e| format!("{e}"))?,
+                    t.get::<Option<String>>("name")
+                        .map_err(|e| format!("{e}"))?,
                     t.get::<Option<u16>>("width").map_err(|e| format!("{e}"))?,
                     t.get::<Option<u16>>("height").map_err(|e| format!("{e}"))?,
                     {
-                        let v: Value =
-                            table_get_alias(t, "refresh_rate", "refresh-rate")?;
+                        let v: Value = table_get_alias(t, "refresh_rate", "refresh-rate")?;
                         match v {
                             Value::Nil => None,
                             Value::Integer(i) => Some(i as u32),
@@ -5426,11 +5437,7 @@ fn action_from_table_key(
                 ),
                 // Bare `create_virtual_output = true` is shorthand for "all defaults".
                 Value::Nil | Value::Boolean(_) => (None, None, None, None),
-                _ => {
-                    return Err(
-                        "create_virtual_output expects a table of options".to_string()
-                    )
-                }
+                _ => return Err("create_virtual_output expects a table of options".to_string()),
             };
             Some(Action::CreateVirtualOutput {
                 name,
@@ -5445,9 +5452,7 @@ fn action_from_table_key(
                 Value::Table(t) => t
                     .get::<Option<String>>("name")
                     .map_err(|e| format!("{e}"))?
-                    .ok_or_else(|| {
-                        "remove_virtual_output requires a `name`".to_string()
-                    })?,
+                    .ok_or_else(|| "remove_virtual_output requires a `name`".to_string())?,
                 _ => {
                     return Err(
                         "remove_virtual_output expects a string name or a table with `name`"
@@ -5459,12 +5464,24 @@ fn action_from_table_key(
         }
         "close_window" | "close-window" => Some(Action::CloseWindow { id: None }),
         "fullscreen_window" | "fullscreen-window" => Some(Action::FullscreenWindow { id: None }),
-        "set_window_fullscreen" | "set-window-fullscreen" => Some(Action::SetWindowFullscreen { id: None }),
-        "unset_window_fullscreen" | "unset-window-fullscreen" => Some(Action::UnsetWindowFullscreen { id: None }),
-        "set_windowed_fullscreen" | "set-windowed-fullscreen" => Some(Action::SetWindowedFullscreen { id: None }),
-        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => Some(Action::UnsetWindowedFullscreen { id: None }),
-        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => Some(Action::SetWindowMaximizedToEdges { id: None }),
-        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => Some(Action::UnsetWindowMaximizedToEdges { id: None }),
+        "set_window_fullscreen" | "set-window-fullscreen" => {
+            Some(Action::SetWindowFullscreen { id: None })
+        }
+        "unset_window_fullscreen" | "unset-window-fullscreen" => {
+            Some(Action::UnsetWindowFullscreen { id: None })
+        }
+        "set_windowed_fullscreen" | "set-windowed-fullscreen" => {
+            Some(Action::SetWindowedFullscreen { id: None })
+        }
+        "unset_windowed_fullscreen" | "unset-windowed-fullscreen" => {
+            Some(Action::UnsetWindowedFullscreen { id: None })
+        }
+        "set_window_maximized_to_edges" | "set-window-maximized-to-edges" => {
+            Some(Action::SetWindowMaximizedToEdges { id: None })
+        }
+        "unset_window_maximized_to_edges" | "unset-window-maximized-to-edges" => {
+            Some(Action::UnsetWindowMaximizedToEdges { id: None })
+        }
         "toggle_window_floating" | "toggle-window-floating" => {
             Some(Action::ToggleWindowFloating { id: None })
         }
@@ -5632,8 +5649,12 @@ fn action_from_table_key(
         }
         "focus_column_first" | "focus-column-first" => Some(Action::FocusColumnFirst {}),
         "focus_column_last" | "focus-column-last" => Some(Action::FocusColumnLast {}),
-        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst { focus: true }),
-        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast { focus: true }),
+        "move_column_to_first" | "move-column-to-first" => {
+            Some(Action::MoveColumnToFirst { focus: true })
+        }
+        "move_column_to_last" | "move-column-to-last" => {
+            Some(Action::MoveColumnToLast { focus: true })
+        }
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
             Some(Action::MoveColumnToMonitorLeft {})
         }
@@ -5792,9 +5813,11 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
             }
             "window_close" | "window-close" => {
                 let mut shader = None;
-                if let Some(a) =
-                    parse_animation_switch_with_shader(&value, anims.window_close.anim, &mut shader)?
-                {
+                if let Some(a) = parse_animation_switch_with_shader(
+                    &value,
+                    anims.window_close.anim,
+                    &mut shader,
+                )? {
                     anims.window_close.anim = a;
                 }
                 if shader.is_some() {
@@ -5803,9 +5826,11 @@ fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), 
             }
             "window_resize" | "window-resize" => {
                 let mut shader = None;
-                if let Some(a) =
-                    parse_animation_switch_with_shader(&value, anims.window_resize.anim, &mut shader)?
-                {
+                if let Some(a) = parse_animation_switch_with_shader(
+                    &value,
+                    anims.window_resize.anim,
+                    &mut shader,
+                )? {
                     anims.window_resize.anim = a;
                 }
                 if shader.is_some() {
@@ -5947,7 +5972,10 @@ fn read_xkb_file(path: &str) -> XkbFile {
 /// `{ path = "..." }` table pointing at a file with the source.
 fn parse_custom_shader(value: &Value) -> Result<String, String> {
     match value {
-        Value::String(s) => Ok(s.to_str().map_err(|e| format!("custom_shader: {e}"))?.to_string()),
+        Value::String(s) => Ok(s
+            .to_str()
+            .map_err(|e| format!("custom_shader: {e}"))?
+            .to_string()),
         Value::Table(t) => {
             let mut path = None;
             for pair in t.pairs::<Value, Value>() {
@@ -6063,7 +6091,9 @@ mod tests {
         assert!(ok("Ctrl+Alt", &[]).is_ok());
         assert!(ok("Tab", &[]).unwrap_err().contains("must have a modifier"));
         assert!(ok("Alt", &[]).unwrap_err().contains("must have a modifier"));
-        assert!(ok("Alt+Alt_L", &[]).unwrap_err().contains("must have a modifier"));
+        assert!(ok("Alt+Alt_L", &[])
+            .unwrap_err()
+            .contains("must have a modifier"));
 
         // Only keyboard triggers are supported.
         assert!(ok("Alt+WheelScrollDown", &[])

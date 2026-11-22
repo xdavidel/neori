@@ -51,9 +51,7 @@ fn lua_config_reload_creates_newly_declared_virtual_output() {
         .all(|o| o.name() != "sunshine"));
 
     // Simulate a live config reload that now declares a create_virtual output.
-    let new_config = config_from_lua(
-        r#"neori.output("sunshine", { create_virtual = true })"#,
-    );
+    let new_config = config_from_lua(r#"neori.output("sunshine", { create_virtual = true })"#);
     let state = f.neori_state();
     state.neori.config.replace(new_config);
     state.reload_output_config();
@@ -63,7 +61,10 @@ fn lua_config_reload_creates_newly_declared_virtual_output() {
         .global_space
         .outputs()
         .any(|o| o.name() == "sunshine");
-    assert!(found, "reload_output_config should have created the virtual output");
+    assert!(
+        found,
+        "reload_output_config should have created the virtual output"
+    );
 }
 
 #[test]
@@ -87,7 +88,8 @@ fn creating_virtual_output_fires_monitor_added_event() {
             height: None,
             refresh_rate: None,
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
 
     // Drain the idle queue so the scheduled fire_monitor_event runs. The action it fires
@@ -129,7 +131,8 @@ fn removing_virtual_output_fires_monitor_removed_event() {
             height: None,
             refresh_rate: None,
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
     // Drain the monitor-added firing for "doomed" before testing removal.
     f.state.server.dispatch();
@@ -138,7 +141,8 @@ fn removing_virtual_output_fires_monitor_removed_event() {
         neori_ipc::Action::RemoveVirtualOutput {
             name: "doomed".to_string(),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
     f.state.server.dispatch();
     // The monitor-removed handler schedules another add; drain that too.
@@ -173,7 +177,8 @@ fn lua_action_create_virtual_output_dispatches() {
             height: Some(1080),
             refresh_rate: Some(60),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
 
     let created = f
@@ -191,7 +196,8 @@ fn lua_action_create_virtual_output_dispatches() {
         neori_ipc::Action::RemoveVirtualOutput {
             name: "from-lua".to_string(),
         },
-        false, InputTime::now(),
+        false,
+        InputTime::now(),
     );
 
     let still_there = f
@@ -208,9 +214,8 @@ fn lua_action_create_virtual_output_dispatches() {
 #[test]
 fn lua_config_create_virtual_kebab_alias_is_accepted() {
     // Both snake_case and kebab-case keys are accepted by the Lua parser.
-    let config = config_from_lua(
-        r#"neori.output { name = "HEADLESS-1", ["create-virtual"] = true }"#,
-    );
+    let config =
+        config_from_lua(r#"neori.output { name = "HEADLESS-1", ["create-virtual"] = true }"#);
     let mut f = Fixture::with_config(config);
 
     let exists = f
@@ -238,10 +243,13 @@ fn virtual_output_name_charset_is_restricted() {
     ];
     for (why, name) in bad_names {
         let state = f.neori_state();
-        let result =
-            state
-                .backend
-                .create_virtual_output(&mut state.neori, 1920, 1080, 60, Some(name.to_owned()));
+        let result = state.backend.create_virtual_output(
+            &mut state.neori,
+            1920,
+            1080,
+            60,
+            Some(name.to_owned()),
+        );
         assert!(
             result.is_err(),
             "{why}: expected validation failure for name {name:?}, got {result:?}"
@@ -252,11 +260,17 @@ fn virtual_output_name_charset_is_restricted() {
     let good_names = ["sunshine", "HEADLESS-2", "cast_1", "remote.desk.1"];
     for name in good_names {
         let state = f.neori_state();
-        let result =
-            state
-                .backend
-                .create_virtual_output(&mut state.neori, 1920, 1080, 60, Some(name.to_owned()));
-        assert!(result.is_ok(), "expected {name:?} to be accepted, got {result:?}");
+        let result = state.backend.create_virtual_output(
+            &mut state.neori,
+            1920,
+            1080,
+            60,
+            Some(name.to_owned()),
+        );
+        assert!(
+            result.is_ok(),
+            "expected {name:?} to be accepted, got {result:?}"
+        );
     }
 }
 
@@ -267,13 +281,25 @@ fn virtual_output_name_uniqueness_is_case_insensitive() {
         let state = f.neori_state();
         state
             .backend
-            .create_virtual_output(&mut state.neori, 1920, 1080, 60, Some("Sunshine".to_owned()))
+            .create_virtual_output(
+                &mut state.neori,
+                1920,
+                1080,
+                60,
+                Some("Sunshine".to_owned()),
+            )
             .unwrap();
     }
     let state = f.neori_state();
     let err = state
         .backend
-        .create_virtual_output(&mut state.neori, 1920, 1080, 60, Some("sunshine".to_owned()))
+        .create_virtual_output(
+            &mut state.neori,
+            1920,
+            1080,
+            60,
+            Some("sunshine".to_owned()),
+        )
         .unwrap_err();
     assert!(
         err.contains("already exists"),

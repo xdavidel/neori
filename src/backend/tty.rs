@@ -640,7 +640,8 @@ impl Tty {
                 //
                 // Slightly cursed to do from an idle... But we don't have State here conveniently,
                 // and it should be fine to delay this until the loop callback.
-                neori.event_loop
+                neori
+                    .event_loop
                     .insert_idle(|state| state.release_held_inputs(InputTime::now()));
 
                 self.libinput.suspend();
