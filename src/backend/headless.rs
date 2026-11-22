@@ -67,7 +67,10 @@ pub struct Headless {
 impl Headless {
     pub fn new(event_loop: LoopHandle<'static, State>) -> Self {
         let udev_seat = std::env::var("XDG_SEAT").unwrap_or_else(|_| "seat0".to_owned());
-        init_headless_libinput(event_loop, &udev_seat);
+        // Tests must not pick up the real input devices of the machine running them.
+        if !cfg!(test) {
+            init_headless_libinput(event_loop, &udev_seat);
+        }
 
         Self {
             renderer: None,
