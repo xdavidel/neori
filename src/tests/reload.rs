@@ -174,49 +174,25 @@ fn last_focused_window_id_survives_reload() {
 }
 
 #[test]
-fn reload_clears_action_queue_on_parse_error() {
-    // If a handler queues an action and the next reload fails, the
-    // queued action must still dispatch (actions are compositor-level,
-    // not tied to the Lua state's lifetime). This test documents that
-    // invariant — the Err path doesn't drop pending actions because it
-    // doesn't touch self.scripting.
+fn handlers_survive_a_failed_reload() {
+    // A reload that fails to parse leaves self.scripting alone, so the existing handlers keep
+    // running.
     let mut f = fixture_from(
         r#"
-        neori.on("startup", function()
-            neori.action("close-window")
-        end)
+        runs = 0
+        neori.on("startup", function() runs = runs + 1 end)
         "#,
     );
+    let runs = |f: &mut Fixture| match f.state.server.state.scripting.read_global("runs") {
+        Ok(neori_config::mlua::Value::Integer(n)) => n,
+        other => panic!("runs is {other:?}"),
+    };
 
-    let actions = f
-        .state
-        .server
-        .state
-        .scripting
-        .call_event("startup")
-        .expect("startup event failed");
-    assert_eq!(
-        actions.len(),
-        1,
-        "startup should have queued one action, got {actions:?}"
-    );
+    f.state.server.state.fire_startup();
+    assert_eq!(runs(&mut f), 1);
 
-    // Trigger a failed reload mid-flight.
     f.state.server.state.reload_config(Err(()));
 
-    // Fire startup again — the handler is still alive, queues another
-    // action. The fact that this returns successfully (no panic from a
-    // half-swapped scripting state) is the invariant.
-    let actions_after = f
-        .state
-        .server
-        .state
-        .scripting
-        .call_event("startup")
-        .expect("startup event failed after parse-error reload");
-    assert_eq!(
-        actions_after.len(),
-        1,
-        "handler still active after parse-error reload, got {actions_after:?}"
-    );
+    f.state.server.state.fire_startup();
+    assert_eq!(runs(&mut f), 2, "the handler should still be connected");
 }

@@ -127,27 +127,17 @@ fn bind_function_error_does_not_crash() {
 }
 
 #[test]
-fn neori_action_on_event_fires_and_dispatches() {
-    // Lua handler on a monitor event enqueues neori.action; after the event fires and the
-    // pending queue is drained, the action should have taken effect.
-    //
-    // We drive this at a layer below the real Neori::add_output path so the test stays
-    // deterministic: call call_event + drain explicitly.
-    let f = fixture_from_lua(
+fn neori_action_on_event_takes_effect() {
+    let mut f = fixture_from_lua(
         r#"
         neori.on("startup", function()
             neori.action("create-virtual-output", { name = "from-lua-startup" })
         end)
         "#,
     );
-
-    let host = &f.state.server.state.scripting;
-    let actions = host.call_event("startup").expect("startup event failed");
-    assert_eq!(actions.len(), 1);
-    assert!(matches!(
-        actions[0],
-        neori_ipc::Action::CreateVirtualOutput { .. }
-    ));
+    f.add_output(1, (1920, 1080));
+    f.neori_state().fire_startup();
+    assert!(has_output(&mut f, "from-lua-startup"));
 }
 
 #[test]
@@ -2043,8 +2033,8 @@ fn stashed_workspace_sees_live_name() {
 
 #[test]
 fn stashed_output_sees_its_new_scale() {
-    // The first press changes the scale; the change is applied after the callback, and the
-    // second press reads it back through the same Output value.
+    // The first press changes the scale and reads it back right away; the second press reads
+    // it again through the same Output value, kept in a variable.
     let mut f = fixture_from_lua(
         r#"
         neori.bind("Mod+Alt+T", function()
@@ -2065,7 +2055,7 @@ fn stashed_output_sees_its_new_scale() {
         Ok(neori_config::mlua::Value::Integer(n)) => n as f64,
         other => panic!("seen_scale is {other:?}"),
     };
-    assert_eq!(read_scale(&f), 1.0);
+    assert_eq!(read_scale(&f), 2.0);
 
     press_first_function_bind(&mut f);
     assert_eq!(read_scale(&f), 2.0);
@@ -2415,7 +2405,7 @@ fn events_fired_while_lua_runs_are_delivered_afterwards_in_order() {
     let before = read_global_string(&f, "log");
 
     let state = f.neori_state();
-    state.with_lua_running(0, |state| {
+    state.with_lua_running(running(0), |state| {
         state.fire_window_event("window-focused", snap);
         state.fire_layout_changed_event("second".into());
     });
@@ -2442,7 +2432,7 @@ fn queued_events_dispatch_their_actions() {
         "#,
     );
     f.add_output(1, (1920, 1080));
-    f.neori_state().with_lua_running(0, |state| {
+    f.neori_state().with_lua_running(running(0), |state| {
         state.fire_layout_changed_event("from-queue".into());
     });
     assert!(!has_output(&mut f, "from-queue"));
@@ -2465,7 +2455,7 @@ fn too_deeply_caused_events_are_dropped_with_an_error() {
 
     // One level below the limit: still delivered.
     let max = crate::script::MAX_LUA_EVENT_DEPTH;
-    f.neori_state().with_lua_running(max - 1, |state| {
+    f.neori_state().with_lua_running(running(max - 1), |state| {
         state.fire_layout_changed_event("ok".into());
     });
     f.neori_state().deliver_queued_lua_events();
@@ -2473,7 +2463,7 @@ fn too_deeply_caused_events_are_dropped_with_an_error() {
     assert!(!notification_shown(&mut f));
 
     // At the limit: dropped, and the user is told.
-    f.neori_state().with_lua_running(max, |state| {
+    f.neori_state().with_lua_running(running(max), |state| {
         state.fire_layout_changed_event("too-deep".into());
     });
     f.neori_state().deliver_queued_lua_events();
@@ -2490,8 +2480,96 @@ fn window_opening_still_runs_right_away_while_lua_runs() {
         "#,
     );
     f.add_output(1, (1920, 1080));
-    let overrides = f.neori_state().with_lua_running(0, |state| {
+    let overrides = f.neori_state().with_lua_running(running(0), |state| {
         state.fire_window_opening_event(neori_config::WindowSnapshot::default())
     });
     assert_eq!(overrides.open_floating, Some(true));
+}
+
+/// Marks Lua as running `depth` events deep, as if a callback were running.
+fn running(depth: u32) -> crate::script::Running {
+    crate::script::Running {
+        depth,
+        allow_when_locked: false,
+        time: InputTime::now(),
+    }
+}
+
+#[test]
+fn changes_are_visible_in_the_same_callback() {
+    // Changes made from Lua happen right away, so the next line of the callback reads them.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            local other
+            for _, x in ipairs(neori.windows()) do
+                if x:id() ~= w:id() then other = x end
+            end
+            local seen = {}
+            w:fullscreen(true)
+            seen[#seen + 1] = "fullscreen=" .. tostring(w:is_fullscreen())
+            other:float(true)
+            seen[#seen + 1] = "floating=" .. tostring(other:is_floating())
+            other:focus()
+            seen[#seen + 1] = "focused=" .. tostring(other:is_focused())
+                .. "," .. tostring(w:is_focused())
+                .. "," .. neori.focused_window():title()
+            neori.action("focus-workspace", 2)
+            seen[#seen + 1] = "ws=" .. neori.focused_workspace():idx()
+            local ws = neori.focused_workspace()
+            ws:set_name("named")
+            seen[#seen + 1] = "name=" .. ws:name()
+            local out = neori.focused_output()
+            out:set_scale(2)
+            seen[#seen + 1] = "scale=" .. out:scale()
+            log = table.concat(seen, " ")
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "a");
+    map_window(&mut f, id, "b");
+    f.state.server.dispatch();
+
+    press_first_function_bind(&mut f);
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "fullscreen=true floating=true focused=true,false,a ws=2 name=named scale=2.0"
+    );
+}
+
+#[test]
+fn fullscreen_true_twice_stays_fullscreen() {
+    // w:fullscreen(true) checks the state the compositor asked for, so calling it again before
+    // the app has caught up doesn't toggle the window back.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            w:fullscreen(true)
+            w:fullscreen(true)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+
+    let wants_fullscreen = |f: &mut Fixture| {
+        use crate::layout::LayoutElement;
+        f.neori()
+            .layout
+            .focus()
+            .unwrap()
+            .pending_sizing_mode()
+            .is_fullscreen()
+    };
+    press_first_function_bind(&mut f);
+    assert!(wants_fullscreen(&mut f));
+    // A second press, still before the app has acknowledged anything.
+    press_first_function_bind(&mut f);
+    assert!(wants_fullscreen(&mut f));
 }

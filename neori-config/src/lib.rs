@@ -397,6 +397,11 @@ mod tests {
         pointer: Option<PointerSnapshot>,
         devices: Vec<DeviceSnapshot>,
         keyboard_layout: Option<String>,
+        /// Changes requested from Lua, in order.
+        actions: Vec<Action>,
+        output_ops: Vec<(String, neori_ipc::OutputAction)>,
+        warps: Vec<(f64, f64)>,
+        device_ops: Vec<(String, DeviceOp)>,
     }
 
     impl FakeContext {
@@ -471,6 +476,28 @@ mod tests {
         fn keyboard_layout(&mut self) -> Option<String> {
             self.keyboard_layout.clone()
         }
+
+        fn do_action(&mut self, action: Action) {
+            self.actions.push(action);
+        }
+
+        fn output_action(&mut self, output: &str, action: neori_ipc::OutputAction) {
+            self.output_ops.push((output.to_owned(), action));
+        }
+
+        fn warp(&mut self, x: f64, y: f64) {
+            self.warps.push((x, y));
+        }
+
+        fn device_op(&mut self, sysname: &str, op: DeviceOp) {
+            self.device_ops.push((sysname.to_owned(), op));
+        }
+    }
+
+    /// Runs bind 1 with `ctx` as the context, and returns the actions it carried out.
+    fn run_bind(host: &ScriptHost, ctx: &mut FakeContext) -> Vec<Action> {
+        with_script_context(ctx, || host.call_bind_function(1)).unwrap();
+        std::mem::take(&mut ctx.actions)
     }
 
     #[test]
@@ -703,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn output_mutation_methods_enqueue_ops() {
+    fn output_mutation_methods_apply_ops() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -736,7 +763,7 @@ mod tests {
         let mut ctx = FakeContext::with_outputs(vec![snap], Some(&name));
         with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
-        let ops = host.drain_pending_output_ops();
+        let ops = std::mem::take(&mut ctx.output_ops);
         let kinds: Vec<&str> = ops
             .iter()
             .map(|(_, op)| match op {
@@ -950,35 +977,23 @@ mod tests {
     }
 
     #[test]
-    fn handler_error_does_not_leak_queued_actions_to_next_event() {
-        // When a handler queues an action and a later sibling throws, the
-        // queued action must not leak into the next event's dispatch. The
-        // correctness guarantee: every call_event_with drains pending_actions
-        // at the end, success or failure.
+    fn actions_happen_even_if_a_later_handler_fails() {
+        // Actions are carried out as soon as neori.action is called, so a sibling handler that
+        // fails afterwards doesn't undo them.
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
-            neori.on("startup", function()
-                neori.action("close-window")   -- queues one Action
-            end)
+            neori.on("startup", function() neori.action("close-window") end)
             neori.on("startup", function() error("boom") end)
-
-            -- A separate event with no queued actions. If "close-window" from
-            -- startup leaked, it would show up here on drain.
-            neori.on("monitor-added", function(_) end)
             "#,
         )
         .config
         .unwrap();
 
-        let _ = host.call_event("startup");
-
-        // Fire a different event; its drained actions should be empty.
-        let actions = host.call_event("monitor-added").unwrap();
-        assert!(
-            actions.is_empty(),
-            "a queued action from a failed startup dispatch leaked into monitor-added: {actions:?}"
-        );
+        let mut ctx = FakeContext::default();
+        let err = with_script_context(&mut ctx, || host.call_event("startup")).unwrap_err();
+        assert!(err.contains("boom"), "{err}");
+        assert_eq!(ctx.actions, [Action::CloseWindow { id: None }]);
     }
 
     #[test]
@@ -1032,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn devices_api_returns_cached_snapshots_and_methods_enqueue_ops() {
+    fn devices_api_returns_devices_and_methods_apply_ops() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1063,9 +1078,10 @@ mod tests {
         .config
         .unwrap();
 
-        // Cold cache: devices() returns an empty array.
-        let _ = host.call_bind_function(1).unwrap();
-        assert!(host.drain_pending_device_ops().is_empty());
+        // No devices: devices() returns an empty array.
+        let mut ctx = FakeContext::default();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert!(ctx.device_ops.is_empty());
         let count_cold: i64 = {
             let seen = host.read_global("seen").unwrap();
             let mlua::Value::Table(t) = seen else {
@@ -1097,8 +1113,8 @@ mod tests {
                 ..Default::default()
             },
         ]);
-        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
-        let ops = host.drain_pending_device_ops();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let ops = std::mem::take(&mut ctx.device_ops);
         assert_eq!(
             ops.len(),
             5,
@@ -1160,7 +1176,7 @@ mod tests {
 
         let err = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap_err();
         assert!(err.contains("out of range"), "unexpected error: {err}");
-        assert!(host.drain_pending_device_ops().is_empty());
+        assert!(ctx.device_ops.is_empty());
     }
 
     #[test]
@@ -1208,7 +1224,7 @@ mod tests {
             keyboard_layout: Some("English (US)".into()),
             ..Default::default()
         };
-        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
 
         let seen = host.read_global("seen").unwrap();
         let mlua::Value::Table(t) = seen else {
@@ -1221,9 +1237,7 @@ mod tests {
     }
 
     #[test]
-    fn warp_enqueues_pending_coordinates() {
-        // neori.warp(x, y) drops onto the warps queue; the compositor would
-        // normally drain via `drain_pending_warps`.
+    fn warp_moves_the_cursor() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1236,14 +1250,14 @@ mod tests {
         .config
         .unwrap();
 
-        let _ = host.call_bind_function(1).unwrap();
-        let warps = host.drain_pending_warps();
-        assert_eq!(warps, vec![(100.0, 200.0), (300.5, 400.75)]);
+        let mut ctx = FakeContext::default();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(ctx.warps, vec![(100.0, 200.0), (300.5, 400.75)]);
     }
 
     #[test]
     fn warp_rejects_non_finite_coordinates() {
-        // Guard: NaN / Inf should yield a Lua error, not silently land in the queue.
+        // Guard: NaN / Inf should yield a Lua error, not move the cursor somewhere odd.
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1255,9 +1269,10 @@ mod tests {
         .config
         .unwrap();
 
-        let err = host.call_bind_function(1).unwrap_err();
+        let mut ctx = FakeContext::default();
+        let err = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap_err();
         assert!(err.contains("neori.warp"), "unexpected error: {err}");
-        assert!(host.drain_pending_warps().is_empty());
+        assert!(ctx.warps.is_empty());
     }
 
     #[test]
@@ -1342,7 +1357,7 @@ mod tests {
         .config
         .unwrap();
 
-        // 1. Bind path (no guard): drain should see nothing.
+        // 1. Bind path (no guard): no overrides should be recorded.
         let mut ctx = FakeContext::new(
             vec![WindowSnapshot {
                 id: 42,
@@ -1350,7 +1365,7 @@ mod tests {
             }],
             Some(42),
         );
-        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         host.begin_open_overrides();
         let after_bind = host.take_open_overrides();
         assert!(
@@ -1418,9 +1433,8 @@ mod tests {
     }
 
     #[test]
-    fn workspace_mutation_methods_enqueue_actions() {
-        // Each mutation method should push its matching Action onto the pending-actions
-        // queue. Drain via call_bind_function.
+    fn workspace_mutation_methods_run_actions() {
+        // Each mutation method should run its matching Action.
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1447,7 +1461,7 @@ mod tests {
         let id = ws_snap.id;
         let mut ctx = FakeContext::with_workspaces(vec![ws_snap], Some(id));
 
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         let kinds: Vec<&str> = actions
             .iter()
             .map(|a| match a {
@@ -1461,7 +1475,7 @@ mod tests {
         assert_eq!(
             kinds,
             vec!["focus", "to-monitor", "set-name", "unset-name"],
-            "unexpected enqueued actions: {kinds:?}"
+            "unexpected actions: {kinds:?}"
         );
 
         for action in &actions {
@@ -1498,10 +1512,9 @@ mod tests {
     }
 
     #[test]
-    fn window_mutation_methods_enqueue_actions() {
-        // Every mutation method should push its matching Action onto the pending-actions
-        // queue. call_bind_function drains that queue and returns the collected actions
-        // so we can assert on them here.
+    fn window_mutation_methods_run_actions() {
+        // Every mutation method should run its matching Action; the fake context records
+        // them so we can assert on them here.
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1509,10 +1522,10 @@ mod tests {
                 local w = neori.focused_window()
                 w:close()
                 w:focus()
-                w:fullscreen(true)   -- not fullscreen, should enqueue
+                w:fullscreen(true)   -- not fullscreen, should run
                 w:fullscreen(false)  -- already not fullscreen, no-op
-                w:fullscreen()       -- always enqueue
-                w:float(true)        -- not floating, enqueues MoveToFloating
+                w:fullscreen()       -- always runs
+                w:float(true)        -- not floating, runs MoveToFloating
                 w:float(false)       -- already not floating, no-op
                 w:send_to_workspace(2)
                 w:send_to_workspace("browser")
@@ -1532,7 +1545,7 @@ mod tests {
         };
         let mut ctx = FakeContext::new(vec![snap], Some(42));
 
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         let kinds: Vec<&str> = actions
             .iter()
             .map(|a| match a {
@@ -1553,7 +1566,7 @@ mod tests {
 
         // Expected: close, focus, fullscreen (set-true), fullscreen (no-arg toggle),
         // float-true, workspace-idx, workspace-name, monitor.
-        // The two no-op calls (w:fullscreen(false), w:float(false)) must NOT enqueue.
+        // The two no-op calls (w:fullscreen(false), w:float(false)) must NOT run anything.
         assert_eq!(
             kinds,
             vec![
@@ -1566,7 +1579,7 @@ mod tests {
                 "workspace-name",
                 "monitor",
             ],
-            "unexpected enqueued actions: {kinds:?}"
+            "unexpected actions: {kinds:?}"
         );
 
         // Verify ids / args carry through.
@@ -1600,7 +1613,7 @@ mod tests {
     }
 
     #[test]
-    fn window_mutation_on_stale_id_still_enqueues() {
+    fn window_mutation_on_stale_id_still_runs() {
         // A Lua config can stash a Window in a local and keep calling methods after the
         // window is gone. The method must not error — the compositor ignores actions
         // with unknown ids.
@@ -1622,14 +1635,14 @@ mod tests {
         };
         let mut ctx = FakeContext::new(vec![snap], Some(99));
 
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
 
         // Second call: the window is gone, but Lua `stashed` still holds the Window
-        // userdata. Call it again — must still enqueue the same action without erroring.
+        // userdata. Call it again — must still run the same action without erroring.
         let mut ctx = FakeContext::default();
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
     }
@@ -1653,13 +1666,9 @@ mod tests {
 
         // The handlers are registered under their canonical event names.
         for ev in ["window-opened", "window-closed", "window-focused"] {
-            // call_event_with returns Ok(empty Vec) for events with no state. The
-            // registration was successful if the call doesn't error.
-            let actions = host
-                .call_event_with::<Window>(ev, Window(WindowSnapshot::default()))
+            // The registration was successful if the call doesn't error.
+            host.call_event_with::<Window>(ev, Window(WindowSnapshot::default()))
                 .unwrap();
-            // The default snapshot runs through the handler without side effects.
-            assert!(actions.is_empty(), "{ev}: unexpected actions {actions:?}");
         }
     }
 
@@ -1790,12 +1799,12 @@ mod tests {
         };
 
         let mut ctx = FakeContext::new(vec![window(false)], Some(3));
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         assert_eq!(actions, [Action::FullscreenWindow { id: Some(3) }]);
 
         // Now it's fullscreen: setting it again is a no-op.
         let mut ctx = FakeContext::new(vec![window(true)], Some(3));
-        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let actions = run_bind(&host, &mut ctx);
         assert!(actions.is_empty(), "{actions:?}");
     }
 
@@ -1911,12 +1920,12 @@ mod tests {
         // On: enable(true) is a no-op.
         let mut ctx = FakeContext::with_outputs(vec![output()], Some("eDP-1"));
         with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
-        assert!(host.drain_pending_output_ops().is_empty());
+        assert!(ctx.output_ops.is_empty());
 
         // Turned off since: enable(true) turns it back on.
         let mut ctx = FakeContext::default();
         with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
-        let ops = host.drain_pending_output_ops();
+        let ops = std::mem::take(&mut ctx.output_ops);
         assert_eq!(ops.len(), 1, "{ops:?}");
         assert_eq!(ops[0].0, "eDP-1");
         assert!(matches!(ops[0].1, neori_ipc::OutputAction::On));
@@ -2350,6 +2359,55 @@ mod tests {
     }
 
     #[test]
+    fn changes_outside_a_callback_are_an_error() {
+        // While the config file is evaluated there is no compositor to apply changes to.
+        for lua in [r#"neori.action("close-window")"#, r#"neori.warp(1, 2)"#] {
+            let err = Config::parse_mem(lua).unwrap_err();
+            let msg = format!("{err:?}");
+            assert!(msg.contains("only work inside a callback"), "{lua}: {msg}");
+        }
+    }
+
+    #[test]
+    fn changes_are_applied_right_away_in_order() {
+        // Each change reaches the compositor when it's made, interleaved with reads.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                neori.action("focus-column-left")
+                neori.warp(1, 2)
+                neori.focused_output():set_scale(2)
+                neori.devices()[1]:set_tap(true)
+                neori.action("focus-column-right")
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext {
+            outputs: vec![OutputSnapshot {
+                name: "DP-1".into(),
+                ..Default::default()
+            }],
+            focused_output: Some("DP-1".into()),
+            devices: vec![DeviceSnapshot {
+                sysname: "event1".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let actions = run_bind(&host, &mut ctx);
+        assert_eq!(
+            actions,
+            [Action::FocusColumnLeft {}, Action::FocusColumnRight {}]
+        );
+        assert_eq!(ctx.warps, [(1.0, 2.0)]);
+        assert_eq!(ctx.output_ops.len(), 1);
+        assert_eq!(ctx.device_ops.len(), 1);
+    }
+
+    #[test]
     fn neori_windows_reads_live_windows() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
@@ -2424,7 +2482,7 @@ mod tests {
     }
 
     #[test]
-    fn neori_action_enqueues_pending_action() {
+    fn neori_action_runs_actions() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -2438,16 +2496,13 @@ mod tests {
         .config
         .unwrap();
 
-        // Trigger the Lua function; neori.action queued three actions.
+        // Trigger the Lua function; neori.action carried out three actions.
         // The first bind function registered in this host gets id 1.
-        let actions = host.call_bind_function(1).unwrap();
+        let actions = run_bind(&host, &mut FakeContext::default());
         assert_eq!(actions.len(), 3, "got {actions:?}");
         assert!(matches!(actions[0], Action::Spawn { .. }));
         assert!(matches!(actions[1], Action::CloseWindow { id: None }));
         assert!(matches!(actions[2], Action::FocusColumnLeft {}));
-
-        // Draining again yields nothing (consumed).
-        assert!(host.drain_pending_actions().is_empty());
     }
 
     #[test]

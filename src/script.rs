@@ -1,12 +1,13 @@
 //! Compositor-side glue for the Lua scripting runtime.
 //!
 //! [`State`] implements [`ScriptContext`], so Lua reads compositor state live while a callback
-//! runs. Every callback goes through [`State::run_lua`], which installs that context and then
-//! dispatches whatever the callback queued.
+//! runs, and carries out the changes Lua makes right away. Every callback goes through
+//! [`State::run_lua`], which installs that context.
 //!
 //! Lua never runs inside another Lua callback, except for `window-opening`, whose result is
-//! needed right away. An event that fires while a callback or the actions it queued are running
-//! goes into the [`LuaEventQueue`], and is delivered once the current callback is done. Events
+//! needed right away. An event that fires while a callback is running (for example because of a
+//! change it made) goes into the [`LuaEventQueue`], and is delivered once the current callback is
+//! done. Events
 //! caused by a queued event are queued one level deeper; past [`MAX_LUA_EVENT_DEPTH`] levels they
 //! are dropped, so handlers that keep triggering each other can't loop forever.
 
@@ -24,7 +25,7 @@ use smithay::desktop::Window;
 use smithay::output::Output as SmithayOutput;
 
 use crate::backend::VirtualOutputMarker;
-use crate::layout::Layout;
+use crate::layout::{Layout, LayoutElement};
 use crate::neori::{Neori, State};
 use crate::window::Mapped;
 
@@ -36,99 +37,108 @@ use crate::window::Mapped;
 ///
 /// `global_workspace_idx` / `workspace_name` are optional; they are None when the
 /// caller couldn't resolve the window's workspace (e.g. during destruction).
+///
+/// The state is what the compositor has decided, which is what a change made from Lua affects
+/// right away: `is_focused` follows the layout's focus (like `neori.focused_window()`), and
+/// `is_fullscreen` is the state requested from the client, which applies it a little later.
 pub fn window_snapshot(
     mapped: &Mapped,
-    global_workspace_idx: Option<u8>,
-    workspace_name: Option<String>,
+    is_focused: bool,
+    placement: Option<Placement>,
     output_name: Option<String>,
 ) -> WindowSnapshot {
     WindowSnapshot {
         id: mapped.id().get(),
         app_id: mapped.last_known_app_id().map(str::to_owned),
         title: mapped.last_known_title().map(str::to_owned),
-        is_focused: mapped.is_focused(),
-        is_floating: mapped.is_floating(),
-        is_fullscreen: mapped.is_fullscreen(),
-        workspace_idx: global_workspace_idx,
-        workspace_name,
+        is_focused,
+        // The window's own flag is only updated on the next layout refresh.
+        is_floating: placement
+            .as_ref()
+            .map_or_else(|| mapped.is_floating(), |p| p.floating),
+        is_fullscreen: mapped.pending_sizing_mode().is_fullscreen(),
+        workspace_idx: placement.as_ref().map(|p| p.idx),
+        workspace_name: placement.and_then(|p| p.name),
         output_name,
     }
+}
+
+/// Where a window is in the layout.
+#[derive(Debug, Clone)]
+pub struct Placement {
+    /// Global 1-based index of its workspace.
+    idx: u8,
+    /// Name of its workspace.
+    name: Option<String>,
+    /// Whether it's in the floating layout of its workspace.
+    floating: bool,
 }
 
 /// Snapshot a single mapped window using the current layout to resolve workspace +
 /// output. Convenient for the window-opened / window-closed fire sites.
 pub fn snapshot_mapped(neori: &Neori, mapped: &Mapped) -> WindowSnapshot {
-    let ws_info = global_workspace_info_for_window(&neori.layout, mapped);
+    let placement = placement_of(&neori.layout, mapped);
     let out_name = neori
         .layout
         .find_window_and_output(mapped.window.toplevel().expect("no x11").wl_surface())
         .and_then(|(_, output)| output.map(|o| o.name()));
-    window_snapshot(
-        mapped,
-        ws_info.as_ref().map(|(idx, _)| *idx),
-        ws_info.as_ref().and_then(|(_, name)| name.clone()),
-        out_name,
-    )
+    let is_focused = neori.layout.focus().is_some_and(|f| f.id() == mapped.id());
+    window_snapshot(mapped, is_focused, placement, out_name)
 }
 
 /// Snapshots every mapped window, resolving its workspace (global 1-based index) and output
 /// name.
 pub fn window_snapshots(neori: &Neori) -> Vec<WindowSnapshot> {
+    let focused = neori.layout.focus().map(Mapped::id);
     // Pre-build a reverse index window-id → (global workspace idx, workspace name)
     // in one pass over workspaces. The naive per-window version (which the
     // single-window `snapshot_mapped` still uses) walks every workspace per
     // lookup — O(windows × workspaces). This batch build is O(windows + workspaces).
-    let mut ws_index: std::collections::HashMap<
-        crate::window::mapped::MappedId,
-        (u8, Option<String>),
-    > = std::collections::HashMap::new();
+    let mut ws_index: std::collections::HashMap<crate::window::mapped::MappedId, Placement> =
+        std::collections::HashMap::new();
     let mut global_idx: u16 = 0;
     for (_mon, _, ws) in neori.layout.workspaces() {
         global_idx = global_idx.saturating_add(1);
-        let idx_u8 = u8::try_from(global_idx).unwrap_or(u8::MAX);
-        let ws_name = ws.name().cloned();
+        let idx = u8::try_from(global_idx).unwrap_or(u8::MAX);
+        let name = ws.name().cloned();
         for window in ws.windows() {
-            ws_index.insert(window.id(), (idx_u8, ws_name.clone()));
+            let placement = Placement {
+                idx,
+                name: name.clone(),
+                floating: ws.is_floating(&window.window),
+            };
+            ws_index.insert(window.id(), placement);
         }
     }
 
     let mut windows: Vec<WindowSnapshot> = Vec::new();
     for (monitor, mapped) in neori.layout.windows() {
-        let (ws_idx, ws_name, out_name) = match monitor {
-            Some(mon) => {
-                let out_name = Some(mon.output().name());
-                let info = ws_index.get(&mapped.id());
-                (
-                    info.map(|(idx, _)| *idx),
-                    info.and_then(|(_, name)| name.clone()),
-                    out_name,
-                )
-            }
-            None => (None, None, None),
+        let (placement, out_name) = match monitor {
+            Some(mon) => (
+                ws_index.get(&mapped.id()).cloned(),
+                Some(mon.output().name()),
+            ),
+            None => (None, None),
         };
-        windows.push(window_snapshot(mapped, ws_idx, ws_name, out_name));
+        let is_focused = focused == Some(mapped.id());
+        windows.push(window_snapshot(mapped, is_focused, placement, out_name));
     }
 
     windows
 }
 
-/// Resolve the global 1-based workspace index and optional workspace name for the
-/// workspace containing `window`. Returns None if the window isn't found in any
-/// workspace (e.g. a window being destroyed mid-removal).
-fn global_workspace_info_for_window(
-    layout: &Layout<Mapped>,
-    window: &Mapped,
-) -> Option<(u8, Option<String>)> {
+/// Finds where `window` is in the layout, or `None` if it isn't on any workspace (e.g. a window
+/// being destroyed).
+fn placement_of(layout: &Layout<Mapped>, window: &Mapped) -> Option<Placement> {
     let window_handle: &Window = &window.window;
-    let mut idx: u16 = 0;
-    for (_mon, _, ws) in layout.workspaces() {
-        idx = idx.saturating_add(1);
-        if ws.has_window(window_handle) {
-            let as_u8 = u8::try_from(idx).unwrap_or(u8::MAX);
-            return Some((as_u8, ws.name().cloned()));
-        }
-    }
-    None
+    (1u16..)
+        .zip(layout.workspaces())
+        .find(|(_, (_, _, ws))| ws.has_window(window_handle))
+        .map(|(idx, (_, _, ws))| Placement {
+            idx: u8::try_from(idx).unwrap_or(u8::MAX),
+            name: ws.name().cloned(),
+            floating: ws.is_floating(window_handle),
+        })
 }
 
 /// How many levels deep an event may be caused by other events before it is dropped.
@@ -137,30 +147,46 @@ pub const MAX_LUA_EVENT_DEPTH: u32 = 16;
 /// A Lua event waiting to be delivered.
 struct DeferredLua {
     label: String,
-    run: Box<dyn FnOnce() -> Result<Vec<neori_config::Action>, String>>,
+    run: Box<dyn FnOnce() -> Result<(), String>>,
     allow_when_locked: bool,
     time: InputTime,
     depth: u32,
 }
 
+/// The Lua callback that is running.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Running {
+    /// How many events deep this callback was caused by other events.
+    pub depth: u32,
+    /// Whether actions it carries out may run while the session is locked, like its bind.
+    pub allow_when_locked: bool,
+    /// The input time of the bind or event that started it.
+    pub time: InputTime,
+}
+
 /// Lua events that fired while Lua was already running.
 #[derive(Default)]
 pub struct LuaEventQueue {
-    /// The depth of the event being delivered, or `None` when no Lua is running.
-    current: Option<u32>,
+    /// The callback being delivered, or `None` when no Lua is running.
+    current: Option<Running>,
     queue: VecDeque<DeferredLua>,
 }
 
 impl LuaEventQueue {
-    /// Whether a Lua callback, or the dispatch of what it queued, is running.
+    /// Whether a Lua callback is running.
     pub fn is_running(&self) -> bool {
         self.current.is_some()
+    }
+
+    /// The depth of an event caused by the running callback.
+    fn next_depth(&self) -> u32 {
+        self.current.map_or(0, |r| r.depth + 1)
     }
 
     /// Queues an event fired while Lua is running, one level deeper than the current one.
     /// Returns the depth, or `Err` with the depth if it's too deep and was dropped.
     fn defer(&mut self, mut event: DeferredLua) -> Result<u32, u32> {
-        let depth = self.current.map_or(0, |d| d + 1);
+        let depth = self.next_depth();
         if depth > MAX_LUA_EVENT_DEPTH {
             return Err(depth);
         }
@@ -245,11 +271,34 @@ impl ScriptContext for State {
             xkb.layout_name(xkb.active_layout()).to_owned()
         }))
     }
+
+    // Changes requested from Lua run right away, with the lock permission and input time of
+    // the bind or event that started the callback. Lua events they cause are queued (see the
+    // module docs), so Lua is never re-entered from here.
+
+    fn do_action(&mut self, action: neori_config::Action) {
+        let running = self.lua_events.current;
+        let allow_when_locked = running.is_some_and(|r| r.allow_when_locked);
+        let time = running.map_or_else(InputTime::now, |r| r.time);
+        State::do_action(self, action, allow_when_locked, time);
+    }
+
+    fn output_action(&mut self, output: &str, action: neori_ipc::OutputAction) {
+        self.apply_transient_output_config(output, action);
+    }
+
+    fn warp(&mut self, x: f64, y: f64) {
+        self.move_cursor(smithay::utils::Point::from((x, y)));
+    }
+
+    fn device_op(&mut self, sysname: &str, op: DeviceOp) {
+        apply_device_op(&mut self.neori, sysname, op);
+    }
 }
 
 impl State {
-    /// Runs a prepared Lua call with `self` as its [`ScriptContext`], then dispatches the
-    /// actions, output ops, cursor warps and device ops it queued.
+    /// Runs a prepared Lua call with `self` as its [`ScriptContext`]. `allow_when_locked` and
+    /// `time` apply to the actions the callback runs.
     ///
     /// `label` names the callback in error messages. Errors are warn!'d and flash the
     /// config-error notification; they do not propagate.
@@ -281,22 +330,31 @@ impl State {
             }
             return;
         }
-        self.with_lua_running(0, |state| state.deliver(event));
+        let running = Running {
+            depth: 0,
+            allow_when_locked,
+            time,
+        };
+        self.with_lua_running(running, |state| state.deliver(event));
         self.deliver_queued_lua_events();
     }
 
-    /// Runs `f` with Lua marked as running at `depth`, so that events it fires are queued.
-    pub(crate) fn with_lua_running<R>(&mut self, depth: u32, f: impl FnOnce(&mut Self) -> R) -> R {
-        let outer = self.lua_events.current.replace(depth);
+    /// Runs `f` with Lua marked as `running`, so that events it fires are queued.
+    pub(crate) fn with_lua_running<R>(
+        &mut self,
+        running: Running,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let outer = self.lua_events.current.replace(running);
         let result = f(self);
         self.lua_events.current = outer;
         result
     }
 
-    /// Runs a Lua event and dispatches what it queued.
+    /// Runs a Lua event and reports its error, if any.
     fn deliver(&mut self, event: DeferredLua) {
         let result = with_script_context(self, event.run);
-        self.dispatch_lua_result(&event.label, result, event.allow_when_locked, event.time);
+        self.report_lua_result(&event.label, result);
     }
 
     /// Delivers queued Lua events in order, including the ones they cause in turn.
@@ -307,47 +365,20 @@ impl State {
             return;
         }
         while let Some(event) = self.lua_events.queue.pop_front() {
-            self.with_lua_running(event.depth, |state| state.deliver(event));
+            let running = Running {
+                depth: event.depth,
+                allow_when_locked: event.allow_when_locked,
+                time: event.time,
+            };
+            self.with_lua_running(running, |state| state.deliver(event));
         }
     }
 
-    /// Runs a prepared Lua call with `self` as its [`ScriptContext`], without dispatching
-    /// anything it queued. Pair with [`State::dispatch_lua_result`].
-    fn call_lua<A: IntoLuaMulti + Clone>(
-        &mut self,
-        call: LuaCall,
-        args: A,
-    ) -> Result<Vec<neori_config::Action>, String> {
-        with_script_context(self, || call.run(args))
-    }
-
-    /// Dispatches the result of [`State::call_lua`] and everything else the callback queued.
-    fn dispatch_lua_result(
-        &mut self,
-        label: &str,
-        result: Result<Vec<neori_config::Action>, String>,
-        allow_when_locked: bool,
-        time: InputTime,
-    ) {
-        match result {
-            Ok(actions) => {
-                for action in actions {
-                    self.do_action(action, allow_when_locked, time);
-                }
-            }
-            Err(err) => {
-                warn!("Lua {label} callback error: {err}");
-                self.neori.config_error_notification.show();
-            }
-        }
-        for (output, op) in self.scripting.drain_pending_output_ops() {
-            self.apply_transient_output_config(&output, op);
-        }
-        for (x, y) in self.scripting.drain_pending_warps() {
-            self.move_cursor(smithay::utils::Point::from((x, y)));
-        }
-        for (sysname, op) in self.scripting.drain_pending_device_ops() {
-            apply_device_op(&mut self.neori, &sysname, op);
+    /// Reports a Lua callback error: logged, and shown as the config error notification.
+    fn report_lua_result(&mut self, label: &str, result: Result<(), String>) {
+        if let Err(err) = result {
+            warn!("Lua {label} callback error: {err}");
+            self.neori.config_error_notification.show();
         }
     }
 
@@ -389,14 +420,16 @@ impl State {
         };
         // The window waits for the result, so this runs right away even if Lua is already
         // running. Events it causes are queued as usual.
-        let depth = self.lua_events.current.map_or(0, |d| d + 1);
-        let overrides = self.with_lua_running(depth, |state| {
+        let running = Running {
+            depth: self.lua_events.next_depth(),
+            allow_when_locked: false,
+            time: InputTime::now(),
+        };
+        let overrides = self.with_lua_running(running, |state| {
             state.scripting.begin_open_overrides();
-            let result = state.call_lua(call, LuaWindow(snapshot));
-            // Take the overrides before dispatching: an action could open another window and
-            // re-enter this function.
+            let result = with_script_context(state, || call.run(LuaWindow(snapshot)));
             let overrides = state.scripting.take_open_overrides();
-            state.dispatch_lua_result("window-opening", result, false, InputTime::now());
+            state.report_lua_result("window-opening", result);
             overrides
         });
         self.deliver_queued_lua_events();
@@ -591,7 +624,7 @@ fn device_snapshot(device: &smithay::reexports::input::Device) -> DeviceSnapshot
     }
 }
 
-/// Apply one Lua-enqueued `DeviceOp` to the matching libinput device, if any.
+/// Apply one `DeviceOp` requested from Lua to the matching libinput device, if any.
 ///
 /// Mutations land on the device directly; they persist until the next
 /// `apply_libinput_settings` (config reload) overwrites them.
@@ -678,11 +711,19 @@ mod tests {
     fn event(label: &str) -> DeferredLua {
         DeferredLua {
             label: label.to_owned(),
-            run: Box::new(|| Ok(Vec::new())),
+            run: Box::new(|| Ok(())),
             allow_when_locked: false,
             time: InputTime::now(),
             depth: 0,
         }
+    }
+
+    fn running(depth: u32) -> Option<Running> {
+        Some(Running {
+            depth,
+            allow_when_locked: false,
+            time: InputTime::now(),
+        })
     }
 
     #[test]
@@ -690,10 +731,10 @@ mod tests {
         let mut queue = LuaEventQueue::default();
         assert!(!queue.is_running());
 
-        queue.current = Some(0);
+        queue.current = running(0);
         assert_eq!(queue.defer(event("a")), Ok(1));
         assert_eq!(queue.defer(event("b")), Ok(1));
-        queue.current = Some(4);
+        queue.current = running(4);
         assert_eq!(queue.defer(event("c")), Ok(5));
 
         let order: Vec<_> = queue
@@ -707,11 +748,11 @@ mod tests {
     #[test]
     fn too_deep_events_are_dropped() {
         let mut queue = LuaEventQueue {
-            current: Some(MAX_LUA_EVENT_DEPTH - 1),
+            current: running(MAX_LUA_EVENT_DEPTH - 1),
             ..Default::default()
         };
         assert_eq!(queue.defer(event("last")), Ok(MAX_LUA_EVENT_DEPTH));
-        queue.current = Some(MAX_LUA_EVENT_DEPTH);
+        queue.current = running(MAX_LUA_EVENT_DEPTH);
         assert_eq!(queue.defer(event("dropped")), Err(MAX_LUA_EVENT_DEPTH + 1));
         assert_eq!(queue.queue.len(), 1);
     }

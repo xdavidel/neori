@@ -47,8 +47,8 @@ Lua's built-in `print(...)` is overridden to append to a log file; see
 
 ## `neori.action(name, args)` — dispatch an IPC action from Lua
 
-Inside a Lua function bind (or a Lua event handler — see below), queue any niri-IPC
-action for the compositor to run as soon as the function returns.
+Inside a Lua function bind (or a Lua event handler — see below), run any niri-IPC
+action. It happens right away, so the next line of your function already sees the result.
 
 ```lua
 neori.bind("Mod+F1", function()
@@ -70,9 +70,13 @@ The name accepts both snake- and kebab-case (`close_window` or `close-window`), 
 the config-time action-table keys. Any action the declarative config supports is
 available here.
 
-Actions queued by one callback are drained and dispatched together, in FIFO order,
-after the callback returns. If the callback errors before `return`, the actions it
-queued are still dispatched — once they leave the Lua side they're committed.
+Actions run in the order you call them. If the callback errors afterwards, the actions it
+already ran stay done.
+
+Changes only work inside a callback: calling `neori.action`, `neori.warp` or a mutation
+method while the config file itself is being evaluated raises an error, since there is no
+compositor to apply them to yet. Use `neori.on("startup", function() … end)` for things to
+do at startup.
 
 ## `neori.on(event, function)` — Lua event handlers
 
@@ -168,8 +172,8 @@ caller.
 ### Delivery order
 
 A built-in signal never interrupts Lua code that is already running. If one fires while a
-callback runs, or while the compositor carries out the actions that callback queued, it waits
-and is delivered right after, in the order the signals fired. `window-opening` is the
+callback runs (for example because of a change the callback made), it waits and is delivered
+right after the callback, in the order the signals fired. `window-opening` is the
 exception: the window waits for its handlers, so they always run immediately.
 
 A signal delivered that way can cause more signals, which wait their turn too. If such a chain
@@ -357,10 +361,11 @@ Read-only accessors return the window's current state, even for a `Window` you k
 a variable from an earlier callback. Once the window is closed, they return the last
 state the `Window` value was created with.
 
-Mutation methods enqueue an IPC action against the window's stable id; the
-compositor dispatches them after your callback returns. An action for a window that
-has since closed is silently ignored, so it's safe to keep a Window in a Lua variable
-and call methods on it across callbacks.
+Mutation methods run an IPC action against the window's stable id, right away: after
+`w:fullscreen(true)`, `w:is_fullscreen()` returns `true`. (The app itself catches up a
+moment later; `is_fullscreen` and `is_floating` report what the compositor decided.)
+An action for a window that has since closed is silently ignored, so it's safe to keep a
+Window in a Lua variable and call methods on it across callbacks.
 
 **Read-only:**
 
@@ -392,9 +397,7 @@ and call methods on it across callbacks.
 | `w:send_to_output("eDP-1")`   | Move to the named output.                                |
 
 Set-style calls (`w:fullscreen(true)`, `w:float(false)`, …) do nothing when the window
-already is in the requested state, so repeated calls in a Lua loop don't hammer the
-compositor. Within one callback the state is checked before any queued action runs,
-so `w:fullscreen(true)` twice in a row queues two toggles.
+already is in the requested state, so calling them repeatedly is safe.
 
 ## Pre-placement window rules (`window-opening`)
 
@@ -442,9 +445,8 @@ Inside any Lua callback, `neori.pointer()` returns the current seat pointer
 position as `{ x = …, y = …, output = <connector-name or nil> }`. While the config
 file itself is being evaluated it returns `nil`, and so does `neori.keyboard_layout()`.
 The coordinates are in the compositor's global logical space — the same space
-window / output `position` fields use. `neori.warp(x, y)` queues a cursor warp
-to those coordinates; the compositor drains the queue after the callback
-returns.
+window / output `position` fields use. `neori.warp(x, y)` moves the cursor to
+those coordinates right away.
 
 ```lua
 -- Cursor-follows-focus: snap the pointer to the center of the focused
@@ -609,7 +611,7 @@ end)
 Read-only accessors return the output's current state, even for an `Output` kept in a
 variable from an earlier callback. Once the output is turned off or unplugged, they
 return its last known state, and `out:is_off()` returns `true`. Mutation methods
-enqueue an `OutputAction`; the compositor applies them after the callback returns.
+apply an `OutputAction` right away: after `out:set_scale(2)`, `out:scale()` returns `2`.
 
 **Read-only:**
 
@@ -710,8 +712,8 @@ end)
 
 Read-only accessors return the workspace's current state, even for a `Workspace` kept
 in a variable from an earlier callback. Once the workspace is removed, they return its
-last known state. Mutation methods enqueue an `Action`; the compositor dispatches them
-after the callback returns, just like window mutations.
+last known state. Mutation methods run an `Action` right away, just like window
+mutations.
 
 **Read-only:**
 
@@ -736,13 +738,13 @@ after the callback returns, just like window mutations.
 Each mutation targets this workspace by its stable `WorkspaceId`, so a stashed
 `Workspace` userdata keeps referring to the same workspace even if its global
 index shifts (e.g. when workspaces on other monitors come and go). If the
-workspace has been destroyed by the time the compositor drains the action, the
-action is ignored — Lua methods never raise for that case.
+workspace has been destroyed since, the action is ignored — Lua methods never raise
+for that case.
 
 ## Known limitations (today)
 
-- Mutations (on windows, outputs, workspaces and devices) are queued and run after the
-  callback returns, so reads in the same callback don't see them yet.
+- Handlers that keep undoing each other across frames aren't stopped: a `window-focused`
+  handler that always focuses another window makes focus bounce on every frame.
 - Function binds have no way to set a custom hotkey-overlay title — the overlay falls
   back to a generic label because `neori.bind(key, function)` takes no options table.
 - Function callbacks are synchronous on the compositor thread; don't block.

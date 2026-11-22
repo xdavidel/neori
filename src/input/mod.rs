@@ -925,8 +925,8 @@ impl State {
 
     /// Runs a Lua function bound with `neori.bind(key, function)`.
     ///
-    /// Any `neori.action` calls the function makes are drained and dispatched afterwards, with
-    /// the same lock permission as the bind itself.
+    /// Any `neori.action` calls the function makes run with the same lock permission as the
+    /// bind itself.
     fn call_script_function(&mut self, id: u64, allow_when_locked: bool, time: InputTime) {
         match self.scripting.bind_call(id) {
             Ok(call) => self.run_lua("bind", call, (), allow_when_locked, time),

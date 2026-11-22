@@ -645,8 +645,8 @@ end
 --------------------------------------------------------------------------------
 --
 -- Any neori.bind / neori.on handler can be a Lua function. From inside that
--- function, call neori.action(name, args) to dispatch any IPC action; the
--- queued actions run in order right after the function returns.
+-- function, call neori.action(name, args) to run any IPC action. Actions run
+-- right away, in order, so the next line already sees their result.
 --
 -- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and the
 -- known limitations (no timers yet, function binds don't appear in the hotkey
@@ -691,7 +691,8 @@ end
 -- Window, Output, Workspace and Device values are live: reading a property
 -- returns the current state, even for a value you kept in a variable from an
 -- earlier callback. Once the object is gone, reads return its last known
--- state. Mutations are queued and applied right after the callback returns.
+-- state. Changes (w:close(), out:set_scale(2), …) apply right away, and only
+-- work inside callbacks, not while the config file itself is loading.
 --
 -- Pre-placement overrides (only valid inside window-opening handlers):
 -- open_on_output(name), open_on_workspace(name), open_fullscreen(bool),
@@ -943,7 +944,7 @@ end
 -- Pointer position + cursor warp.
 --
 -- neori.pointer()      -> { x, y, output } in global logical coordinates
--- neori.warp(x, y)     queues a cursor warp, applied after the callback returns
+-- neori.warp(x, y)     moves the cursor there right away
 --
 -- Like all queries, neori.pointer() only works inside callbacks: while the
 -- config file itself is loading it returns nil (and neori.windows() etc.

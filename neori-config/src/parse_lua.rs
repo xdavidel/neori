@@ -57,11 +57,6 @@ type PrintSinkSlot = Arc<Mutex<Option<PrintSink>>>;
 /// Keyed by the [`Action::ScriptFunction`] id assigned at parse time.
 type BindFnRegistry = Arc<Mutex<HashMap<u64, mlua::Function>>>;
 
-/// Queue of [`Action`]s that Lua code enqueued via `neori.action(name, args)`.
-///
-/// The compositor drains it after every Lua callback call and dispatches each action.
-type PendingActions = Arc<Mutex<Vec<Action>>>;
-
 /// State of a window, as provided by the compositor's [`ScriptContext`].
 ///
 /// The `Window` userdata keeps the last snapshot it saw, but reads its properties live through
@@ -148,9 +143,8 @@ pub struct PointerSnapshot {
 pub struct DeviceSnapshot {
     /// libinput device name (e.g. `"AT Translated Set 2 keyboard"`).
     pub name: String,
-    /// Stable per-boot udev sysname (e.g. `"event5"`). Used as the mutation
-    /// target key: mutation methods enqueue `(sysname, DeviceOp)` tuples which
-    /// the compositor dispatches by looking the device up in `neori.devices`.
+    /// Stable per-boot udev sysname (e.g. `"event5"`). Mutation methods use it to find the
+    /// device.
     pub sysname: String,
     pub product_id: u32,
     pub vendor_id: u32,
@@ -162,9 +156,8 @@ pub struct DeviceSnapshot {
     pub is_touchpad: bool,
 }
 
-/// Runtime mutations enqueued against a specific device by its sysname.
-/// Drained by the compositor after the callback returns; each op maps onto
-/// a `device.config_*_set_*` libinput call.
+/// A runtime change to an input device, requested from Lua. Each op maps onto a
+/// `device.config_*_set_*` libinput call.
 ///
 /// Changes persist on the device until the next `apply_libinput_settings`
 /// (i.e. config reload), at which point the config value takes over again.
@@ -177,18 +170,6 @@ pub enum DeviceOp {
     SetDisabled(bool),
 }
 
-type PendingDeviceOps = Arc<Mutex<Vec<(String, DeviceOp)>>>;
-
-/// Queue of pending cursor warps enqueued by Lua via `neori.warp(x, y)`. The
-/// compositor drains and dispatches each via `State::move_cursor` after the
-/// callback returns.
-type PendingWarps = Arc<Mutex<Vec<(f64, f64)>>>;
-
-/// Queue of output configuration operations enqueued by Lua via the `Output`
-/// userdata mutation methods. The compositor drains and dispatches each via
-/// `State::apply_transient_output_config` after the callback returns.
-type PendingOutputOps = Arc<Mutex<Vec<(String, neori_ipc::OutputAction)>>>;
-
 /// Pre-placement overrides a Lua `window-opening` handler can set on the window
 /// via the `w:open_*` methods. The compositor reads these just before calling
 /// `Layout::add_window` and merges them into the per-window
@@ -197,7 +178,7 @@ type PendingOutputOps = Arc<Mutex<Vec<(String, neori_ipc::OutputAction)>>>;
 ///
 /// Access is guarded by `Arc<Mutex<Option<OpenOverrides>>>`: the compositor
 /// sets the inner to `Some(default)` just before firing `window-opening` and
-/// takes it back to `None` right after draining. A Lua `w:open_*` call outside
+/// takes it back to `None` right after the handlers ran. A Lua `w:open_*` call outside
 /// that window is a silent no-op — the guard is `None`, so writes are dropped.
 /// This keeps a stashed `Window` from, say, a startup bind unable to leak an
 /// override onto some unrelated future window that opens.
@@ -212,8 +193,8 @@ pub struct OpenOverrides {
 
 type SharedOpenOverrides = Arc<Mutex<Option<OpenOverrides>>>;
 
-/// Lua `Output` userdata: a snapshot wrapper with read-only accessors and
-/// mutation methods that enqueue `OutputAction`s against this output by name.
+/// Lua `Output` userdata: read-only accessors and mutation methods that apply
+/// `OutputAction`s to this output, by name.
 ///
 /// Named `LuaOutput` on the Rust side to disambiguate from
 /// [`crate::output::Output`] (the config-time struct). Lua code just sees an
@@ -278,19 +259,18 @@ impl mlua::UserData for LuaOutput {
         });
         methods.add_method("vrr_enabled", |_, this, ()| Ok(this.current().vrr_enabled));
 
-        // Mutation methods. Each enqueues an (output name, OutputAction) pair which
-        // the compositor drains and dispatches via apply_transient_output_config.
+        // Mutation methods. Each applies an OutputAction to this output right away.
 
         // out:on() / out:off() / out:enable(bool)
-        methods.add_method("on", |lua, this, ()| {
-            enqueue_output_op(lua, &this.0.name, neori_ipc::OutputAction::On);
+        methods.add_method("on", |_, this, ()| {
+            apply_output_action(&this.0.name, neori_ipc::OutputAction::On)?;
             Ok(())
         });
-        methods.add_method("off", |lua, this, ()| {
-            enqueue_output_op(lua, &this.0.name, neori_ipc::OutputAction::Off);
+        methods.add_method("off", |_, this, ()| {
+            apply_output_action(&this.0.name, neori_ipc::OutputAction::Off)?;
             Ok(())
         });
-        methods.add_method("enable", |lua, this, enable: Option<bool>| {
+        methods.add_method("enable", |_, this, enable: Option<bool>| {
             // Default: flip to the opposite of the current state.
             let off = this.current().off;
             let desired = enable.unwrap_or(off);
@@ -305,12 +285,12 @@ impl mlua::UserData for LuaOutput {
             } else {
                 neori_ipc::OutputAction::Off
             };
-            enqueue_output_op(lua, &this.0.name, op);
+            apply_output_action(&this.0.name, op)?;
             Ok(())
         });
 
         // out:set_mode("1920x1080@144") or out:set_mode("auto")
-        methods.add_method("set_mode", |lua, this, mode: String| {
+        methods.add_method("set_mode", |_, this, mode: String| {
             let op = if mode == "auto" || mode.is_empty() {
                 neori_ipc::OutputAction::Mode {
                     mode: neori_ipc::ModeToSet::Automatic,
@@ -321,12 +301,12 @@ impl mlua::UserData for LuaOutput {
                     mode: neori_ipc::ModeToSet::Specific(configured),
                 }
             };
-            enqueue_output_op(lua, &this.0.name, op);
+            apply_output_action(&this.0.name, op)?;
             Ok(())
         });
 
         // out:set_scale(1.5) / out:set_scale("auto")
-        methods.add_method("set_scale", |lua, this, scale: mlua::Value| {
+        methods.add_method("set_scale", |_, this, scale: mlua::Value| {
             let op = match &scale {
                 mlua::Value::String(s) => {
                     let s = s.to_str().map_err(|e| LuaError::runtime(e.to_string()))?;
@@ -353,23 +333,22 @@ impl mlua::UserData for LuaOutput {
                     )))
                 }
             };
-            enqueue_output_op(lua, &this.0.name, op);
+            apply_output_action(&this.0.name, op)?;
             Ok(())
         });
 
         // out:set_transform("90") etc.
-        methods.add_method("set_transform", |lua, this, s: String| {
+        methods.add_method("set_transform", |_, this, s: String| {
             let transform = parse_transform_string(&s).map_err(LuaError::runtime)?;
-            enqueue_output_op(
-                lua,
+            apply_output_action(
                 &this.0.name,
                 neori_ipc::OutputAction::Transform { transform },
-            );
+            )?;
             Ok(())
         });
 
         // out:set_position({x=…, y=…}) / out:set_position("auto")
-        methods.add_method("set_position", |lua, this, value: mlua::Value| {
+        methods.add_method("set_position", |_, this, value: mlua::Value| {
             let op = match &value {
                 mlua::Value::Nil => neori_ipc::OutputAction::Position {
                     position: neori_ipc::PositionToSet::Automatic,
@@ -406,15 +385,14 @@ impl mlua::UserData for LuaOutput {
                     )))
                 }
             };
-            enqueue_output_op(lua, &this.0.name, op);
+            apply_output_action(&this.0.name, op)?;
             Ok(())
         });
 
         // out:set_vrr(true/false) — on-demand defaults to false
-        methods.add_method("set_vrr", |lua, this, args: (bool, Option<bool>)| {
+        methods.add_method("set_vrr", |_, this, args: (bool, Option<bool>)| {
             let (enable, on_demand) = args;
-            enqueue_output_op(
-                lua,
+            apply_output_action(
                 &this.0.name,
                 neori_ipc::OutputAction::Vrr {
                     vrr: neori_ipc::VrrToSet {
@@ -422,7 +400,7 @@ impl mlua::UserData for LuaOutput {
                         on_demand: on_demand.unwrap_or(false),
                     },
                 },
-            );
+            )?;
             Ok(())
         });
 
@@ -434,12 +412,9 @@ impl mlua::UserData for LuaOutput {
     }
 }
 
-/// Enqueue an output configuration operation onto the shared pending-output-ops
-/// queue stashed on the Lua state via [`Lua::set_app_data`].
-fn enqueue_output_op(lua: &Lua, output_name: &str, op: neori_ipc::OutputAction) {
-    if let Some(pending) = lua.app_data_ref::<PendingOutputOps>() {
-        pending.lock().unwrap().push((output_name.to_string(), op));
-    }
+/// Applies an output configuration change right away.
+fn apply_output_action(output: &str, op: neori_ipc::OutputAction) -> LuaResult<()> {
+    with_context(|ctx| ctx.output_action(output, op)).ok_or_else(|| outside_callback("Output"))
 }
 
 /// Parse a "WxH@REFRESH" mode string into a [`neori_ipc::ConfiguredMode`].
@@ -475,9 +450,8 @@ fn parse_mode_string_strict(s: &str) -> Result<neori_ipc::ConfiguredMode, String
 /// `Output:transform()` accessor returns.
 /// Lua `Workspace` userdata.
 ///
-/// Same snapshot semantics as `Window` and `Output`: all read-only accessors
-/// return the values captured at the moment the Workspace was built. Mutation
-/// methods enqueue IPC `Action`s that target this workspace by its stable id.
+/// Same semantics as `Window` and `Output`: read-only accessors return the current state,
+/// and mutation methods run IPC `Action`s that target this workspace by its stable id.
 #[derive(Debug, Clone)]
 pub struct LuaWorkspace(pub WorkspaceSnapshot);
 
@@ -519,46 +493,34 @@ impl mlua::UserData for LuaWorkspace {
             Ok(arr)
         });
 
-        // Mutation methods — each enqueues an Action via the pending_actions queue.
-        methods.add_method("focus", |lua, this, ()| {
-            enqueue_action(
-                lua,
-                Action::FocusWorkspace {
-                    reference: neori_ipc::WorkspaceReferenceArg::Id(this.0.id),
-                },
-            );
+        // Mutation methods — each one carries out its Action right away.
+        methods.add_method("focus", |_, this, ()| {
+            apply_action(Action::FocusWorkspace {
+                reference: neori_ipc::WorkspaceReferenceArg::Id(this.0.id),
+            })?;
             Ok(())
         });
 
-        methods.add_method("send_to_output", |lua, this, output: String| {
-            enqueue_action(
-                lua,
-                Action::MoveWorkspaceToMonitor {
-                    output,
-                    reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
-                },
-            );
+        methods.add_method("send_to_output", |_, this, output: String| {
+            apply_action(Action::MoveWorkspaceToMonitor {
+                output,
+                reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+            })?;
             Ok(())
         });
 
-        methods.add_method("set_name", |lua, this, name: String| {
-            enqueue_action(
-                lua,
-                Action::SetWorkspaceName {
-                    name,
-                    workspace: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
-                },
-            );
+        methods.add_method("set_name", |_, this, name: String| {
+            apply_action(Action::SetWorkspaceName {
+                name,
+                workspace: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+            })?;
             Ok(())
         });
 
-        methods.add_method("unset_name", |lua, this, ()| {
-            enqueue_action(
-                lua,
-                Action::UnsetWorkspaceName {
-                    reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
-                },
-            );
+        methods.add_method("unset_name", |_, this, ()| {
+            apply_action(Action::UnsetWorkspaceName {
+                reference: Some(neori_ipc::WorkspaceReferenceArg::Id(this.0.id)),
+            })?;
             Ok(())
         });
 
@@ -577,11 +539,9 @@ impl mlua::UserData for LuaWorkspace {
     }
 }
 
-/// Lua `Device` userdata: a snapshot wrapper for an input device (keyboard /
-/// mouse / touchpad / touch panel) with read-only metadata accessors and
-/// mutation methods that enqueue libinput tuning ops keyed by the device's
-/// udev `sysname`. The compositor drains the queue after the callback returns
-/// and applies each op to the matching `input::Device`.
+/// Lua `Device` userdata: an input device (keyboard / mouse / touchpad / touch panel)
+/// with read-only metadata accessors and mutation methods that apply libinput tuning
+/// ops to the device with this udev `sysname`, right away.
 ///
 /// Named `LuaDevice` on the Rust side to avoid any `Device` ambiguity with
 /// Smithay / libinput types; Lua users just see it as `Device`.
@@ -609,32 +569,32 @@ impl mlua::UserData for LuaDevice {
         methods.add_method("is_touch", |_, this, ()| Ok(this.current().is_touch));
         methods.add_method("is_touchpad", |_, this, ()| Ok(this.current().is_touchpad));
 
-        // Mutation methods. Each enqueues a (sysname, DeviceOp) pair; the
-        // compositor drains and applies via `input::Device::config_*_set_*`.
-        // Changes persist until the next config reload wipes them.
-        methods.add_method("set_tap", |lua, this, enable: bool| {
-            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetTap(enable));
+        // Mutation methods. Each applies a DeviceOp right away, through
+        // `input::Device::config_*_set_*`. Changes persist until the next config reload
+        // wipes them.
+        methods.add_method("set_tap", |_, this, enable: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetTap(enable))?;
             Ok(())
         });
-        methods.add_method("set_natural_scroll", |lua, this, enable: bool| {
-            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetNaturalScroll(enable));
+        methods.add_method("set_natural_scroll", |_, this, enable: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetNaturalScroll(enable))?;
             Ok(())
         });
-        methods.add_method("set_accel", |lua, this, speed: f64| {
+        methods.add_method("set_accel", |_, this, speed: f64| {
             if !(-1.0..=1.0).contains(&speed) {
                 return Err(LuaError::runtime(format!(
                     "Device:set_accel: speed {speed} out of range [-1.0, 1.0]"
                 )));
             }
-            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetAccel(speed));
+            apply_device_op(&this.0.sysname, DeviceOp::SetAccel(speed))?;
             Ok(())
         });
-        methods.add_method("set_left_handed", |lua, this, enable: bool| {
-            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetLeftHanded(enable));
+        methods.add_method("set_left_handed", |_, this, enable: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetLeftHanded(enable))?;
             Ok(())
         });
-        methods.add_method("set_disabled", |lua, this, disabled: bool| {
-            enqueue_device_op(lua, &this.0.sysname, DeviceOp::SetDisabled(disabled));
+        methods.add_method("set_disabled", |_, this, disabled: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetDisabled(disabled))?;
             Ok(())
         });
 
@@ -648,10 +608,8 @@ impl mlua::UserData for LuaDevice {
     }
 }
 
-fn enqueue_device_op(lua: &Lua, sysname: &str, op: DeviceOp) {
-    if let Some(queue) = lua.app_data_ref::<PendingDeviceOps>() {
-        queue.lock().unwrap().push((sysname.to_owned(), op));
-    }
+fn apply_device_op(sysname: &str, op: DeviceOp) -> LuaResult<()> {
+    with_context(|ctx| ctx.device_op(sysname, op)).ok_or_else(|| outside_callback("Device"))
 }
 
 fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
@@ -728,48 +686,41 @@ impl mlua::UserData for Window {
         });
         methods.add_method("output", |_, this, ()| Ok(this.current().output_name));
 
-        // Mutation methods. Each enqueues the matching IPC Action against this
-        // window's stable id; the compositor drains the queue after the callback
-        // returns. Stale ids (window already gone) are silently ignored by the
-        // compositor's dispatch, so it's safe to call these on a Window value
-        // kept in a Lua variable across callbacks.
+        // Mutation methods. Each runs the matching IPC Action against this window's
+        // stable id, right away. Stale ids (window already gone) are silently ignored by
+        // the compositor, so it's safe to call these on a Window value kept in a Lua
+        // variable across callbacks.
 
-        methods.add_method("close", |lua, this, ()| {
-            enqueue_action(
-                lua,
-                Action::CloseWindow {
-                    id: Some(this.0.id),
-                },
-            );
+        methods.add_method("close", |_, this, ()| {
+            apply_action(Action::CloseWindow {
+                id: Some(this.0.id),
+            })?;
             Ok(())
         });
 
-        methods.add_method("focus", |lua, this, ()| {
-            enqueue_action(lua, Action::FocusWindow { id: this.0.id });
+        methods.add_method("focus", |_, this, ()| {
+            apply_action(Action::FocusWindow { id: this.0.id })?;
             Ok(())
         });
 
         // `w:fullscreen(true)` / `w:fullscreen(false)` / `w:fullscreen()` (toggle).
         // Set-style calls skip the IPC toggle when the window already is in the
         // requested state, so they're idempotent.
-        methods.add_method("fullscreen", |lua, this, enable: Option<bool>| {
+        methods.add_method("fullscreen", |_, this, enable: Option<bool>| {
             if let Some(desired) = enable {
                 if desired == this.current().is_fullscreen {
                     return Ok(());
                 }
             }
-            enqueue_action(
-                lua,
-                Action::FullscreenWindow {
-                    id: Some(this.0.id),
-                },
-            );
+            apply_action(Action::FullscreenWindow {
+                id: Some(this.0.id),
+            })?;
             Ok(())
         });
 
         // `w:float(true)` / `w:float(false)` / `w:float()` (toggle). The explicit
         // MoveWindowToFloating / MoveWindowToTiling IPC actions keep this idempotent.
-        methods.add_method("float", |lua, this, enable: Option<bool>| {
+        methods.add_method("float", |_, this, enable: Option<bool>| {
             let is_floating = this.current().is_floating;
             let desired = enable.unwrap_or(!is_floating);
             if desired == is_floating {
@@ -784,40 +735,34 @@ impl mlua::UserData for Window {
                     id: Some(this.0.id),
                 }
             };
-            enqueue_action(lua, action);
+            apply_action(action)?;
             Ok(())
         });
 
         // `w:send_to_workspace(2)` / `w:send_to_workspace("browser")`.
-        methods.add_method("send_to_workspace", |lua, this, target: mlua::Value| {
+        methods.add_method("send_to_workspace", |_, this, target: mlua::Value| {
             let reference = workspace_reference_from_lua(&target)?;
-            enqueue_action(
-                lua,
-                Action::MoveWindowToWorkspace {
-                    window_id: Some(this.0.id),
-                    reference,
-                    focus: true,
-                },
-            );
+            apply_action(Action::MoveWindowToWorkspace {
+                window_id: Some(this.0.id),
+                reference,
+                focus: true,
+            })?;
             Ok(())
         });
 
         // `w:send_to_output("eDP-1")`.
-        methods.add_method("send_to_output", |lua, this, output: String| {
-            enqueue_action(
-                lua,
-                Action::MoveWindowToMonitor {
-                    id: Some(this.0.id),
-                    output,
-                },
-            );
+        methods.add_method("send_to_output", |_, this, output: String| {
+            apply_action(Action::MoveWindowToMonitor {
+                id: Some(this.0.id),
+                output,
+            })?;
             Ok(())
         });
 
         // Pre-placement overrides. These only have an effect from inside a
         // `window-opening` handler: the compositor sets the overrides guard
         // before firing the event, these methods write into it, and the
-        // compositor drains + merges into the per-window ResolvedWindowRules
+        // compositor takes and merges them into the per-window ResolvedWindowRules
         // right before placement. Outside the event (e.g. called on a stashed
         // Window after the fact), the guard is `None`, so the write is a silent
         // no-op — nothing leaks onto some later window.
@@ -862,13 +807,6 @@ impl mlua::UserData for Window {
     }
 }
 
-/// Enqueue an [`Action`] onto the shared pending-actions queue stashed on the Lua
-/// state via [`Lua::set_app_data`].
-///
-/// A missing app_data is a no-op; it only happens if someone constructs a `Window`
-/// userdata on a Lua state that isn't owned by a [`ScriptHost`], which we don't do
-/// outside of unit tests. In that case the mutation silently drops rather than
-/// erroring from Lua.
 /// The canonical name of a global signal: built-in names accept `_` in place of `-`, and any
 /// other name is a custom signal.
 fn global_signal_name(name: &str) -> &str {
@@ -1009,10 +947,19 @@ where
     );
 }
 
-fn enqueue_action(lua: &Lua, action: Action) {
-    if let Some(pending) = lua.app_data_ref::<PendingActions>() {
-        pending.lock().unwrap().push(action);
-    }
+/// The error for a change requested while no callback runs, such as while the config file itself
+/// is being evaluated: there is no compositor to apply it to.
+fn outside_callback(what: &str) -> LuaError {
+    LuaError::runtime(format!(
+        "{what} changes only work inside a callback (neori.bind or neori.on), not while the \
+         config is loading"
+    ))
+}
+
+/// Carries out `action` right away.
+fn apply_action(action: Action) -> LuaResult<()> {
+    with_context(|ctx| ctx.do_action(action))
+        .ok_or_else(|| outside_callback("neori.action and Window/Workspace"))
 }
 
 /// Mutate the open-overrides accumulator, if one is in scope. Outside a
@@ -1074,21 +1021,11 @@ pub struct ScriptHost {
     bind_functions: BindFnRegistry,
     /// Monotonic id counter for [`Action::ScriptFunction`] references.
     next_bind_fn_id: Arc<AtomicU64>,
-    /// Queue of actions enqueued by Lua via `neori.action`.
-    pending_actions: PendingActions,
-    /// Queue of output configuration operations enqueued by `Output` mutation
-    /// methods (`out:set_mode(…)`, `out:set_scale(…)`, …).
-    pending_output_ops: PendingOutputOps,
     /// Pre-placement overrides for `window-opening` handlers. `Some(default)`
     /// only during a `window-opening` dispatch; `None` the rest of the time.
     /// `Window` userdata `open_*` methods write to the inner struct when the
     /// guard is `Some`, and silently no-op when it's `None`.
     open_overrides: SharedOpenOverrides,
-    /// Cursor warps enqueued by Lua via `neori.warp(x, y)`. The compositor
-    /// drains after the callback returns.
-    pending_warps: PendingWarps,
-    /// Pending libinput mutations enqueued by `Device:set_*` methods.
-    pending_device_ops: PendingDeviceOps,
     /// Sink for Lua `print(...)` output. When `None`, prints go to stdout.
     /// The `print` override installed in [`ScriptHost::new`] reads this slot on
     /// every call, so [`set_print_log`](Self::set_print_log) can swap it in at
@@ -1102,22 +1039,14 @@ impl ScriptHost {
         let signals: SharedSignals = Arc::default();
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
-        let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
-        let pending_output_ops: PendingOutputOps = Arc::new(Mutex::new(Vec::new()));
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
-        let pending_warps: PendingWarps = Arc::new(Mutex::new(Vec::new()));
-        let pending_device_ops: PendingDeviceOps = Arc::new(Mutex::new(Vec::new()));
         let print_sink: PrintSinkSlot = Arc::new(Mutex::new(None));
 
-        // Stash handles for every runtime queue on the Lua state so userdata
-        // methods (`w:close()`, `out:set_scale(…)`, …) can reach
-        // them via `lua.app_data_ref` without taking a reference to Self.
-        lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
+        // Stash the shared state that userdata methods (`w:connect(…)`, `w:open_*(…)`, …)
+        // need on the Lua state, so they can reach it via `lua.app_data_ref` without a
+        // reference to Self.
         lua.set_app_data::<SharedSignals>(Arc::clone(&signals));
-        lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
-        lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
-        lua.set_app_data::<PendingDeviceOps>(Arc::clone(&pending_device_ops));
 
         // Override Lua's default `print` so it routes to the installed sink
         // (set later via `set_print_log`) or falls back to stdout. Formats each
@@ -1160,11 +1089,7 @@ impl ScriptHost {
             signals,
             bind_functions,
             next_bind_fn_id,
-            pending_actions,
-            pending_output_ops,
             open_overrides,
-            pending_warps,
-            pending_device_ops,
             print_sink,
         })
     }
@@ -1174,16 +1099,6 @@ impl ScriptHost {
     /// config reloads to keep the underlying file open.
     pub fn set_print_log(&self, sink: PrintSink) {
         *self.print_sink.lock().unwrap() = Some(sink);
-    }
-
-    /// Drain pending libinput device mutation ops enqueued by `Device:set_*`.
-    pub fn drain_pending_device_ops(&self) -> Vec<(String, DeviceOp)> {
-        std::mem::take(&mut *self.pending_device_ops.lock().unwrap())
-    }
-
-    /// Drain pending cursor warps enqueued by Lua via `neori.warp(x, y)`.
-    pub fn drain_pending_warps(&self) -> Vec<(f64, f64)> {
-        std::mem::take(&mut *self.pending_warps.lock().unwrap())
     }
 
     /// Open a `window-opening` dispatch: enables the `w:open_*` methods and
@@ -1205,13 +1120,6 @@ impl ScriptHost {
             .unwrap_or_default()
     }
 
-    /// Drain and return any pending output configuration ops enqueued via the
-    /// `Output` userdata mutation methods.
-    pub fn drain_pending_output_ops(&self) -> Vec<(String, neori_ipc::OutputAction)> {
-        let mut queue = self.pending_output_ops.lock().unwrap();
-        std::mem::take(&mut *queue)
-    }
-
     /// Runs the config script at `path` in this host.
     ///
     /// Resets all previously registered event callbacks, then evaluates the script and
@@ -1229,10 +1137,6 @@ impl ScriptHost {
         };
         self.signals.lock().unwrap().clear();
         self.bind_functions.lock().unwrap().clear();
-        self.pending_actions.lock().unwrap().clear();
-        self.pending_output_ops.lock().unwrap().clear();
-        self.pending_warps.lock().unwrap().clear();
-        self.pending_device_ops.lock().unwrap().clear();
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -1275,8 +1179,6 @@ impl ScriptHost {
             &self.signals,
             &self.bind_functions,
             &self.next_bind_fn_id,
-            &self.pending_actions,
-            &self.pending_warps,
             search_dir.clone(),
             Arc::clone(&includes),
         )
@@ -1313,21 +1215,20 @@ impl ScriptHost {
 
     /// Calls every Lua function registered for `event`, in registration order.
     ///
-    /// Returns any Actions the callbacks enqueued through `neori.action`. Static action
-    /// handlers for the same event live in `Config` and are dispatched separately by the
-    /// compositor.
-    pub fn call_event(&self, event: &str) -> Result<Vec<Action>, String> {
+    /// Static action handlers for the same event live in `Config` and are dispatched
+    /// separately by the compositor.
+    pub fn call_event(&self, event: &str) -> Result<(), String> {
         self.call_event_with(event, ())
     }
 
     /// Like [`ScriptHost::call_event`], but passes `args` to every callback.
-    pub fn call_event_with<A>(&self, event: &str, args: A) -> Result<Vec<Action>, String>
+    pub fn call_event_with<A>(&self, event: &str, args: A) -> Result<(), String>
     where
         A: IntoLuaMulti + Clone,
     {
         match self.event_call(event, None) {
             Some(call) => call.run(args),
-            None => Ok(Vec::new()),
+            None => Ok(()),
         }
     }
 
@@ -1358,7 +1259,6 @@ impl ScriptHost {
         Some(LuaCall {
             label: event.to_owned(),
             funs,
-            pending_actions: Arc::clone(&self.pending_actions),
         })
     }
 
@@ -1380,7 +1280,6 @@ impl ScriptHost {
         Ok(LuaCall {
             label: "bind".to_owned(),
             funs: vec![fun],
-            pending_actions: Arc::clone(&self.pending_actions),
         })
     }
 
@@ -1390,17 +1289,8 @@ impl ScriptHost {
     }
 
     /// Calls the Lua function registered for `id`.
-    ///
-    /// Returns the list of Actions that the function enqueued through `neori.action`.
-    /// The compositor should then dispatch them.
-    pub fn call_bind_function(&self, id: u64) -> Result<Vec<Action>, String> {
+    pub fn call_bind_function(&self, id: u64) -> Result<(), String> {
         self.bind_call(id)?.run(())
-    }
-
-    /// Drains and returns any [`Action`]s that Lua code enqueued via `neori.action`.
-    #[cfg(test)]
-    pub(crate) fn drain_pending_actions(&self) -> Vec<Action> {
-        std::mem::take(&mut *self.pending_actions.lock().unwrap())
     }
 
     /// Returns whether a bind function is registered for `id`.
@@ -1415,17 +1305,14 @@ impl ScriptHost {
 pub struct LuaCall {
     label: String,
     funs: Vec<mlua::Function>,
-    pending_actions: PendingActions,
 }
 
 impl LuaCall {
-    /// Runs every callback with `args`, and returns the actions they queued with
-    /// `neori.action`.
+    /// Runs every callback with `args`.
     ///
     /// Every callback runs even if an earlier one fails: one broken handler must not disable
-    /// the rest of the config. Only the first error is returned, and in that case the queued
-    /// actions are dropped. They are always drained, so they can't leak into the next call.
-    pub fn run<A>(self, args: A) -> Result<Vec<Action>, String>
+    /// the rest of the config. Only the first error is returned.
+    pub fn run<A>(self, args: A) -> Result<(), String>
     where
         A: IntoLuaMulti + Clone,
     {
@@ -1435,11 +1322,7 @@ impl LuaCall {
                 first_error.get_or_insert_with(|| format!("{} callback error: {e}", self.label));
             }
         }
-        let actions = std::mem::take(&mut *self.pending_actions.lock().unwrap());
-        match first_error {
-            Some(e) => Err(e),
-            None => Ok(actions),
-        }
+        first_error.map_or(Ok(()), Err)
     }
 }
 
@@ -1653,8 +1536,6 @@ fn setup_neori_api(
     signals: &SharedSignals,
     bind_functions: &BindFnRegistry,
     next_bind_fn_id: &Arc<AtomicU64>,
-    pending_actions: &PendingActions,
-    pending_warps: &PendingWarps,
     search_dir: PathBuf,
     includes: Arc<Mutex<Vec<PathBuf>>>,
 ) -> Result<LuaTable, String> {
@@ -1811,9 +1692,8 @@ fn setup_neori_api(
         neori.set("bind", func).map_err(err)?;
     }
 
-    // neori.action(name, args?) dispatches an IPC Action at runtime from inside a Lua
-    // callback. The action is appended to `pending_actions`; the compositor drains it
-    // after the callback returns.
+    // neori.action(name, args?) carries out an IPC Action right away, from inside a Lua
+    // callback.
     //
     // `name` is any action identifier accepted by `parse_action_string` ("close-window",
     // "focus-column-left", "focus-workspace", "spawn", "create-virtual-output", …) or by
@@ -1825,9 +1705,8 @@ fn setup_neori_api(
     //     neori.action("focus-workspace", 2)
     //     neori.action("create-virtual-output", { name = "sunshine", width = 2560 })
     {
-        let pending_actions = Arc::clone(pending_actions);
         let func = lua
-            .create_function(move |lua, args: mlua::Variadic<Value>| {
+            .create_function(|lua, args: mlua::Variadic<Value>| {
                 let mut iter = args.into_iter();
                 let name = match iter.next() {
                     Some(Value::String(s)) => s
@@ -1857,8 +1736,7 @@ fn setup_neori_api(
                 wrapper.set(name.as_str(), effective_arg.clone())?;
                 let action = resolve_runtime_action(&name, &effective_arg, &wrapper)
                     .map_err(LuaError::runtime)?;
-                pending_actions.lock().unwrap().push(action);
-                Ok(())
+                apply_action(action)
             })
             .map_err(err)?;
         neori.set("action", func).map_err(err)?;
@@ -1937,20 +1815,16 @@ fn setup_neori_api(
         neori.set("pointer", func).map_err(err)?;
     }
 
-    // neori.warp(x, y) enqueues a cursor warp to the given global coordinates.
-    // The compositor drains the queue after the callback returns and dispatches
-    // each warp via `State::move_cursor`.
+    // neori.warp(x, y) moves the cursor to the given global coordinates.
     {
-        let queue = Arc::clone(pending_warps);
         let func = lua
-            .create_function(move |_lua, (x, y): (f64, f64)| {
+            .create_function(|_, (x, y): (f64, f64)| {
                 if !x.is_finite() || !y.is_finite() {
                     return Err(LuaError::runtime(format!(
                         "neori.warp: non-finite coordinates ({x}, {y})"
                     )));
                 }
-                queue.lock().unwrap().push((x, y));
-                Ok(())
+                with_context(|ctx| ctx.warp(x, y)).ok_or_else(|| outside_callback("neori.warp"))
             })
             .map_err(err)?;
         neori.set("warp", func).map_err(err)?;

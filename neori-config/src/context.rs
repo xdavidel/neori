@@ -3,7 +3,8 @@
 //! The Lua API lives in this crate, which can't depend on the compositor. Instead, the compositor
 //! implements [`ScriptContext`] and installs itself with [`with_script_context`] for the duration
 //! of every Lua callback. Userdata methods like `w:title()` then look up the current state through
-//! [`with_context`] instead of reading a snapshot taken before the callback started.
+//! [`with_context`] instead of reading a snapshot taken before the callback started, and changes
+//! like `w:close()` or `neori.action(...)` are carried out right away.
 //!
 //! # Safety
 //!
@@ -19,8 +20,10 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
+use neori_ipc::{Action, OutputAction};
+
 use crate::parse_lua::{
-    DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowSnapshot, WorkspaceSnapshot,
+    DeviceOp, DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowSnapshot, WorkspaceSnapshot,
 };
 
 /// Compositor state that Lua callbacks can query.
@@ -85,6 +88,15 @@ pub trait ScriptContext {
     fn keyboard_layout(&mut self) -> Option<String> {
         None
     }
+
+    /// Carries out `action` right away.
+    fn do_action(&mut self, action: Action);
+    /// Changes the configuration of the output with this connector name right away.
+    fn output_action(&mut self, output: &str, action: OutputAction);
+    /// Moves the cursor to these global logical coordinates.
+    fn warp(&mut self, x: f64, y: f64);
+    /// Changes a setting of the input device with this sysname right away.
+    fn device_op(&mut self, sysname: &str, op: DeviceOp);
 }
 
 type ContextPtr = NonNull<dyn ScriptContext + 'static>;
@@ -163,6 +175,11 @@ mod tests {
     }
 
     impl ScriptContext for Fake {
+        fn do_action(&mut self, _: Action) {}
+        fn output_action(&mut self, _: &str, _: OutputAction) {}
+        fn warp(&mut self, _: f64, _: f64) {}
+        fn device_op(&mut self, _: &str, _: DeviceOp) {}
+
         fn windows(&mut self) -> Vec<WindowSnapshot> {
             self.lookups += 1;
             self.windows.clone()

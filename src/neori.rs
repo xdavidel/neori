@@ -1978,6 +1978,15 @@ impl State {
     }
 
     pub fn reload_config(&mut self, config: Result<(Config, ScriptHost), ()>) {
+        // A reload replaces the Lua state, so it must not happen while Lua code runs. Reloads
+        // come from the config watcher, never from inside a callback, but make sure.
+        if self.lua_events.is_running() {
+            self.neori
+                .event_loop
+                .insert_idle(move |state| state.reload_config(config));
+            return;
+        }
+
         let _span = tracy_client::span!("State::reload_config");
 
         let (mut config, script_host) = match config {
