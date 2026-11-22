@@ -1664,7 +1664,7 @@ mod tests {
     }
 
     #[test]
-    fn lua_function_bind_parses_as_script_fn() {
+    fn lua_function_bind_parses_as_script_function() {
         let (config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1677,36 +1677,17 @@ mod tests {
 
         assert_eq!(config.binds.0.len(), 2);
 
-        // Exactly one bind should be a Lua-function bind (no static action, has script_fn)
-        // and one should be a string-action bind (has action, no script_fn).
-        let fn_binds: Vec<_> = config
-            .binds
-            .0
-            .iter()
-            .filter(|b| b.script_fn.is_some())
-            .collect();
-        assert_eq!(fn_binds.len(), 1, "expected one function bind");
-        let fn_bind = fn_binds[0];
+        // The function bind carries a ScriptFunction action registered with the host.
+        let Action::ScriptFunction { id } = config.binds.0[0].action else {
+            panic!("expected a function bind, got {:?}", config.binds.0[0].action);
+        };
         assert!(
-            fn_bind.action.is_none(),
-            "function bind should have no static Action, got {:?}",
-            fn_bind.action
-        );
-        let script_fn = fn_bind.script_fn.as_ref().unwrap();
-        assert!(
-            host.has_bind_function(script_fn.id),
-            "ScriptHost should have the function registered for id {}",
-            script_fn.id
+            host.has_bind_function(id),
+            "ScriptHost should have the function registered for id {id}"
         );
 
         // The other bind carries the static Action.
-        let str_bind = config
-            .binds
-            .0
-            .iter()
-            .find(|b| b.script_fn.is_none())
-            .expect("string-action bind not found");
-        assert_eq!(str_bind.action, Some(Action::CloseWindow { id: None }));
+        assert_eq!(config.binds.0[1].action, Action::CloseWindow { id: None });
     }
 
     #[test]
@@ -2085,7 +2066,7 @@ mod tests {
     }
 
     fn actions(config: &Config) -> Vec<Action> {
-        config.binds.0.iter().filter_map(|b| b.action.clone()).collect()
+        config.binds.0.iter().map(|b| b.action.clone()).collect()
     }
 
     #[test]
@@ -2320,13 +2301,13 @@ mod tests {
             .iter()
             .find(|b| {
                 b.action
-                    == Some(Action::Spawn {
+                    == Action::Spawn {
                         command: vec![
                             "brightnessctl".to_string(),
                             "set".to_string(),
                             "+10%".to_string(),
                         ],
-                    })
+                    }
             })
             .unwrap();
         assert!(brightness.allow_when_locked);
@@ -2337,9 +2318,9 @@ mod tests {
             .iter()
             .find(|b| {
                 b.action
-                    == Some(Action::Spawn {
+                    == Action::Spawn {
                         command: vec!["terminal-meta".to_string()],
-                    })
+                    }
             })
             .unwrap();
         assert_eq!(

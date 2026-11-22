@@ -1200,6 +1200,18 @@ pub enum Action {
     #[cfg_attr(feature = "clap", command(skip))]
     #[cfg_attr(feature = "json-schema", schemars(skip))]
     MruCycleScope,
+    /// Run a Lua function bound with `neori.bind(key, function)`.
+    ///
+    /// This action is internal: the Lua config creates it for function binds, and it is usable
+    /// neither from the config file directly nor over IPC.
+    #[doc(hidden)]
+    #[serde(skip)]
+    #[cfg_attr(feature = "clap", command(skip))]
+    #[cfg_attr(feature = "json-schema", schemars(skip))]
+    ScriptFunction {
+        /// Id of the function in the config's script host.
+        id: u64,
+    },
     /// Increment a counter in the compositor's tests; does nothing otherwise.
     ///
     /// This action is internal, and usable neither from the config file nor over IPC.
@@ -2594,6 +2606,7 @@ mod tests {
             r#"{"ConfirmScreenshot":{"write_to_disk":true}}"#,
             r#"{"MruAdvance":{"direction":"Forward","scope":null,"filter":null}}"#,
             r#""TestAction""#,
+            r#"{"ScriptFunction":{"id":1}}"#,
         ] {
             assert!(
                 serde_json::from_str::<Action>(json).is_err(),

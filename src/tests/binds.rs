@@ -39,7 +39,7 @@ fn set_up(config: &str) -> (Fixture, ClientId, WlSurface) {
     let mut config = Config::parse_mem(config).unwrap();
     // TestAction can't be written in the config, so swap it in after parsing.
     for bind in &mut config.binds.0 {
-        bind.action = Some(Action::TestAction);
+        bind.action = Action::TestAction;
     }
 
     let mut f = Fixture::with_config(config);

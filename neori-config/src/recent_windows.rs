@@ -99,8 +99,7 @@ impl From<MruBind> for Bind {
     fn from(x: MruBind) -> Self {
         Self {
             key: x.key,
-            action: Some(Action::from(x.action)),
-            script_fn: None,
+            action: Action::from(x.action),
             repeat: true,
             cooldown: None,
             allow_when_locked: false,

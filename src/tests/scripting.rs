@@ -2,7 +2,7 @@
 //! and error containment.
 
 use neori_config::binds::Bind;
-use neori_config::Config;
+use neori_config::{Action, Config};
 use smithay::backend::input::KeyState;
 use smithay::input::keyboard::{Keysym, ModifiersState};
 use wayland_client::protocol::wl_surface::WlSurface as ClientWlSurface;
@@ -45,7 +45,7 @@ fn bind_function_fires_when_key_pressed() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .expect("function bind missing")
             .clone()
     };
@@ -75,7 +75,7 @@ fn bind_function_error_does_not_crash() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -110,8 +110,8 @@ fn neori_action_on_event_fires_and_dispatches() {
 
 #[test]
 fn string_action_binds_still_work() {
-    // Regression: the existing declarative-action path (string + table) must keep working
-    // after swapping Bind.action to Option<Action>.
+    // Regression: the declarative-action path (string + table) must keep working alongside
+    // Lua function binds.
     let mut f = fixture_from_lua(
         r#"
         neori.bind("Mod+Alt+T", "create-virtual-output")
@@ -122,8 +122,7 @@ fn string_action_binds_still_work() {
         let config = f.state.server.state.neori.config.borrow();
         config.binds.0[0].clone()
     };
-    assert!(bind.script_fn.is_none());
-    assert!(bind.action.is_some());
+    assert!(!matches!(bind.action, Action::ScriptFunction { .. }));
     f.state.server.state.handle_bind(bind);
     f.state.server.dispatch();
 
@@ -221,7 +220,7 @@ fn neori_windows_returns_mapped_windows_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -472,7 +471,7 @@ fn window_close_method_closes_the_window() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -542,7 +541,7 @@ fn window_send_to_workspace_moves_the_window() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -616,7 +615,7 @@ fn window_focus_method_refocuses_a_window() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -673,7 +672,7 @@ fn window_fullscreen_method_sets_fullscreen_state() {
             .binds
             .0
             .iter()
-            .filter(|b| b.script_fn.is_some())
+            .filter(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .cloned()
             .collect()
     };
@@ -742,7 +741,7 @@ fn window_float_method_moves_between_tiling_and_floating() {
             .binds
             .0
             .iter()
-            .filter(|b| b.script_fn.is_some())
+            .filter(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .cloned()
             .collect()
     };
@@ -815,7 +814,7 @@ fn window_send_to_output_moves_the_window_between_outputs() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -852,7 +851,7 @@ fn neori_outputs_returns_cached_outputs_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -917,7 +916,7 @@ fn output_set_scale_takes_effect_on_compositor_output() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -967,7 +966,7 @@ fn workspace_set_name_and_unset_name_affect_layout() {
     // Fire the first script bind (set_name).
     let (bind_set, bind_unset) = {
         let config = f.state.server.state.neori.config.borrow();
-        let mut it = config.binds.0.iter().filter(|b| b.script_fn.is_some());
+        let mut it = config.binds.0.iter().filter(|b| matches!(b.action, Action::ScriptFunction { .. }));
         let set = it.next().unwrap().clone();
         let unset = it.next().unwrap().clone();
         (set, unset)
@@ -1063,7 +1062,7 @@ fn workspace_focus_method_activates_target_workspace() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1144,7 +1143,7 @@ fn workspace_send_to_output_moves_workspace_between_outputs() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1183,7 +1182,7 @@ fn neori_workspaces_returns_cached_snapshots_from_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1590,7 +1589,7 @@ fn pointer_cache_is_refreshed_before_bind_callback() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1653,7 +1652,7 @@ fn warp_moves_the_cursor() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1693,7 +1692,7 @@ fn keyboard_layout_is_readable_from_lua() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1735,7 +1734,7 @@ fn devices_returns_empty_array_in_test_fixture() {
             .binds
             .0
             .iter()
-            .find(|b| b.script_fn.is_some())
+            .find(|b| matches!(b.action, Action::ScriptFunction { .. }))
             .unwrap()
             .clone()
     };
@@ -1755,9 +1754,9 @@ fn devices_returns_empty_array_in_test_fixture() {
 }
 
 #[test]
-fn handle_bind_ignores_bind_with_only_none_action() {
-    // Edge case: a Bind { action: None, script_fn: None } should be harmless (no-op), not
-    // a panic, if one ever gets constructed by mistake.
+fn handle_bind_ignores_unknown_script_function() {
+    // Edge case: a bind to a Lua function id that the script host doesn't know (e.g. one
+    // constructed by mistake) should be harmless, not a panic.
     let mut f = Fixture::new();
     use neori_config::binds::{Bind, Key, Modifiers, Trigger};
     let bind = Bind {
@@ -1765,8 +1764,7 @@ fn handle_bind_ignores_bind_with_only_none_action() {
             trigger: Trigger::Keysym(Keysym::XF86_Reload),
             modifiers: Modifiers::empty(),
         },
-        action: None,
-        script_fn: None,
+        action: Action::ScriptFunction { id: u64::MAX },
         repeat: true,
         cooldown: None,
         allow_when_locked: false,

@@ -52,7 +52,7 @@ type PrintSinkSlot = Arc<Mutex<Option<PrintSink>>>;
 
 /// The registry of Lua function callbacks registered via `neori.bind(key, function)`.
 ///
-/// Keyed by the [`ScriptFn::id`] assigned at parse time.
+/// Keyed by the [`Action::ScriptFunction`] id assigned at parse time.
 type BindFnRegistry = Arc<Mutex<HashMap<u64, mlua::Function>>>;
 
 /// Queue of [`Action`]s that Lua code enqueued via `neori.action(name, args)`.
@@ -899,7 +899,7 @@ pub struct ScriptHost {
     lua: Lua,
     event_functions: EventRegistry,
     bind_functions: BindFnRegistry,
-    /// Monotonic id counter for [`ScriptFn`] references.
+    /// Monotonic id counter for [`Action::ScriptFunction`] references.
     next_bind_fn_id: Arc<AtomicU64>,
     /// Queue of actions enqueued by Lua via `neori.action`.
     pending_actions: PendingActions,
@@ -1649,7 +1649,7 @@ fn setup_neori_api(
     // neori.bind(key, action) accepts a string, a table, or a Lua function. Binds are
     // appended to a sequence so that definition order is preserved (it matters for the
     // hotkey overlay). A function callback is stored in `bind_functions` keyed by a
-    // monotonic id; the parsed Bind carries that id in `script_fn`.
+    // monotonic id; the parsed Bind carries that id in `Action::ScriptFunction`.
     {
         let data = data.clone();
         let bind_functions = Arc::clone(bind_functions);
@@ -4618,7 +4618,6 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
 
     let mut action: Option<Action> = None;
-    let mut script_fn: Option<ScriptFn> = None;
     let mut repeat = true;
     let mut cooldown = None;
     let mut allow_when_locked = false;
@@ -4639,7 +4638,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                 let aks = key_str(&ak)?;
                 if aks == "script_fn_id" {
                     let id = value_to_u64(&av).map_err(|e| format!("script_fn_id: {e}"))?;
-                    script_fn = Some(ScriptFn { id, label: None });
+                    action = Some(Action::ScriptFunction { id });
                     continue;
                 }
                 if let Some(a) = action_from_table_key(t, &aks, &av)? {
@@ -4687,20 +4686,11 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         allow_inhibiting = false;
     }
 
-    if action.is_none() && script_fn.is_none() {
+    let Some(action) = action else {
         return Err(format!(
             "bind {key_name}: no action or Lua function provided"
         ));
-    }
-
-    // Decorate the ScriptFn with the hotkey overlay label when a Lua function bind sets one.
-    if let (Some(fn_ref), true, Some(label)) = (
-        script_fn.as_mut(),
-        has_hotkey_overlay_title,
-        hotkey_overlay_title.clone(),
-    ) {
-        fn_ref.label = Some(label);
-    }
+    };
 
     match by_keycode {
         // Explicitly disabled: keep the layout-dependent keysym trigger.
@@ -4722,7 +4712,6 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     Ok(Bind {
         key,
         action,
-        script_fn,
         repeat,
         cooldown,
         allow_when_locked,
