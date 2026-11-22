@@ -116,7 +116,7 @@ Supported event names and their handler arg:
 | `window-focused`     | `Window` userdata                                   |
 | `workspace-focused`  | `Workspace` userdata — the newly active workspace   |
 | `workspace-added`    | `Workspace` userdata — the just-created workspace   |
-| `workspace-removed`  | `Workspace` userdata — last-known snapshot of the destroyed workspace |
+| `workspace-removed`  | `Workspace` userdata — last known state of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
 | `layout-changed`     | string — the new active keyboard layout's name      |
 
@@ -124,6 +124,108 @@ Workspace / output lifecycle events fire whenever the compositor notices a
 change (per refresh tick), so a bind that focuses a different workspace,
 plugging in a monitor, or opening a window on a not-yet-materialized workspace
 all generate the matching events.
+
+## Signals
+
+The events above are *signals*, and `neori.on(event, function)` is one way to connect to them.
+`neori.connect` is the general form: it also takes signals of your own, and returns the function
+so you can disconnect it later.
+
+| function                        | does                                                        |
+|---                              |---                                                          |
+| `neori.connect(name, fn)`       | Connects `fn` to the signal `name` and returns `fn`.        |
+| `neori.disconnect(name, fn)`    | Disconnects `fn`. Returns whether it was connected.         |
+| `neori.disconnect(name)`        | Disconnects every function connected to `name`.             |
+| `neori.emit(name, ...)`         | Calls every function connected to `name` with `...`, now.   |
+
+Any name that isn't one of the events above is a custom signal, which only runs when you emit
+it. `neori.on` only accepts the events above, so a typo there is an error rather than a signal
+that never fires.
+
+```lua
+-- A custom signal: one place to react to "presentation mode" toggles.
+presenting = false
+neori.connect("presentation", function(on)
+    neori.action("spawn-sh", on and "makoctl mode -a dnd" or "makoctl mode -r dnd")
+end)
+neori.bind("Mod+Alt+P", function()
+    presenting = not presenting
+    neori.emit("presentation", presenting)
+end)
+
+-- Connect, then disconnect after the first time. (Declare the local first: it isn't
+-- in scope inside its own initializer.)
+local first_open
+first_open = neori.connect("window-opened", function(w)
+    print("first window:", w:app_id())
+    neori.disconnect("window-opened", first_open)
+end)
+```
+
+`emit` runs every connected function even if one fails, then raises the first error to its
+caller.
+
+### Listing signals
+
+`neori.signals()` returns an array describing every built-in signal, in the order of the table
+above, followed by every custom signal that has handlers, sorted by name. Each entry is a table:
+
+| field             | meaning                                                                  |
+|---                |---                                                                       |
+| `name`            | the signal's name                                                        |
+| `builtin`         | `true` for signals the compositor emits, `false` for custom ones         |
+| `handlers`        | how many functions are connected to it                                   |
+| `description`     | what happened (built-in signals only)                                    |
+| `args`            | what the functions receive (built-in signals only)                       |
+| `object_signal`   | the short name it has on objects, like `closed` (built-in signals that reach objects) |
+| `object_handlers` | how many functions are connected to `object_signal`, across all objects  |
+
+`obj:signals()` lists the signals of one `Window`, `Workspace` or `Output` the same way: its
+built-in signals by their short names, then its custom signals, with `handlers` counting that
+object's functions only.
+
+```lua
+-- Print every signal that something listens to, to the Lua log.
+neori.bind("Mod+Alt+L", function()
+    for _, s in ipairs(neori.signals()) do
+        local objects = s.object_handlers or 0
+        if s.handlers > 0 or objects > 0 then
+            print(string.format("%-18s %d global, %d on objects", s.name, s.handlers, objects))
+        end
+    end
+end)
+```
+
+### Object signals
+
+`Window`, `Workspace` and `Output` values have the same three methods, for signals attached to
+that one object: `obj:connect(name, fn)`, `obj:disconnect(name[, fn])` and `obj:emit(name, ...)`.
+Their functions receive the object first, then the arguments passed to `emit`.
+
+The built-in events also reach the object they're about, under a short name:
+
+| object      | signals                                                                     |
+|---          |---                                                                          |
+| `Window`    | `focused`, `closed` (from `window-focused`, `window-closed`)                |
+| `Workspace` | `focused`, `removed` (from `workspace-focused`, `workspace-removed`)        |
+| `Output`    | `focused` (from `output-focused`); `added`, `removed` (from `monitor-added`, `monitor-removed`, called with the connector name and the `Output`, like the global event) |
+
+```lua
+-- Get a notification when this particular window closes.
+neori.bind("Mod+Alt+W", function()
+    local w = neori.focused_window()
+    if w then
+        w:connect("closed", function(win)
+            neori.action("spawn-sh", string.format("notify-send 'closed' %q", win:title() or "?"))
+        end)
+    end
+end)
+```
+
+A window's functions are disconnected when it closes, and a workspace's when it's removed.
+Output functions are keyed by connector name, so they keep working when the monitor is
+unplugged and plugged back in. Inside `window-opening` the window doesn't exist yet, so
+`w:connect` raises an error there; connect from `window-opened` instead.
 
 ## Other `neori.*` entry points
 

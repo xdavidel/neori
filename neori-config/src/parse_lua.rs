@@ -19,6 +19,10 @@ use crate::input::*;
 use crate::layout::*;
 use crate::misc::*;
 use crate::output::*;
+use crate::signals::{
+    builtin_object_signals, builtin_signal, builtin_signal_names, ends_target, object_signal,
+    BuiltinSignal, SharedSignals, SignalTarget, BUILTIN_SIGNALS,
+};
 use crate::utils::{Flag, Percent, RegexEq};
 use crate::window_rule::*;
 use crate::workspace::*;
@@ -38,9 +42,6 @@ pub struct ParseLuaError {
     pub message: String,
     pub includes: Vec<PathBuf>,
 }
-
-/// The registry of Lua function callbacks registered via `neori.on(event, function)`.
-type EventRegistry = Arc<Mutex<HashMap<String, Vec<mlua::Function>>>>;
 
 /// A sink that captures Lua `print(...)` output. The compositor installs one
 /// at startup pointing at a log file; tests can install an in-memory buffer.
@@ -241,6 +242,10 @@ impl LuaOutput {
 
 impl mlua::UserData for LuaOutput {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        add_signal_methods(methods, |this: &Self| {
+            Ok(SignalTarget::Output(this.0.name.clone()))
+        });
+
         // Read-only accessors.
         methods.add_method("name", |_, this, ()| Ok(this.0.name.clone()));
         methods.add_method("make", |_, this, ()| Ok(this.current().make));
@@ -487,6 +492,10 @@ impl LuaWorkspace {
 
 impl mlua::UserData for LuaWorkspace {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        add_signal_methods(methods, |this: &Self| {
+            Ok(SignalTarget::Workspace(this.0.id))
+        });
+
         // Read-only accessors.
         methods.add_method("idx", |_, this, ()| Ok(this.current().idx));
         methods.add_method("id", |_, this, ()| Ok(this.0.id));
@@ -686,6 +695,14 @@ impl Window {
 
 impl mlua::UserData for Window {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        add_signal_methods(methods, |this: &Self| match this.0.id {
+            // Inside window-opening the window isn't mapped yet and has no id.
+            0 => Err(LuaError::runtime(
+                "this window has no id yet: connect to it from window-opened instead",
+            )),
+            id => Ok(SignalTarget::Window(id)),
+        });
+
         // Read-only accessors.
         methods.add_method("id", |_, this, ()| Ok(this.0.id));
         methods.add_method("app_id", |_, this, ()| Ok(this.current().app_id));
@@ -852,6 +869,146 @@ impl mlua::UserData for Window {
 /// userdata on a Lua state that isn't owned by a [`ScriptHost`], which we don't do
 /// outside of unit tests. In that case the mutation silently drops rather than
 /// erroring from Lua.
+/// The canonical name of a global signal: built-in names accept `_` in place of `-`, and any
+/// other name is a custom signal.
+fn global_signal_name(name: &str) -> &str {
+    builtin_signal(name).unwrap_or(name)
+}
+
+fn with_signals<R>(lua: &Lua, f: impl FnOnce(&mut crate::signals::Signals) -> R) -> Option<R> {
+    let signals = lua.app_data_ref::<SharedSignals>()?;
+    let mut signals = signals.lock().unwrap();
+    Some(f(&mut signals))
+}
+
+/// Calls every handler of the signal `name` with `args`.
+///
+/// Every handler runs even if an earlier one fails; the first error is then raised to the
+/// caller of `emit`.
+fn emit_signal(
+    lua: &Lua,
+    target: Option<&SignalTarget>,
+    name: &str,
+    args: mlua::MultiValue,
+) -> LuaResult<()> {
+    // Clone the handlers first: they may connect or disconnect while running.
+    let handlers = with_signals(lua, |s| s.handlers(target, name)).unwrap_or_default();
+    let mut first_error = None;
+    for f in handlers {
+        if let Err(e) = f.call::<()>(args.clone()) {
+            first_error.get_or_insert(e);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+/// The custom signals in `counts`, those for which `is_builtin` is false, sorted by name.
+fn custom_counts(
+    counts: HashMap<&str, usize>,
+    is_builtin: impl Fn(&str) -> bool,
+) -> Vec<(String, usize)> {
+    let mut custom: Vec<_> = counts
+        .into_iter()
+        .filter(|(name, _)| !is_builtin(name))
+        .map(|(name, n)| (name.to_owned(), n))
+        .collect();
+    custom.sort();
+    custom
+}
+
+/// Builds the array returned by `neori.signals()` and `obj:signals()`.
+///
+/// Built-in signals come first, in their usual order, with `builtin = true`, a `description`, the
+/// `args` their handlers get and the number of `handlers`. For `neori.signals()`, built-in signals
+/// that also reach objects have `object_signal` (the short name) and `object_handlers` (connected
+/// across all objects). Custom signals with handlers follow, sorted by name, with
+/// `builtin = false`.
+fn signal_list(
+    lua: &Lua,
+    builtins: Vec<(&str, &BuiltinSignal, usize, Option<usize>)>,
+    custom: Vec<(String, usize)>,
+) -> LuaResult<LuaTable> {
+    let list = lua.create_table()?;
+    for (name, builtin, handlers, object_handlers) in builtins {
+        let row = lua.create_table()?;
+        row.set("name", name)?;
+        row.set("builtin", true)?;
+        row.set("description", builtin.description)?;
+        row.set("args", builtin.args)?;
+        row.set("handlers", handlers)?;
+        if let Some(object_handlers) = object_handlers {
+            row.set("object_signal", object_signal(builtin.name))?;
+            row.set("object_handlers", object_handlers)?;
+        }
+        list.push(row)?;
+    }
+    for (name, handlers) in custom {
+        let row = lua.create_table()?;
+        row.set("name", name)?;
+        row.set("builtin", false)?;
+        row.set("handlers", handlers)?;
+        list.push(row)?;
+    }
+    Ok(list)
+}
+
+/// Adds `connect`, `disconnect`, `emit` and `signals` to a userdata type whose objects can carry
+/// signals.
+fn add_signal_methods<T, M>(methods: &mut M, target: fn(&T) -> LuaResult<SignalTarget>)
+where
+    T: mlua::UserData + 'static,
+    M: mlua::UserDataMethods<T>,
+{
+    // obj:connect(name, fn) -> fn
+    methods.add_method(
+        "connect",
+        move |lua, this, (name, fun): (String, mlua::Function)| {
+            let target = target(this)?;
+            with_signals(lua, |s| s.connect(Some(target), &name, fun.clone()));
+            Ok(fun)
+        },
+    );
+    // obj:disconnect(name[, fn]) -> whether anything was disconnected
+    methods.add_method(
+        "disconnect",
+        move |lua, this, (name, fun): (String, Option<mlua::Function>)| {
+            let target = target(this)?;
+            Ok(
+                with_signals(lua, |s| s.disconnect(Some(&target), &name, fun.as_ref()))
+                    .unwrap_or(false),
+            )
+        },
+    );
+    // obj:signals() lists the signals of this object: see `signal_list`.
+    methods.add_method("signals", move |lua, this, ()| {
+        let target = target(this)?;
+        let (builtins, custom) = with_signals(lua, |s| {
+            let counts: HashMap<&str, usize> = s.object_counts(&target).collect();
+            let builtins: Vec<_> = builtin_object_signals(target.kind())
+                .map(|b| {
+                    let name = object_signal(b.name);
+                    (name, b, counts.get(name).copied().unwrap_or(0), None)
+                })
+                .collect();
+            let custom = custom_counts(counts, |name| {
+                builtin_object_signals(target.kind()).any(|b| object_signal(b.name) == name)
+            });
+            (builtins, custom)
+        })
+        .unwrap_or_default();
+        signal_list(lua, builtins, custom)
+    });
+    // obj:emit(name, ...) calls the handlers with (obj, ...).
+    methods.add_function(
+        "emit",
+        move |lua, (this, name, mut args): (mlua::AnyUserData, String, mlua::MultiValue)| {
+            let target = target(&*this.borrow::<T>()?)?;
+            args.push_front(Value::UserData(this));
+            emit_signal(lua, Some(&target), &name, args)
+        },
+    );
+}
+
 fn enqueue_action(lua: &Lua, action: Action) {
     if let Some(pending) = lua.app_data_ref::<PendingActions>() {
         pending.lock().unwrap().push(action);
@@ -912,7 +1069,8 @@ fn workspace_reference_from_lua(
 /// runtime.
 pub struct ScriptHost {
     lua: Lua,
-    event_functions: EventRegistry,
+    /// Lua functions connected to signals, with `neori.connect`, `neori.on` or `obj:connect`.
+    signals: SharedSignals,
     bind_functions: BindFnRegistry,
     /// Monotonic id counter for [`Action::ScriptFunction`] references.
     next_bind_fn_id: Arc<AtomicU64>,
@@ -941,7 +1099,7 @@ pub struct ScriptHost {
 impl ScriptHost {
     pub fn new() -> Result<Self, String> {
         let lua = Lua::new();
-        let event_functions = Arc::new(Mutex::new(HashMap::new()));
+        let signals: SharedSignals = Arc::default();
         let bind_functions = Arc::new(Mutex::new(HashMap::new()));
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
@@ -955,6 +1113,7 @@ impl ScriptHost {
         // methods (`w:close()`, `out:set_scale(…)`, …) can reach
         // them via `lua.app_data_ref` without taking a reference to Self.
         lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
+        lua.set_app_data::<SharedSignals>(Arc::clone(&signals));
         lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
         lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
@@ -998,7 +1157,7 @@ impl ScriptHost {
 
         Ok(Self {
             lua,
-            event_functions,
+            signals,
             bind_functions,
             next_bind_fn_id,
             pending_actions,
@@ -1068,7 +1227,7 @@ impl ScriptHost {
             let includes = includes.lock().unwrap().clone();
             ParseLuaError { message, includes }
         };
-        self.event_functions.lock().unwrap().clear();
+        self.signals.lock().unwrap().clear();
         self.bind_functions.lock().unwrap().clear();
         self.pending_actions.lock().unwrap().clear();
         self.pending_output_ops.lock().unwrap().clear();
@@ -1113,7 +1272,7 @@ impl ScriptHost {
 
         let api_data = setup_neori_api(
             &self.lua,
-            &self.event_functions,
+            &self.signals,
             &self.bind_functions,
             &self.next_bind_fn_id,
             &self.pending_actions,
@@ -1166,27 +1325,47 @@ impl ScriptHost {
     where
         A: IntoLuaMulti + Clone,
     {
-        match self.event_call(event) {
+        match self.event_call(event, None) {
             Some(call) => call.run(args),
             None => Ok(Vec::new()),
         }
     }
 
-    /// Prepares a call to every handler registered for `event`, or returns `None` if there are
-    /// none.
+    /// Prepares a call to every handler of the built-in signal `event`, or returns `None` if
+    /// there are none.
+    ///
+    /// `target` is the object the event is about. Its own handlers for the event's short name
+    /// (`closed` for `window-closed`) run after the global ones. When the event means the object
+    /// is gone (`window-closed`, `workspace-removed`), its handlers are disconnected.
     ///
     /// The returned [`LuaCall`] doesn't borrow the host, so the compositor can run it inside
     /// [`with_script_context`](crate::context::with_script_context) with itself as the context.
-    pub fn event_call(&self, event: &str) -> Option<LuaCall> {
+    pub fn event_call(&self, event: &str, target: Option<&SignalTarget>) -> Option<LuaCall> {
         let funs = {
-            let registry = self.event_functions.lock().unwrap();
-            registry.get(event).filter(|fs| !fs.is_empty())?.clone()
+            let mut signals = self.signals.lock().unwrap();
+            let mut funs = signals.handlers(None, event);
+            if let Some(target) = target.filter(|_| signals.has_objects()) {
+                funs.extend(signals.handlers(Some(target), object_signal(event)));
+                if ends_target(event) {
+                    signals.remove_target(target);
+                }
+            }
+            funs
         };
+        if funs.is_empty() {
+            return None;
+        }
         Some(LuaCall {
             label: event.to_owned(),
             funs,
             pending_actions: Arc::clone(&self.pending_actions),
         })
+    }
+
+    /// Whether any handlers are connected to object signals (`obj:connect`). Lets tests check
+    /// that handlers of closed windows and removed workspaces are cleaned up.
+    pub fn has_object_signals(&self) -> bool {
+        self.signals.lock().unwrap().has_objects()
     }
 
     /// Prepares a call to the Lua function bound with id `id`.
@@ -1471,7 +1650,7 @@ fn glob_to_regex(pattern: &str) -> Result<regex::Regex, String> {
 #[allow(clippy::too_many_arguments)]
 fn setup_neori_api(
     lua: &Lua,
-    event_functions: &EventRegistry,
+    signals: &SharedSignals,
     bind_functions: &BindFnRegistry,
     next_bind_fn_id: &Arc<AtomicU64>,
     pending_actions: &PendingActions,
@@ -1980,44 +2159,21 @@ fn setup_neori_api(
     // fires.
     {
         let data = data.clone();
-        let event_functions = Arc::clone(event_functions);
+        let signals = Arc::clone(signals);
         let func = lua
             .create_function(move |lua, (event, handler): (String, Value)| {
-                let event = match event.as_str() {
-                    "startup" => "startup",
-                    "monitor-added" | "monitor_added" => "monitor-added",
-                    "monitor-removed" | "monitor_removed" => "monitor-removed",
-                    "lid-open" | "lid_open" => "lid-open",
-                    "lid-closed" | "lid_closed" => "lid-closed",
-                    "tablet-mode-on" | "tablet_mode_on" => "tablet-mode-on",
-                    "tablet-mode-off" | "tablet_mode_off" => "tablet-mode-off",
-                    "window-opening" | "window_opening" => "window-opening",
-                    "window-opened" | "window_opened" => "window-opened",
-                    "window-closed" | "window_closed" => "window-closed",
-                    "window-focused" | "window_focused" => "window-focused",
-                    "workspace-focused" | "workspace_focused" => "workspace-focused",
-                    "workspace-added" | "workspace_added" => "workspace-added",
-                    "workspace-removed" | "workspace_removed" => "workspace-removed",
-                    "output-focused" | "output_focused" => "output-focused",
-                    "layout-changed" | "layout_changed" => "layout-changed",
-                    _ => {
-                        return Err(LuaError::runtime(format!(
-                            "unknown event '{event}' (supported events: startup, monitor-added, \
-                             monitor-removed, lid-open, lid-closed, tablet-mode-on, \
-                             tablet-mode-off, window-opening, window-opened, window-closed, \
-                             window-focused, workspace-focused, workspace-added, \
-                             workspace-removed, output-focused, layout-changed)"
-                        )));
-                    }
+                // Unlike neori.connect, neori.on only takes built-in events, so that a typo is an
+                // error rather than a custom signal nobody emits.
+                let Some(event) = builtin_signal(&event) else {
+                    return Err(LuaError::runtime(format!(
+                        "unknown event '{event}' (supported events: {}; use neori.connect for \
+                         custom signals)",
+                        builtin_signal_names()
+                    )));
                 };
                 match handler {
                     Value::Function(f) => {
-                        event_functions
-                            .lock()
-                            .unwrap()
-                            .entry(event.to_string())
-                            .or_default()
-                            .push(f);
+                        signals.lock().unwrap().connect(None, event, f);
                         Ok(())
                     }
                     Value::String(_) | Value::Table(_) => {
@@ -2040,6 +2196,77 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set("on", func).map_err(err)?;
+    }
+
+    // neori.connect(name, fn) connects a function to a global signal and returns it, so an inline
+    // function can be disconnected later. Built-in names are the neori.on events; any other name
+    // is a custom signal, emitted with neori.emit.
+    {
+        let signals = Arc::clone(signals);
+        let func = lua
+            .create_function(move |_, (name, fun): (String, mlua::Function)| {
+                signals
+                    .lock()
+                    .unwrap()
+                    .connect(None, global_signal_name(&name), fun.clone());
+                Ok(fun)
+            })
+            .map_err(err)?;
+        neori.set("connect", func).map_err(err)?;
+    }
+
+    // neori.disconnect(name[, fn]) disconnects one function, or every function of the signal.
+    // Returns whether anything was disconnected.
+    {
+        let signals = Arc::clone(signals);
+        let func = lua
+            .create_function(move |_, (name, fun): (String, Option<mlua::Function>)| {
+                Ok(signals.lock().unwrap().disconnect(
+                    None,
+                    global_signal_name(&name),
+                    fun.as_ref(),
+                ))
+            })
+            .map_err(err)?;
+        neori.set("disconnect", func).map_err(err)?;
+    }
+
+    // neori.signals() lists every built-in signal and every custom signal with handlers, with
+    // how many handlers each one has: see `signal_list`.
+    {
+        let signals = Arc::clone(signals);
+        let func = lua
+            .create_function(move |lua, ()| {
+                let (builtins, custom) = {
+                    let s = signals.lock().unwrap();
+                    let counts: HashMap<&str, usize> = s.global_counts().collect();
+                    let builtins: Vec<_> = BUILTIN_SIGNALS
+                        .iter()
+                        .map(|b| {
+                            let handlers = counts.get(b.name).copied().unwrap_or(0);
+                            let objects = b
+                                .object
+                                .map(|kind| s.object_total(kind, object_signal(b.name)));
+                            (b.name, b, handlers, objects)
+                        })
+                        .collect();
+                    let custom = custom_counts(counts, |name| builtin_signal(name).is_some());
+                    (builtins, custom)
+                };
+                signal_list(lua, builtins, custom)
+            })
+            .map_err(err)?;
+        neori.set("signals", func).map_err(err)?;
+    }
+
+    // neori.emit(name, ...) calls every function connected to the global signal with `...`.
+    {
+        let func = lua
+            .create_function(|lua, (name, args): (String, mlua::MultiValue)| {
+                emit_signal(lua, None, global_signal_name(&name), args)
+            })
+            .map_err(err)?;
+        neori.set("emit", func).map_err(err)?;
     }
 
     lua.globals().set("neori", neori).map_err(err)?;

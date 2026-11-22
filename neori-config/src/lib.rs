@@ -38,6 +38,7 @@ pub mod output;
 pub mod parse_lua;
 pub mod recent_windows;
 pub mod scratchpad;
+pub mod signals;
 pub mod utils;
 pub mod window_rule;
 pub mod workspace;
@@ -65,6 +66,7 @@ pub use crate::parse_lua::{
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
+pub use crate::signals::SignalTarget;
 pub use crate::utils::FloatOrInt;
 pub use crate::window_rule::{
     FloatingPosition, OnXdgActivate, PopupsRule, RelativeTo, ResolvedPopupsRules, WindowRule,
@@ -1947,6 +1949,404 @@ mod tests {
         for key in ["focused_output", "focused_workspace", "pointer", "layout"] {
             assert!(results.get::<bool>(key).unwrap(), "{key}");
         }
+    }
+
+    fn int_global(host: &ScriptHost, name: &str) -> i64 {
+        match host.read_global(name).unwrap() {
+            mlua::Value::Integer(n) => n,
+            other => panic!("{name} is {other:?}"),
+        }
+    }
+
+    #[test]
+    fn custom_global_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            total = 0
+            local add = neori.connect("my-signal", function(n) total = total + n end)
+            neori.connect("my-signal", function(n) total = total + 10 * n end)
+            neori.emit("my-signal", 1)
+            after_emit = total
+
+            -- connect returns the function, so it can be disconnected.
+            removed_one = neori.disconnect("my-signal", add)
+            removed_again = neori.disconnect("my-signal", add)
+            neori.emit("my-signal", 1)
+            after_disconnect = total
+
+            removed_all = neori.disconnect("my-signal")
+            neori.emit("my-signal", 1)
+            after_disconnect_all = total
+            "#,
+        )
+        .config
+        .unwrap();
+        assert_eq!(int_global(&host, "after_emit"), 11);
+        assert_eq!(int_global(&host, "after_disconnect"), 21);
+        assert_eq!(int_global(&host, "after_disconnect_all"), 21);
+        let bool_global = |name| match host.read_global(name).unwrap() {
+            mlua::Value::Boolean(b) => b,
+            other => panic!("{name} is {other:?}"),
+        };
+        assert!(bool_global("removed_one"));
+        assert!(!bool_global("removed_again"));
+        assert!(bool_global("removed_all"));
+    }
+
+    #[test]
+    fn one_shot_handler_disconnects_itself() {
+        // The pattern from the wiki: a handler that disconnects itself, leaving the others.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            once, always = 0, 0
+            local first_open
+            first_open = neori.connect("window-opened", function(w)
+                once = once + 1
+                neori.disconnect("window-opened", first_open)
+            end)
+            neori.on("window-opened", function(w) always = always + 1 end)
+            "#,
+        )
+        .config
+        .unwrap();
+        for _ in 0..3 {
+            host.call_event_with("window-opened", Window(WindowSnapshot::default()))
+                .unwrap();
+        }
+        assert_eq!(int_global(&host, "once"), 1);
+        assert_eq!(int_global(&host, "always"), 3);
+    }
+
+    /// Renders `neori.signals()` / `obj:signals()` rows as "name:handlers" strings, with
+    /// "+objects" for global built-ins that also reach objects, and "*" for custom signals.
+    fn signal_rows(host: &ScriptHost, global: &str) -> Vec<String> {
+        let mlua::Value::Table(list) = host.read_global(global).unwrap() else {
+            panic!("{global} is not a table");
+        };
+        list.sequence_values::<mlua::Table>()
+            .map(|row| {
+                let row = row.unwrap();
+                let name: String = row.get("name").unwrap();
+                let handlers: i64 = row.get("handlers").unwrap();
+                let builtin: bool = row.get("builtin").unwrap();
+                if builtin {
+                    let description: String = row.get("description").unwrap();
+                    let args: String = row.get("args").unwrap();
+                    assert!(!description.is_empty() && !args.is_empty(), "{name}");
+                }
+                let mut s = format!("{name}:{handlers}");
+                if let Some(n) = row.get::<Option<i64>>("object_handlers").unwrap() {
+                    let short: String = row.get("object_signal").unwrap();
+                    s += &format!("+{short}:{n}");
+                }
+                if !builtin {
+                    s += "*";
+                }
+                s
+            })
+            .collect()
+    }
+
+    #[test]
+    fn neori_signals_lists_builtins_and_connected_custom_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("window-closed", function() end)
+            neori.connect("window_closed", function() end)
+            neori.connect("zeta", function() end)
+            neori.connect("alpha", function() end)
+            neori.connect("alpha", function() end)
+            neori.bind("Mod+Alt+T", function()
+                neori.focused_window():connect("closed", function() end)
+                neori.focused_window():connect("poke", function() end)
+                list = neori.signals()
+                window_list = neori.focused_window():signals()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext::new(
+            vec![WindowSnapshot {
+                id: 4,
+                ..Default::default()
+            }],
+            Some(4),
+        );
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+
+        let rows = signal_rows(&host, "list");
+        // Every built-in signal is listed, in order, even without handlers.
+        let builtin_names: Vec<_> = crate::signals::BUILTIN_SIGNALS
+            .iter()
+            .map(|s| s.name)
+            .collect();
+        let listed: Vec<_> = rows
+            .iter()
+            .take(builtin_names.len())
+            .map(|r| r.split(':').next().unwrap())
+            .collect();
+        assert_eq!(listed, builtin_names);
+        assert!(
+            rows.contains(&"window-closed:2+closed:1".to_string()),
+            "{rows:?}"
+        );
+        assert!(rows.contains(&"window-opened:0".to_string()), "{rows:?}");
+        assert!(
+            rows.contains(&"workspace-focused:0+focused:0".to_string()),
+            "{rows:?}"
+        );
+        // Custom signals with handlers come last, sorted. The window's "poke" isn't global.
+        assert_eq!(rows[builtin_names.len()..], ["alpha:2*", "zeta:1*"]);
+
+        // The window's own list: its built-in signals, then its custom ones.
+        assert_eq!(
+            signal_rows(&host, "window_list"),
+            ["closed:1", "focused:0", "poke:1*"]
+        );
+    }
+
+    #[test]
+    fn object_signal_lists_per_kind() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                ws_list = neori.focused_workspace():signals()
+                out_list = neori.focused_output():signals()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext {
+            outputs: vec![OutputSnapshot {
+                name: "DP-1".into(),
+                ..Default::default()
+            }],
+            focused_output: Some("DP-1".into()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: 3,
+                ..Default::default()
+            }],
+            focused_workspace: Some(3),
+            ..Default::default()
+        };
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(signal_rows(&host, "ws_list"), ["focused:0", "removed:0"]);
+        assert_eq!(
+            signal_rows(&host, "out_list"),
+            ["added:0", "removed:0", "focused:0"]
+        );
+    }
+
+    #[test]
+    fn on_and_connect_share_builtin_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            calls = 0
+            neori.on("layout_changed", function(name) calls = calls + 1 end)
+            neori.connect("layout-changed", function(name) calls = calls + 1 end)
+            "#,
+        )
+        .config
+        .unwrap();
+        host.call_event_with("layout-changed", "us".to_string())
+            .unwrap();
+        assert_eq!(int_global(&host, "calls"), 2);
+    }
+
+    #[test]
+    fn on_still_rejects_unknown_events() {
+        let err = Config::parse_mem(r#"neori.on("window-cloesd", function() end)"#).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("unknown event 'window-cloesd'"), "{msg}");
+        assert!(msg.contains("neori.connect"), "{msg}");
+    }
+
+    #[test]
+    fn emit_runs_every_handler_and_raises_the_first_error() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            ran = 0
+            neori.connect("x", function() ran = ran + 1; error("first") end)
+            neori.connect("x", function() ran = ran + 1; error("second") end)
+            neori.connect("x", function() ran = ran + 1 end)
+            ok, err = pcall(neori.emit, "x")
+            err = tostring(err)
+            "#,
+        )
+        .config
+        .unwrap();
+        assert_eq!(int_global(&host, "ran"), 3);
+        assert!(matches!(
+            host.read_global("ok").unwrap(),
+            mlua::Value::Boolean(false)
+        ));
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        let err = err.to_str().unwrap().to_string();
+        assert!(err.contains("first") && !err.contains("second"), "{err}");
+    }
+
+    #[test]
+    fn handlers_may_connect_while_a_signal_runs() {
+        // The registry must not be locked while handlers run.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            late = 0
+            neori.connect("x", function()
+                neori.connect("x", function() late = late + 1 end)
+                neori.disconnect("y")
+            end)
+            neori.emit("x")
+            neori.emit("x")
+            "#,
+        )
+        .config
+        .unwrap();
+        // The handler added by the first emit runs on the second one only.
+        assert_eq!(int_global(&host, "late"), 1);
+    }
+
+    #[test]
+    fn window_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            closed = 0
+            custom = 0
+            neori.bind("Mod+Alt+T", function()
+                local w = neori.focused_window()
+                w:connect("closed", function(win) closed = closed + win:id() end)
+                w:connect("poke", function(win, n) custom = custom + win:id() * n end)
+                w:emit("poke", 2)
+                -- Another window doesn't see this window's signals.
+                neori.windows()[2]:emit("poke", 100)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let windows = vec![
+            WindowSnapshot {
+                id: 7,
+                ..Default::default()
+            },
+            WindowSnapshot {
+                id: 8,
+                ..Default::default()
+            },
+        ];
+        let mut ctx = FakeContext::new(windows, Some(7));
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(int_global(&host, "custom"), 14);
+
+        // A built-in event about the window reaches its own handlers, then drops them.
+        let target = SignalTarget::Window(7);
+        let window = Window(WindowSnapshot {
+            id: 7,
+            ..Default::default()
+        });
+        let call = host.event_call("window-closed", Some(&target)).unwrap();
+        call.run(window).unwrap();
+        assert_eq!(int_global(&host, "closed"), 7);
+        assert!(host.event_call("window-closed", Some(&target)).is_none());
+
+        // Events about other windows don't reach it.
+        assert!(host
+            .event_call("window-closed", Some(&SignalTarget::Window(8)))
+            .is_none());
+    }
+
+    #[test]
+    fn workspace_and_output_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            ws_focused = 0
+            out_removed = 0
+            neori.bind("Mod+Alt+T", function()
+                neori.focused_workspace():connect("focused", function(ws)
+                    ws_focused = ws_focused + 1
+                end)
+                neori.focused_output():connect("removed", function(connector, out)
+                    out_removed = out_removed + 1
+                end)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext {
+            outputs: vec![OutputSnapshot {
+                name: "DP-1".into(),
+                ..Default::default()
+            }],
+            focused_output: Some("DP-1".into()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: 3,
+                ..Default::default()
+            }],
+            focused_workspace: Some(3),
+            ..Default::default()
+        };
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+
+        let ws = SignalTarget::Workspace(3);
+        let ws_value = LuaWorkspace(WorkspaceSnapshot {
+            id: 3,
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            let call = host.event_call("workspace-focused", Some(&ws)).unwrap();
+            call.run(ws_value.clone()).unwrap();
+        }
+        assert_eq!(int_global(&host, "ws_focused"), 2);
+
+        // Output handlers are kept across monitor-removed: the connector can come back.
+        let out = SignalTarget::Output("DP-1".into());
+        let out_value = LuaOutput(OutputSnapshot {
+            name: "DP-1".into(),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            let call = host.event_call("monitor-removed", Some(&out)).unwrap();
+            call.run(("DP-1".to_string(), out_value.clone())).unwrap();
+        }
+        assert_eq!(int_global(&host, "out_removed"), 2);
+    }
+
+    #[test]
+    fn window_without_id_cannot_connect() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.on("window-opening", function(w)
+                ok, err = pcall(function() w:connect("closed", function() end) end)
+                err = tostring(err)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        host.call_event_with("window-opening", Window(WindowSnapshot::default()))
+            .unwrap();
+        assert!(matches!(
+            host.read_global("ok").unwrap(),
+            mlua::Value::Boolean(false)
+        ));
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(err.to_str().unwrap().contains("window-opened"));
     }
 
     #[test]

@@ -1804,7 +1804,7 @@ impl State {
             self.do_action(action, false, InputTime::now());
         }
 
-        if let Some(call) = self.scripting.event_call("startup") {
+        if let Some(call) = self.scripting.event_call("startup", None) {
             self.run_lua("startup", call, (), false, InputTime::now());
         }
     }
@@ -1829,7 +1829,8 @@ impl State {
 
         // Skip the snapshot build + call when no handler is registered. The declarative
         // config actions above still run.
-        let Some(call) = self.scripting.event_call(event) else {
+        let target = neori_config::SignalTarget::Output(connector.to_owned());
+        let Some(call) = self.scripting.event_call(event, Some(&target)) else {
             return;
         };
 
@@ -1875,7 +1876,7 @@ impl State {
         }
 
         // Like the declarative actions above, Lua handlers run even when the session is locked.
-        if let Some(call) = self.scripting.event_call(event) {
+        if let Some(call) = self.scripting.event_call(event, None) {
             self.run_lua(event, call, (), true, InputTime::now());
         }
     }

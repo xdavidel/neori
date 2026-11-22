@@ -8,7 +8,8 @@ use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
 use neori_config::{
     with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaWorkspace, OutputSnapshot,
-    PointerSnapshot, ScriptContext, Window as LuaWindow, WindowSnapshot, WorkspaceSnapshot,
+    PointerSnapshot, ScriptContext, SignalTarget, Window as LuaWindow, WindowSnapshot,
+    WorkspaceSnapshot,
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
@@ -257,13 +258,15 @@ impl State {
         }
     }
 
-    /// Runs the Lua handlers for `event`, if there are any.
+    /// Runs the Lua handlers for `event`, if there are any, including those connected to
+    /// `target`, the object the event is about.
     fn run_lua_event<A: IntoLuaMulti + Clone>(
         &mut self,
         event: &str,
+        target: Option<SignalTarget>,
         args: impl FnOnce(&mut Self) -> A,
     ) {
-        if let Some(call) = self.scripting.event_call(event) {
+        if let Some(call) = self.scripting.event_call(event, target.as_ref()) {
             let args = args(self);
             self.run_lua(event, call, args, false, InputTime::now());
         }
@@ -273,7 +276,8 @@ impl State {
     ///
     /// Costs nothing when no handler is registered.
     pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
-        self.run_lua_event(event, |_| LuaWindow(snapshot));
+        let target = SignalTarget::Window(snapshot.id);
+        self.run_lua_event(event, Some(target), |_| LuaWindow(snapshot));
     }
 
     /// Fire the `window-opening` event just before placement.
@@ -286,7 +290,8 @@ impl State {
         &mut self,
         snapshot: WindowSnapshot,
     ) -> neori_config::OpenOverrides {
-        let Some(call) = self.scripting.event_call("window-opening") else {
+        // The window has no id yet, so it can't have signal handlers of its own.
+        let Some(call) = self.scripting.event_call("window-opening", None) else {
             return neori_config::OpenOverrides::default();
         };
         self.scripting.begin_open_overrides();
@@ -301,14 +306,16 @@ impl State {
     /// Fire a workspace-lifecycle event (`workspace-focused`, `workspace-added`,
     /// `workspace-removed`) to Lua callbacks. Mirrors [`State::fire_window_event`].
     pub fn fire_workspace_event(&mut self, event: &str, snapshot: WorkspaceSnapshot) {
-        self.run_lua_event(event, |_| LuaWorkspace(snapshot));
+        let target = SignalTarget::Workspace(snapshot.id);
+        self.run_lua_event(event, Some(target), |_| LuaWorkspace(snapshot));
     }
 
     /// Fire the `output-focused` event with an `Output` userdata built from the
     /// output named `output_name`. Falls back to a minimal snapshot (just the name)
     /// if the output is no longer in global_space.
     pub fn fire_output_focused_event(&mut self, output_name: String) {
-        self.run_lua_event("output-focused", |state| {
+        let target = SignalTarget::Output(output_name.clone());
+        self.run_lua_event("output-focused", Some(target), |state| {
             let vrr = lookup_vrr(&state.backend, &output_name);
             let snapshot = state
                 .neori
@@ -328,7 +335,7 @@ impl State {
     /// name. Called from `ipc_refresh_keyboard_layout_index` right after the
     /// IPC-side diff detects the switch.
     pub fn fire_layout_changed_event(&mut self, name: String) {
-        self.run_lua_event("layout-changed", |_| name);
+        self.run_lua_event("layout-changed", None, |_| name);
     }
 }
 

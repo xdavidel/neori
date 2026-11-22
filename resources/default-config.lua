@@ -770,6 +770,46 @@ end
 --   end
 -- end)
 
+-- Signals: neori.on(event, fn) is shorthand for neori.connect(event, fn).
+-- neori.connect also takes names of your own, run with neori.emit(name, ...),
+-- and returns the function so neori.disconnect(name, fn) can remove it.
+-- Window, Workspace and Output values have connect/disconnect/emit too, for
+-- signals of that one object; built-in events reach them under a short name
+-- (window-closed -> w:connect("closed", fn)).
+
+-- Get a notification when the focused window closes.
+-- neori.bind("Mod+Alt+W", function()
+--   local w = neori.focused_window()
+--   if w then
+--     w:connect("closed", function(win)
+--       neori.action("spawn-sh", string.format("notify-send 'closed' %q", win:title() or "?"))
+--     end)
+--   end
+-- end)
+
+-- A custom signal, emitted from a bind.
+-- neori.connect("presentation", function(on)
+--   neori.action("spawn-sh", on and "makoctl mode -a dnd" or "makoctl mode -r dnd")
+-- end)
+-- local presenting = false
+-- neori.bind("Mod+Alt+D", function()
+--   presenting = not presenting
+--   neori.emit("presentation", presenting)
+-- end)
+
+-- List signals: neori.signals() describes every built-in signal (name,
+-- description, args, handlers) plus custom signals with handlers, and
+-- obj:signals() does the same for one Window, Workspace or Output. This prints
+-- the ones with listeners to the Lua log (see the print note further down).
+-- neori.bind("Mod+Alt+L", function()
+--   for _, s in ipairs(neori.signals()) do
+--     local objects = s.object_handlers or 0
+--     if s.handlers > 0 or objects > 0 then
+--       print(string.format("%-18s %d global, %d on objects", s.name, s.handlers, objects))
+--     end
+--   end
+-- end)
+
 -- Float Picture-in-Picture players automatically when they open.
 -- neori.on("window-opened", function(w)
 --   if (w:title() or ""):match("Picture%-in%-Picture") then

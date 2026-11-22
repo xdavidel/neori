@@ -2070,3 +2070,322 @@ fn stashed_output_sees_its_new_scale() {
     press_first_function_bind(&mut f);
     assert_eq!(read_scale(&f), 2.0);
 }
+
+/// Maps a new window with `title` and returns its surface.
+fn map_window(f: &mut Fixture, id: crate::tests::client::ClientId, title: &str) -> ClientWlSurface {
+    let window = f.client(id).create_window();
+    window.set_title(title);
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+    surface
+}
+
+#[test]
+fn window_signals_reach_only_their_window() {
+    // w:connect("focused") and w:connect("closed") fire for that window only, through the
+    // compositor's own window-focused / window-closed events.
+    let mut f = fixture_from_lua(
+        r#"
+        focused, closed = "", ""
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            w:connect("focused", function(win) focused = focused .. win:title() .. ";" end)
+            w:connect("closed", function(win) closed = closed .. win:title() .. ";" end)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let first = map_window(&mut f, id, "first");
+    let second = map_window(&mut f, id, "second");
+    f.state.server.dispatch();
+
+    // Connect to "second", which is focused.
+    press_first_function_bind(&mut f);
+
+    // Focusing "first" doesn't fire; focusing "second" again does.
+    f.neori_state()
+        .do_action(Action::FocusColumnLeft {}, false, InputTime::now());
+    f.state.server.dispatch();
+    f.neori_state()
+        .do_action(Action::FocusColumnRight {}, false, InputTime::now());
+    f.state.server.dispatch();
+    assert_eq!(read_global_string(&f, "focused"), "second;");
+
+    // Closing "first" doesn't reach second's handlers.
+    let window = f.client(id).window(&first);
+    window.attach_null();
+    window.commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+    assert_eq!(read_global_string(&f, "closed"), "");
+
+    // Closing "second" does, with the title it last had.
+    let window = f.client(id).window(&second);
+    window.attach_null();
+    window.commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+    assert_eq!(read_global_string(&f, "closed"), "second;");
+}
+
+fn read_global_int(f: &Fixture, name: &str) -> i64 {
+    match f.state.server.state.scripting.read_global(name).unwrap() {
+        neori_config::mlua::Value::Integer(n) => n,
+        other => panic!("{name} is {other:?}"),
+    }
+}
+
+/// Runs `action` and lets idle callbacks (like monitor-added) and the per-tick IPC refresh
+/// (workspace and output events) run.
+fn act(f: &mut Fixture, action: Action) {
+    f.neori_state().do_action(action, false, InputTime::now());
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+}
+
+fn unmap_window(f: &mut Fixture, id: crate::tests::client::ClientId, surface: &ClientWlSurface) {
+    let window = f.client(id).window(surface);
+    window.attach_null();
+    window.commit();
+    f.double_roundtrip(id);
+    f.state.server.dispatch();
+}
+
+#[test]
+fn connected_builtin_signal_fires_until_disconnected() {
+    // neori.connect to a built-in signal fires on the real event; a bind disconnects it.
+    let mut f = fixture_from_lua(
+        r#"
+        opened = 0
+        local on_open = neori.connect("window-opened", function(w) opened = opened + 1 end)
+        neori.bind("Mod+Alt+T", function() neori.disconnect("window-opened", on_open) end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+
+    map_window(&mut f, id, "one");
+    f.state.server.dispatch();
+    assert_eq!(read_global_int(&f, "opened"), 1);
+
+    press_first_function_bind(&mut f);
+    map_window(&mut f, id, "two");
+    f.state.server.dispatch();
+    assert_eq!(read_global_int(&f, "opened"), 1);
+}
+
+#[test]
+fn emit_from_a_bind_runs_handlers_and_their_actions() {
+    // A custom signal emitted from a bind runs its handler inside the bind's callback, so the
+    // handler's neori.action calls are dispatched too.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.connect("make-output", function(name)
+            neori.action("create-virtual-output", { name = name })
+        end)
+        neori.bind("Mod+Alt+T", function() neori.emit("make-output", "from-emit") end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+
+    press_first_function_bind(&mut f);
+    assert!(has_output(&mut f, "from-emit"));
+}
+
+#[test]
+fn output_signals_fire_on_hotplug_and_survive_replug() {
+    let mut f = fixture_from_lua(
+        r#"
+        added, removed = 0, 0
+        neori.bind("Mod+Alt+T", function()
+            for _, out in ipairs(neori.outputs()) do
+                if out:name() == "dock" then
+                    out:connect("added", function(name, o) added = added + 1 end)
+                    out:connect("removed", function(name, o)
+                        removed = removed + 1
+                        removed_name = name
+                    end)
+                end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let create = || Action::CreateVirtualOutput {
+        name: Some("dock".into()),
+        width: None,
+        height: None,
+        refresh_rate: None,
+    };
+    let remove = || Action::RemoveVirtualOutput {
+        name: "dock".into(),
+    };
+    act(&mut f, create());
+    assert!(has_output(&mut f, "dock"));
+    press_first_function_bind(&mut f);
+
+    act(&mut f, remove());
+    assert_eq!(read_global_int(&f, "removed"), 1);
+    assert_eq!(read_global_string(&f, "removed_name"), "dock");
+
+    // Plugged back in: the same handlers still fire.
+    act(&mut f, create());
+    assert_eq!(read_global_int(&f, "added"), 1);
+    act(&mut f, remove());
+    assert_eq!(read_global_int(&f, "removed"), 2);
+}
+
+#[test]
+fn output_focused_signal_fires_for_that_output_only() {
+    let mut f = fixture_from_lua(
+        r#"
+        focused = 0
+        neori.bind("Mod+Alt+T", function()
+            for _, out in ipairs(neori.outputs()) do
+                if out:name() == "headless-2" then
+                    out:connect("focused", function(o) focused = focused + 1 end)
+                end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1920, 1080));
+    f.neori_focus_output(1);
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    act(&mut f, Action::FocusMonitorNext {});
+    assert_eq!(
+        f.neori().layout.active_output().unwrap().name(),
+        "headless-2"
+    );
+    assert_eq!(read_global_int(&f, "focused"), 1);
+
+    // Focusing the other output doesn't fire it.
+    act(&mut f, Action::FocusMonitorNext {});
+    assert_eq!(read_global_int(&f, "focused"), 1);
+}
+
+#[test]
+fn workspace_signals_fire_for_that_workspace_only() {
+    let mut f = fixture_from_lua(
+        r#"
+        focused = 0
+        neori.bind("Mod+Alt+T", function()
+            neori.focused_workspace():connect("focused", function(ws) focused = focused + 1 end)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    // A window keeps workspace 1 around while we look at another one.
+    let id = f.add_client();
+    map_window(&mut f, id, "keeps-ws-1");
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    let focus = |idx| Action::FocusWorkspace {
+        reference: neori_ipc::WorkspaceReferenceArg::Index(idx),
+    };
+    act(&mut f, focus(2));
+    assert_eq!(read_global_int(&f, "focused"), 0);
+    act(&mut f, focus(1));
+    assert_eq!(read_global_int(&f, "focused"), 1);
+}
+
+#[test]
+fn workspace_removed_signal_fires_when_it_goes_away() {
+    let mut f = fixture_from_lua(
+        r#"
+        removed = 0
+        neori.bind("Mod+Alt+T", function()
+            neori.focused_workspace():connect("removed", function(ws) removed = removed + 1 end)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "keeps-ws-1");
+    f.state.server.dispatch();
+
+    let focus = |idx| Action::FocusWorkspace {
+        reference: neori_ipc::WorkspaceReferenceArg::Index(idx),
+    };
+    // Connect on an empty workspace, then leave it. Empty workspaces are cleaned up once the
+    // switch animation is done.
+    act(&mut f, focus(2));
+    press_first_function_bind(&mut f);
+    act(&mut f, focus(1));
+    f.neori_complete_animations();
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+    assert!(f.neori().layout.workspaces().count() == 1);
+    assert_eq!(read_global_int(&f, "removed"), 1);
+    // The removed workspace's handlers are gone.
+    assert!(!f.state.server.state.scripting.has_object_signals());
+}
+
+#[test]
+fn failing_object_handler_does_not_stop_the_others() {
+    let mut f = fixture_from_lua(
+        r#"
+        closed = 0
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            w:connect("closed", function() error("intentional") end)
+            w:connect("closed", function() closed = closed + 1 end)
+        end)
+        neori.on("window-closed", function() closed = closed + 10 end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let surface = map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    unmap_window(&mut f, id, &surface);
+    assert_eq!(read_global_int(&f, "closed"), 11);
+    // The closed window's handlers are gone.
+    assert!(!f.state.server.state.scripting.has_object_signals());
+}
+
+#[test]
+fn signal_list_tracks_handlers_through_real_events() {
+    // neori.signals() counts the handlers of every signal; a closed window's handlers drop out.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("window-closed", function() end)
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            if w then w:connect("closed", function() end) end
+            for _, s in ipairs(neori.signals()) do
+                if s.name == "window-closed" then
+                    summary = s.handlers .. "+" .. s.object_handlers
+                end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let surface = map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+
+    // One global handler, plus the one the bind just connected to the window.
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "summary"), "1+1");
+
+    // Once the window is closed, its handler is gone.
+    unmap_window(&mut f, id, &surface);
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "summary"), "1+0");
+}
