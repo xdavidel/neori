@@ -1,12 +1,15 @@
 //! Compositor-side glue for the Lua scripting runtime.
 //!
-//! Builds [`WindowSnapshot`]s and [`WindowCache`]s from live compositor state so the
-//! Lua `neori.windows()` / `neori.focused_window()` queries and window event callbacks
-//! see a consistent view of the world at each callback boundary.
+//! [`State`] implements [`ScriptContext`], so Lua reads compositor state live while a callback
+//! runs. Every callback goes through [`State::run_lua`], which installs that context and then
+//! dispatches whatever the callback queued.
 
+use neori_config::mlua::IntoLuaMulti;
+use neori_config::parse_lua::LuaCall;
 use neori_config::{
-    Config, DeviceOp, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot, PointerSnapshot,
-    Window as LuaWindow, WindowCache, WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    with_script_context, DeviceOp, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot,
+    PointerSnapshot, ScriptContext, Window as LuaWindow, WindowSnapshot, WorkspaceCache,
+    WorkspaceSnapshot,
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
@@ -60,13 +63,9 @@ pub fn snapshot_mapped(neori: &Neori, mapped: &Mapped) -> WindowSnapshot {
     )
 }
 
-/// Build the full window cache from the current compositor state.
-///
-/// Walks every mapped window, resolves its workspace (global 1-based index) and output
-/// name, and records which one is currently focused.
-pub fn build_window_cache(neori: &Neori) -> WindowCache {
-    let focused_mapped = neori.layout.focus().map(Mapped::id);
-
+/// Snapshots every mapped window, resolving its workspace (global 1-based index) and output
+/// name.
+pub fn window_snapshots(neori: &Neori) -> Vec<WindowSnapshot> {
     // Pre-build a reverse index window-id → (global workspace idx, workspace name)
     // in one pass over workspaces. The naive per-window version (which the
     // single-window `snapshot_mapped` still uses) walks every workspace per
@@ -86,8 +85,6 @@ pub fn build_window_cache(neori: &Neori) -> WindowCache {
     }
 
     let mut windows: Vec<WindowSnapshot> = Vec::new();
-    let mut focused_snapshot: Option<WindowSnapshot> = None;
-
     for (monitor, mapped) in neori.layout.windows() {
         let (ws_idx, ws_name, out_name) = match monitor {
             Some(mon) => {
@@ -101,17 +98,10 @@ pub fn build_window_cache(neori: &Neori) -> WindowCache {
             }
             None => (None, None, None),
         };
-        let snap = window_snapshot(mapped, ws_idx, ws_name, out_name);
-        if focused_mapped == Some(mapped.id()) {
-            focused_snapshot = Some(snap.clone());
-        }
-        windows.push(snap);
+        windows.push(window_snapshot(mapped, ws_idx, ws_name, out_name));
     }
 
-    WindowCache {
-        windows,
-        focused: focused_snapshot,
-    }
+    windows
 }
 
 /// Resolve the global 1-based workspace index and optional workspace name for the
@@ -133,36 +123,109 @@ fn global_workspace_info_for_window(
     None
 }
 
-impl State {
-    /// Fire a window-lifecycle event to Lua callbacks.
-    ///
-    /// Returns early via `has_event_handlers` when no handler is registered —
-    /// no cache refresh, no snapshot cost. Otherwise refreshes the Lua caches
-    /// (so `neori.windows()` / `neori.focused_window()` see current state),
-    /// passes `snapshot` as the single arg to every registered
-    /// `neori.on(event, function(w) … end)` handler, and drains any
-    /// `neori.action` queued by the callbacks.
-    ///
-    /// Errors from a Lua callback are warn!'d and flash the config-error notification;
-    /// they do not propagate.
-    pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
-        if !self.scripting.has_event_handlers(event) {
-            return;
-        }
-        self.refresh_script_caches();
-        let window = LuaWindow(snapshot);
-        let result = self.scripting.call_event_with(event, window);
-        self.scripting.clear_script_caches();
-        self.drain_and_dispatch(event, result);
+impl ScriptContext for State {
+    fn windows(&mut self) -> Vec<WindowSnapshot> {
+        window_snapshots(&self.neori)
     }
 
-    /// Refresh every Lua-facing cache (window, output, workspace, pointer,
-    /// device) from current compositor state. Fire helpers gate the call on
-    /// `has_event_handlers` first — no event handler listening means no cache
-    /// rebuild.
+    fn window(&mut self, id: u64) -> Option<WindowSnapshot> {
+        let (_, mapped) = self
+            .neori
+            .layout
+            .windows()
+            .find(|(_, m)| m.id().get() == id)?;
+        Some(snapshot_mapped(&self.neori, mapped))
+    }
+
+    fn focused_window(&mut self) -> Option<WindowSnapshot> {
+        let mapped = self.neori.layout.focus()?;
+        Some(snapshot_mapped(&self.neori, mapped))
+    }
+}
+
+impl State {
+    /// Runs a prepared Lua call with `self` as its [`ScriptContext`], then dispatches the
+    /// actions, output ops, cursor warps and device ops it queued.
+    ///
+    /// `label` names the callback in error messages. Errors are warn!'d and flash the
+    /// config-error notification; they do not propagate.
+    pub fn run_lua<A: IntoLuaMulti + Clone>(
+        &mut self,
+        label: &str,
+        call: LuaCall,
+        args: A,
+        allow_when_locked: bool,
+        time: InputTime,
+    ) {
+        let result = self.call_lua(call, args);
+        self.dispatch_lua_result(label, result, allow_when_locked, time);
+    }
+
+    /// Runs a prepared Lua call with `self` as its [`ScriptContext`], without dispatching
+    /// anything it queued. Pair with [`State::dispatch_lua_result`].
+    fn call_lua<A: IntoLuaMulti + Clone>(
+        &mut self,
+        call: LuaCall,
+        args: A,
+    ) -> Result<Vec<neori_config::Action>, String> {
+        self.refresh_script_caches();
+        let result = with_script_context(self, || call.run(args));
+        self.scripting.clear_script_caches();
+        result
+    }
+
+    /// Dispatches the result of [`State::call_lua`] and everything else the callback queued.
+    fn dispatch_lua_result(
+        &mut self,
+        label: &str,
+        result: Result<Vec<neori_config::Action>, String>,
+        allow_when_locked: bool,
+        time: InputTime,
+    ) {
+        match result {
+            Ok(actions) => {
+                for action in actions {
+                    self.do_action(action, allow_when_locked, time);
+                }
+            }
+            Err(err) => {
+                warn!("Lua {label} callback error: {err}");
+                self.neori.config_error_notification.show();
+            }
+        }
+        for (output, op) in self.scripting.drain_pending_output_ops() {
+            self.apply_transient_output_config(&output, op);
+        }
+        for (x, y) in self.scripting.drain_pending_warps() {
+            self.move_cursor(smithay::utils::Point::from((x, y)));
+        }
+        for (sysname, op) in self.scripting.drain_pending_device_ops() {
+            apply_device_op(&mut self.neori, &sysname, op);
+        }
+    }
+
+    /// Runs the Lua handlers for `event`, if there are any.
+    fn run_lua_event<A: IntoLuaMulti + Clone>(
+        &mut self,
+        event: &str,
+        args: impl FnOnce(&mut Self) -> A,
+    ) {
+        if let Some(call) = self.scripting.event_call(event) {
+            let args = args(self);
+            self.run_lua(event, call, args, false, InputTime::now());
+        }
+    }
+
+    /// Fire a window-lifecycle event to Lua callbacks.
+    ///
+    /// Costs nothing when no handler is registered.
+    pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
+        self.run_lua_event(event, |_| LuaWindow(snapshot));
+    }
+
+    /// Refresh the Lua-facing caches that aren't live yet (output, workspace, pointer,
+    /// device) from current compositor state.
     fn refresh_script_caches(&self) {
-        let window_cache = build_window_cache(&self.neori);
-        self.scripting.set_window_cache(window_cache);
         let ipc = self.backend.ipc_outputs();
         let ipc_outputs = ipc.lock().unwrap().clone();
         let output_cache = build_output_cache(&self.neori, &ipc_outputs);
@@ -178,44 +241,6 @@ impl State {
             .set_device_cache(build_device_cache(&self.neori));
     }
 
-    /// Dispatch actions returned from the Lua call plus any pending output ops the
-    /// callback enqueued via `Output` mutation methods, and any pending cursor
-    /// warps from `neori.warp(x, y)`. Surfaces Lua errors via the
-    /// config-error notification.
-    fn drain_and_dispatch(
-        &mut self,
-        event: &str,
-        result: Result<Vec<neori_config::Action>, String>,
-    ) {
-        match result {
-            Ok(actions) => {
-                for action in actions {
-                    self.do_action(action, false, InputTime::now());
-                }
-            }
-            Err(err) => {
-                warn!("Lua {event} callback error: {err}");
-                self.neori.config_error_notification.show();
-            }
-        }
-        for (output, op) in self.scripting.drain_pending_output_ops() {
-            self.apply_transient_output_config(&output, op);
-        }
-        for (x, y) in self.scripting.drain_pending_warps() {
-            self.move_cursor(smithay::utils::Point::from((x, y)));
-        }
-        for (sysname, op) in self.scripting.drain_pending_device_ops() {
-            apply_device_op(&mut self.neori, &sysname, op);
-        }
-    }
-
-    /// Prime the window + output caches with current compositor state so a Lua
-    /// function bind can observe `neori.windows()`, `neori.focused_window()`,
-    /// `neori.outputs()`, and `neori.focused_output()` at the moment of the key press.
-    pub fn prime_window_cache(&mut self) {
-        self.refresh_script_caches();
-    }
-
     /// Fire the `window-opening` event just before placement.
     ///
     /// Opens the open-overrides guard, invokes the Lua handler with a
@@ -226,102 +251,50 @@ impl State {
         &mut self,
         snapshot: WindowSnapshot,
     ) -> neori_config::OpenOverrides {
-        if !self.scripting.has_event_handlers("window-opening") {
+        let Some(call) = self.scripting.event_call("window-opening") else {
             return neori_config::OpenOverrides::default();
-        }
-        self.refresh_script_caches();
+        };
         self.scripting.begin_open_overrides();
-        let window = LuaWindow(snapshot);
-        let result = self.scripting.call_event_with("window-opening", window);
+        let result = self.call_lua(call, LuaWindow(snapshot));
+        // Take the overrides before dispatching: an action could open another window and
+        // re-enter this function.
         let overrides = self.scripting.take_open_overrides();
-        self.scripting.clear_script_caches();
-        self.drain_and_dispatch("window-opening", result);
+        self.dispatch_lua_result("window-opening", result, false, InputTime::now());
         overrides
     }
 
     /// Fire a workspace-lifecycle event (`workspace-focused`, `workspace-added`,
     /// `workspace-removed`) to Lua callbacks. Mirrors [`State::fire_window_event`].
     pub fn fire_workspace_event(&mut self, event: &str, snapshot: WorkspaceSnapshot) {
-        if !self.scripting.has_event_handlers(event) {
-            return;
-        }
-        self.refresh_script_caches();
-        let ws = LuaWorkspace(snapshot);
-        let result = self.scripting.call_event_with(event, ws);
-        self.scripting.clear_script_caches();
-        self.drain_and_dispatch(event, result);
+        self.run_lua_event(event, |_| LuaWorkspace(snapshot));
     }
 
     /// Fire the `output-focused` event with an `Output` userdata built from the
     /// output named `output_name`. Falls back to a minimal snapshot (just the name)
     /// if the output is no longer in global_space.
     pub fn fire_output_focused_event(&mut self, output_name: String) {
-        if !self.scripting.has_event_handlers("output-focused") {
-            return;
-        }
-        self.refresh_script_caches();
-        let vrr = lookup_vrr(&self.backend, &output_name);
-        let snapshot = self
-            .neori
-            .global_space
-            .outputs()
-            .find(|o| o.name() == output_name)
-            .map(|o| output_snapshot(&self.neori, o, vrr))
-            .unwrap_or_else(|| OutputSnapshot {
-                name: output_name,
-                ..Default::default()
-            });
-        let result = self
-            .scripting
-            .call_event_with("output-focused", LuaOutput(snapshot));
-        self.scripting.clear_script_caches();
-        self.drain_and_dispatch("output-focused", result);
+        self.run_lua_event("output-focused", |state| {
+            let vrr = lookup_vrr(&state.backend, &output_name);
+            let snapshot = state
+                .neori
+                .global_space
+                .outputs()
+                .find(|o| o.name() == output_name)
+                .map(|o| output_snapshot(&state.neori, o, vrr))
+                .unwrap_or_else(|| OutputSnapshot {
+                    name: output_name,
+                    ..Default::default()
+                });
+            LuaOutput(snapshot)
+        });
     }
 
     /// Fire the Lua `layout-changed` event with the new active keyboard layout
     /// name. Called from `ipc_refresh_keyboard_layout_index` right after the
     /// IPC-side diff detects the switch.
     pub fn fire_layout_changed_event(&mut self, name: String) {
-        if !self.scripting.has_event_handlers("layout-changed") {
-            return;
-        }
-        self.refresh_script_caches();
-        let result = self.scripting.call_event_with("layout-changed", name);
-        self.scripting.clear_script_caches();
-        self.drain_and_dispatch("layout-changed", result);
+        self.run_lua_event("layout-changed", |_| name);
     }
-
-    /// Clear every Lua-facing cache on the ScriptHost. Mirrors
-    /// [`neori_config::ScriptHost::clear_script_caches`]. Called by the input
-    /// dispatcher after a bind callback returns so the primed caches from
-    /// `prime_window_cache` don't outlive the callback.
-    pub fn clear_script_caches(&mut self) {
-        self.scripting.clear_script_caches();
-    }
-
-    /// Drain and dispatch any output ops / cursor warps enqueued by a bind
-    /// callback via `Output` mutation methods or `neori.warp`. Mirror of the
-    /// drain step inside `fire_window_event` so `dispatch_bind_inner` can call
-    /// it alongside its action drain.
-    pub fn drain_pending_output_ops_and_dispatch(&mut self) {
-        for (output, op) in self.scripting.drain_pending_output_ops() {
-            self.apply_transient_output_config(&output, op);
-        }
-        for (x, y) in self.scripting.drain_pending_warps() {
-            self.move_cursor(smithay::utils::Point::from((x, y)));
-        }
-        for (sysname, op) in self.scripting.drain_pending_device_ops() {
-            apply_device_op(&mut self.neori, &sysname, op);
-        }
-    }
-}
-
-/// Helper so dispatcher code can clear the Lua caches after a callback without
-/// naming the State method directly.
-#[allow(dead_code)]
-pub fn clear(config: &Config, host: &neori_config::ScriptHost) {
-    let _ = config;
-    host.clear_script_caches();
 }
 
 /// Look up `(vrr_supported, vrr_enabled)` for `output_name` in the backend's

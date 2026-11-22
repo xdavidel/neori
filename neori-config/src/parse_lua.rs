@@ -13,6 +13,7 @@ use neori_ipc::{ColumnDisplay, ConfiguredMode, Layer, SizeChange, Transform};
 use crate::animations::*;
 use crate::appearance::*;
 use crate::binds::*;
+use crate::context::with_context;
 use crate::gestures::*;
 use crate::input::*;
 use crate::layout::*;
@@ -60,16 +61,15 @@ type BindFnRegistry = Arc<Mutex<HashMap<u64, mlua::Function>>>;
 /// The compositor drains it after every Lua callback call and dispatches each action.
 type PendingActions = Arc<Mutex<Vec<Action>>>;
 
-/// Snapshot of a window's state, exposed to Lua as the `Window` userdata.
+/// State of a window, as provided by the compositor's [`ScriptContext`].
 ///
-/// All fields are captured at the moment the snapshot is built; subsequent compositor
-/// changes do not update a snapshot that has already been handed to Lua. This keeps the
-/// Lua/Rust boundary simple (no lifetime games, no "window gone" errors) at the cost of
-/// requiring users to re-query via `neori.windows()` or wait for the next event.
+/// The `Window` userdata keeps the last snapshot it saw, but reads its properties live through
+/// the context whenever the window still exists.
+///
+/// [`ScriptContext`]: crate::context::ScriptContext
 #[derive(Debug, Clone, Default)]
 pub struct WindowSnapshot {
-    /// Stable per-window id (`MappedId::get()`). Carries forward to the mutation API
-    /// planned for the next scripting round.
+    /// Stable per-window id (`MappedId::get()`), or 0 for a window that isn't mapped yet.
     pub id: u64,
     pub app_id: Option<String>,
     pub title: Option<String>,
@@ -82,16 +82,6 @@ pub struct WindowSnapshot {
     /// Connector-style output name the window currently lives on.
     pub output_name: Option<String>,
 }
-
-/// Cached snapshot of compositor state used by `neori.windows()` and
-/// `neori.focused_window()`. The compositor refreshes it before every Lua callback.
-#[derive(Debug, Default, Clone)]
-pub struct WindowCache {
-    pub windows: Vec<WindowSnapshot>,
-    pub focused: Option<WindowSnapshot>,
-}
-
-type SharedWindowCache = Arc<Mutex<WindowCache>>;
 
 /// Snapshot of an output's state, exposed to Lua as the `Output` userdata.
 ///
@@ -506,20 +496,17 @@ impl mlua::UserData for LuaWorkspace {
         methods.add_method("output", |_, this, ()| Ok(this.0.output_name.clone()));
         methods.add_method("is_focused", |_, this, ()| Ok(this.0.is_focused));
 
-        // ws:windows() returns the windows that live on this workspace, filtered
-        // from the compositor-primed window cache.
+        // ws:windows() returns the windows that live on this workspace.
         methods.add_method("windows", |lua, this, ()| {
             let ids: std::collections::HashSet<u64> = this.0.window_ids.iter().copied().collect();
             let arr = lua.create_table()?;
-            if let Some(cache) = lua.app_data_ref::<SharedWindowCache>() {
-                let locked = cache.lock().unwrap();
-                let mut i = 1;
-                for w in &locked.windows {
-                    if ids.contains(&w.id) {
-                        arr.set(i, Window(w.clone()))?;
-                        i += 1;
-                    }
-                }
+            let windows = with_context(|ctx| ctx.windows()).unwrap_or_default();
+            for (i, w) in windows
+                .into_iter()
+                .filter(|w| ids.contains(&w.id))
+                .enumerate()
+            {
+                arr.set(i + 1, Window(w))?;
             }
             Ok(arr)
         });
@@ -671,35 +658,55 @@ fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
 #[derive(Debug, Clone)]
 pub struct Window(pub WindowSnapshot);
 
+impl Window {
+    /// The window's current state.
+    ///
+    /// Looks the window up through the [`ScriptContext`](crate::context::ScriptContext), so a
+    /// `Window` kept across callbacks still reads fresh values. Falls back to the last known
+    /// snapshot when the window is gone, isn't mapped yet (inside `window-opening`), or no
+    /// callback is running.
+    fn current(&self) -> WindowSnapshot {
+        if self.0.id == 0 {
+            return self.0.clone();
+        }
+        with_context(|ctx| ctx.window(self.0.id))
+            .flatten()
+            .unwrap_or_else(|| self.0.clone())
+    }
+}
+
 impl mlua::UserData for Window {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
         // Read-only accessors.
         methods.add_method("id", |_, this, ()| Ok(this.0.id));
-        methods.add_method("app_id", |_, this, ()| Ok(this.0.app_id.clone()));
-        methods.add_method("title", |_, this, ()| Ok(this.0.title.clone()));
-        methods.add_method("is_focused", |_, this, ()| Ok(this.0.is_focused));
-        methods.add_method("is_floating", |_, this, ()| Ok(this.0.is_floating));
-        methods.add_method("is_fullscreen", |_, this, ()| Ok(this.0.is_fullscreen));
+        methods.add_method("app_id", |_, this, ()| Ok(this.current().app_id));
+        methods.add_method("title", |_, this, ()| Ok(this.current().title));
+        methods.add_method("is_focused", |_, this, ()| Ok(this.current().is_focused));
+        methods.add_method("is_floating", |_, this, ()| Ok(this.current().is_floating));
+        methods.add_method("is_fullscreen", |_, this, ()| {
+            Ok(this.current().is_fullscreen)
+        });
         methods.add_method("workspace", |lua, this, ()| {
-            if this.0.workspace_idx.is_none() && this.0.workspace_name.is_none() {
+            let w = this.current();
+            if w.workspace_idx.is_none() && w.workspace_name.is_none() {
                 return Ok(mlua::Value::Nil);
             }
             let t = lua.create_table()?;
-            if let Some(idx) = this.0.workspace_idx {
+            if let Some(idx) = w.workspace_idx {
                 t.set("idx", idx)?;
             }
-            if let Some(name) = &this.0.workspace_name {
-                t.set("name", name.clone())?;
+            if let Some(name) = w.workspace_name {
+                t.set("name", name)?;
             }
             Ok(mlua::Value::Table(t))
         });
-        methods.add_method("output", |_, this, ()| Ok(this.0.output_name.clone()));
+        methods.add_method("output", |_, this, ()| Ok(this.current().output_name));
 
         // Mutation methods. Each enqueues the matching IPC Action against this
         // window's stable id; the compositor drains the queue after the callback
         // returns. Stale ids (window already gone) are silently ignored by the
         // compositor's dispatch, so it's safe to call these on a Window value
-        // stashed in a Lua local across callbacks.
+        // kept in a Lua variable across callbacks.
 
         methods.add_method("close", |lua, this, ()| {
             enqueue_action(
@@ -717,14 +724,11 @@ impl mlua::UserData for Window {
         });
 
         // `w:fullscreen(true)` / `w:fullscreen(false)` / `w:fullscreen()` (toggle).
-        // Set-style calls skip the IPC toggle when the snapshot already matches the
-        // requested state, so they're idempotent in the common case. If the snapshot
-        // was stale (the user stashed `w` across callbacks and state changed), a
-        // mismatched toggle can still land — re-query via neori.focused_window() /
-        // neori.windows() when you need the current state.
+        // Set-style calls skip the IPC toggle when the window already is in the
+        // requested state, so they're idempotent.
         methods.add_method("fullscreen", |lua, this, enable: Option<bool>| {
             if let Some(desired) = enable {
-                if desired == this.0.is_fullscreen {
+                if desired == this.current().is_fullscreen {
                     return Ok(());
                 }
             }
@@ -738,11 +742,11 @@ impl mlua::UserData for Window {
         });
 
         // `w:float(true)` / `w:float(false)` / `w:float()` (toggle). The explicit
-        // MoveWindowToFloating / MoveWindowToTiling IPC actions make this truly
-        // idempotent regardless of snapshot staleness.
+        // MoveWindowToFloating / MoveWindowToTiling IPC actions keep this idempotent.
         methods.add_method("float", |lua, this, enable: Option<bool>| {
-            let desired = enable.unwrap_or(!this.0.is_floating);
-            if desired == this.0.is_floating {
+            let is_floating = this.current().is_floating;
+            let desired = enable.unwrap_or(!is_floating);
+            if desired == is_floating {
                 return Ok(());
             }
             let action = if desired {
@@ -821,11 +825,12 @@ impl mlua::UserData for Window {
         });
 
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
-            let app = this.0.app_id.as_deref().unwrap_or("?");
-            let title = this.0.title.as_deref().unwrap_or("?");
+            let w = this.current();
+            let app = w.app_id.as_deref().unwrap_or("?");
+            let title = w.title.as_deref().unwrap_or("?");
             Ok(format!(
                 "Window(#{}, app_id={app:?}, title={title:?})",
-                this.0.id
+                w.id
             ))
         });
     }
@@ -907,9 +912,6 @@ pub struct ScriptHost {
     /// Queue of output configuration operations enqueued by `Output` mutation
     /// methods (`out:set_mode(…)`, `out:set_scale(…)`, …).
     pending_output_ops: PendingOutputOps,
-    /// Cached compositor state powering `neori.windows()` and
-    /// `neori.focused_window()`. The compositor refreshes it before every Lua call.
-    window_cache: SharedWindowCache,
     /// Cached compositor state powering `neori.outputs()` and
     /// `neori.focused_output()`.
     output_cache: SharedOutputCache,
@@ -950,7 +952,6 @@ impl ScriptHost {
         let next_bind_fn_id = Arc::new(AtomicU64::new(1));
         let pending_actions: PendingActions = Arc::new(Mutex::new(Vec::new()));
         let pending_output_ops: PendingOutputOps = Arc::new(Mutex::new(Vec::new()));
-        let window_cache: SharedWindowCache = Arc::new(Mutex::new(WindowCache::default()));
         let output_cache = Arc::new(Mutex::new(OutputCache::default()));
         let workspace_cache = Arc::new(Mutex::new(WorkspaceCache::default()));
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
@@ -966,7 +967,6 @@ impl ScriptHost {
         // them via `lua.app_data_ref` without taking a reference to Self.
         lua.set_app_data::<PendingActions>(Arc::clone(&pending_actions));
         lua.set_app_data::<PendingOutputOps>(Arc::clone(&pending_output_ops));
-        lua.set_app_data::<SharedWindowCache>(Arc::clone(&window_cache));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
         lua.set_app_data::<PendingWarps>(Arc::clone(&pending_warps));
         lua.set_app_data::<PendingDeviceOps>(Arc::clone(&pending_device_ops));
@@ -1014,7 +1014,6 @@ impl ScriptHost {
             next_bind_fn_id,
             pending_actions,
             pending_output_ops,
-            window_cache,
             output_cache,
             workspace_cache,
             open_overrides,
@@ -1051,7 +1050,6 @@ impl ScriptHost {
     /// later in the same tick. Adding a new cache in the future only needs this
     /// one function updated — every fire site goes through here.
     pub fn clear_script_caches(&self) {
-        self.clear_window_cache();
         self.clear_output_cache();
         self.clear_workspace_cache();
         self.clear_pointer_cache();
@@ -1130,20 +1128,6 @@ impl ScriptHost {
         std::mem::take(&mut *queue)
     }
 
-    /// Replaces the current window cache with a fresh snapshot.
-    ///
-    /// The compositor calls this right before every Lua callback invocation so
-    /// `neori.windows()` and `neori.focused_window()` see current compositor state.
-    pub fn set_window_cache(&self, cache: WindowCache) {
-        *self.window_cache.lock().unwrap() = cache;
-    }
-
-    /// Clears the window cache. Called after a Lua callback returns so stale state does
-    /// not leak into a later direct-API call that bypasses the cache refresh.
-    pub fn clear_window_cache(&self) {
-        *self.window_cache.lock().unwrap() = WindowCache::default();
-    }
-
     /// Runs the config script at `path` in this host.
     ///
     /// Resets all previously registered event callbacks, then evaluates the script and
@@ -1163,7 +1147,6 @@ impl ScriptHost {
         self.bind_functions.lock().unwrap().clear();
         self.pending_actions.lock().unwrap().clear();
         self.pending_output_ops.lock().unwrap().clear();
-        *self.window_cache.lock().unwrap() = WindowCache::default();
         *self.output_cache.lock().unwrap() = OutputCache::default();
         *self.workspace_cache.lock().unwrap() = WorkspaceCache::default();
         *self.pointer_cache.lock().unwrap() = None;
@@ -1214,7 +1197,6 @@ impl ScriptHost {
             &self.bind_functions,
             &self.next_bind_fn_id,
             &self.pending_actions,
-            &self.window_cache,
             &self.output_cache,
             &self.workspace_cache,
             &self.pointer_cache,
@@ -1269,53 +1251,31 @@ impl ScriptHost {
     where
         A: IntoLuaMulti + Clone,
     {
+        match self.event_call(event) {
+            Some(call) => call.run(args),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Prepares a call to every handler registered for `event`, or returns `None` if there are
+    /// none.
+    ///
+    /// The returned [`LuaCall`] doesn't borrow the host, so the compositor can run it inside
+    /// [`with_script_context`](crate::context::with_script_context) with itself as the context.
+    pub fn event_call(&self, event: &str) -> Option<LuaCall> {
         let funs = {
             let registry = self.event_functions.lock().unwrap();
-            match registry.get(event) {
-                Some(fs) => fs.clone(),
-                None => return Ok(Vec::new()),
-            }
+            registry.get(event).filter(|fs| !fs.is_empty())?.clone()
         };
-        // Run every handler, capturing only the first error. One bad
-        // subscriber must not disable the others — this matches typical
-        // pub/sub semantics and keeps a bug in one handler from silently
-        // breaking the rest of the config.
-        let mut first_error: Option<String> = None;
-        for f in &funs {
-            if let Err(e) = f.call::<()>(args.clone()) {
-                first_error.get_or_insert_with(|| format!("{event} callback error: {e}"));
-            }
-        }
-        // Always drain pending_actions, even on error, so an Action a
-        // surviving handler queued doesn't leak into the next event's
-        // dispatch — where it would run with the wrong event's context.
-        let actions = self.drain_pending_actions();
-        match first_error {
-            Some(e) => {
-                // Current Result signature can't surface both; the compositor
-                // treats Err as "flash the config-error notification, run
-                // nothing." Actions from surviving handlers are dropped on
-                // this path, same as the single-handler error case before
-                // this change. The important fix is that siblings still ran
-                // and nothing leaks.
-                let _ = actions;
-                Err(e)
-            }
-            None => Ok(actions),
-        }
+        Some(LuaCall {
+            label: event.to_owned(),
+            funs,
+            pending_actions: Arc::clone(&self.pending_actions),
+        })
     }
 
-    /// Reads a global value from the Lua state, for introspection in tests.
-    pub fn read_global(&self, key: &str) -> mlua::Result<Value> {
-        self.lua.globals().get::<Value>(key)
-    }
-
-    /// Calls the Lua function registered for `id`, in registration order if multiple
-    /// callbacks share the same id (currently each bind has a unique id).
-    ///
-    /// Returns the list of Actions that the function enqueued through `neori.action`.
-    /// The compositor should then dispatch them.
-    pub fn call_bind_function(&self, id: u64) -> Result<Vec<Action>, String> {
+    /// Prepares a call to the Lua function bound with id `id`.
+    pub fn bind_call(&self, id: u64) -> Result<LuaCall, String> {
         let fun = {
             let funs = self.bind_functions.lock().unwrap();
             match funs.get(&id) {
@@ -1323,31 +1283,69 @@ impl ScriptHost {
                 None => return Err(format!("no Lua function registered for bind id {id}")),
             }
         };
-        fun.call::<()>(())
-            .map_err(|e| format!("bind callback error: {e}"))?;
-        Ok(self.drain_pending_actions())
+        Ok(LuaCall {
+            label: "bind".to_owned(),
+            funs: vec![fun],
+            pending_actions: Arc::clone(&self.pending_actions),
+        })
+    }
+
+    /// Reads a global value from the Lua state, for introspection in tests.
+    pub fn read_global(&self, key: &str) -> mlua::Result<Value> {
+        self.lua.globals().get::<Value>(key)
+    }
+
+    /// Calls the Lua function registered for `id`.
+    ///
+    /// Returns the list of Actions that the function enqueued through `neori.action`.
+    /// The compositor should then dispatch them.
+    pub fn call_bind_function(&self, id: u64) -> Result<Vec<Action>, String> {
+        self.bind_call(id)?.run(())
     }
 
     /// Drains and returns any [`Action`]s that Lua code enqueued via `neori.action`.
-    pub fn drain_pending_actions(&self) -> Vec<Action> {
-        let mut queue = self.pending_actions.lock().unwrap();
-        std::mem::take(&mut *queue)
+    #[cfg(test)]
+    pub(crate) fn drain_pending_actions(&self) -> Vec<Action> {
+        std::mem::take(&mut *self.pending_actions.lock().unwrap())
     }
 
     /// Returns whether a bind function is registered for `id`.
     pub fn has_bind_function(&self, id: u64) -> bool {
         self.bind_functions.lock().unwrap().contains_key(&id)
     }
+}
 
-    /// Returns whether at least one Lua handler is registered for `event`. Lets
-    /// the compositor skip cache priming / snapshot building when no one would
-    /// consume the fire.
-    pub fn has_event_handlers(&self, event: &str) -> bool {
-        self.event_functions
-            .lock()
-            .unwrap()
-            .get(event)
-            .is_some_and(|fs| !fs.is_empty())
+/// Lua callbacks ready to run, detached from the [`ScriptHost`] they came from.
+///
+/// Made by [`ScriptHost::event_call`] and [`ScriptHost::bind_call`].
+pub struct LuaCall {
+    label: String,
+    funs: Vec<mlua::Function>,
+    pending_actions: PendingActions,
+}
+
+impl LuaCall {
+    /// Runs every callback with `args`, and returns the actions they queued with
+    /// `neori.action`.
+    ///
+    /// Every callback runs even if an earlier one fails: one broken handler must not disable
+    /// the rest of the config. Only the first error is returned, and in that case the queued
+    /// actions are dropped. They are always drained, so they can't leak into the next call.
+    pub fn run<A>(self, args: A) -> Result<Vec<Action>, String>
+    where
+        A: IntoLuaMulti + Clone,
+    {
+        let mut first_error: Option<String> = None;
+        for f in &self.funs {
+            if let Err(e) = f.call::<()>(args.clone()) {
+                first_error.get_or_insert_with(|| format!("{} callback error: {e}", self.label));
+            }
+        }
+        let actions = std::mem::take(&mut *self.pending_actions.lock().unwrap());
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(actions),
+        }
     }
 }
 
@@ -1562,7 +1560,6 @@ fn setup_neori_api(
     bind_functions: &BindFnRegistry,
     next_bind_fn_id: &Arc<AtomicU64>,
     pending_actions: &PendingActions,
-    window_cache: &SharedWindowCache,
     output_cache: &SharedOutputCache,
     workspace_cache: &SharedWorkspaceCache,
     pointer_cache: &SharedPointerCache,
@@ -1778,20 +1775,16 @@ fn setup_neori_api(
         neori.set("action", func).map_err(err)?;
     }
 
-    // neori.windows() returns an array of Window userdata snapshotting every mapped
-    // window at the time of the call. The compositor refreshes the backing cache before
-    // every Lua callback so each call sees current state; outside a callback the array
-    // is empty.
-    //
-    // neori.focused_window() returns the focused Window, or nil if nothing is focused.
+    // neori.windows() returns every mapped window, and neori.focused_window() the focused
+    // one (or nil). Both query the compositor live. While the config itself is being
+    // evaluated there's no callback context, so they return an empty array and nil.
     {
-        let cache = Arc::clone(window_cache);
         let func = lua
-            .create_function(move |lua, ()| {
-                let snapshots = cache.lock().unwrap().windows.clone();
+            .create_function(|lua, ()| {
+                let windows = with_context(|ctx| ctx.windows()).unwrap_or_default();
                 let arr = lua.create_table()?;
-                for (i, snap) in snapshots.into_iter().enumerate() {
-                    arr.set(i + 1, Window(snap))?;
+                for (i, w) in windows.into_iter().enumerate() {
+                    arr.set(i + 1, Window(w))?;
                 }
                 Ok(arr)
             })
@@ -1799,11 +1792,11 @@ fn setup_neori_api(
         neori.set("windows", func).map_err(err)?;
     }
     {
-        let cache = Arc::clone(window_cache);
         let func = lua
-            .create_function(move |_lua, ()| {
-                let focused = cache.lock().unwrap().focused.clone();
-                Ok(focused.map(Window))
+            .create_function(|_, ()| {
+                Ok(with_context(|ctx| ctx.focused_window())
+                    .flatten()
+                    .map(Window))
             })
             .map_err(err)?;
         neori.set("focused_window", func).map_err(err)?;

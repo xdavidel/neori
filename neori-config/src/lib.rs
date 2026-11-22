@@ -25,6 +25,7 @@ pub mod macros;
 pub mod animations;
 pub mod appearance;
 pub mod binds;
+pub mod context;
 pub mod debug;
 pub mod error;
 pub mod gestures;
@@ -48,6 +49,7 @@ pub use mlua;
 pub use crate::animations::{Animation, Animations};
 pub use crate::appearance::*;
 pub use crate::binds::*;
+pub use crate::context::{with_script_context, ScriptContext};
 pub use crate::debug::Debug;
 pub use crate::error::{ConfigIncludeError, ConfigParseResult};
 pub use crate::gestures::Gestures;
@@ -59,8 +61,8 @@ pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
     DeviceCache, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides,
-    OutputCache, OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowCache,
-    WindowSnapshot, WorkspaceCache, WorkspaceSnapshot,
+    OutputCache, OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot,
+    WorkspaceCache, WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
@@ -381,6 +383,34 @@ mod tests {
 
     use super::*;
     use crate::output::{MaxBpc, Mode};
+
+    /// A [`ScriptContext`] serving a fixed set of windows, for running Lua callbacks in tests.
+    #[derive(Default)]
+    struct FakeContext {
+        windows: Vec<WindowSnapshot>,
+        focused: Option<u64>,
+    }
+
+    impl FakeContext {
+        fn new(windows: Vec<WindowSnapshot>, focused: Option<u64>) -> Self {
+            Self { windows, focused }
+        }
+    }
+
+    impl ScriptContext for FakeContext {
+        fn windows(&mut self) -> Vec<WindowSnapshot> {
+            self.windows.clone()
+        }
+
+        fn window(&mut self, id: u64) -> Option<WindowSnapshot> {
+            self.windows.iter().find(|w| w.id == id).cloned()
+        }
+
+        fn focused_window(&mut self) -> Option<WindowSnapshot> {
+            let id = self.focused?;
+            self.window(id)
+        }
+    }
 
     #[test]
     fn can_create_default_config() {
@@ -773,9 +803,9 @@ mod tests {
             workspaces: vec![ws_snap.clone()],
             focused: Some(ws_snap),
         });
-        // ws:windows() filters this cache by window_ids.
-        host.set_window_cache(WindowCache {
-            windows: vec![
+        // ws:windows() filters the live windows by window_ids.
+        let mut ctx = FakeContext::new(
+            vec![
                 WindowSnapshot {
                     id: 42,
                     app_id: Some("firefox".into()),
@@ -792,9 +822,9 @@ mod tests {
                     ..Default::default()
                 },
             ],
-            focused: None,
-        });
-        host.call_event("startup").unwrap();
+            None,
+        );
+        with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
         let captured = host.read_global("captured").unwrap();
         let mlua::Value::Table(t) = captured else {
@@ -807,8 +837,7 @@ mod tests {
         assert!(t.get::<bool>("focused").unwrap());
         // 42 and 7 are on the workspace; 99 is not.
         assert_eq!(t.get::<i64>("window_count").unwrap(), 2);
-        // First match must be 42 (window_ids order: [42, 7]; filter iterates window cache
-        // but either order is acceptable — just assert we see one of them).
+        // Either order is acceptable — just assert we see one of them.
         let fw: u64 = t.get("first_window_id").unwrap();
         assert!(fw == 42 || fw == 7, "unexpected first window id {fw}");
     }
@@ -1260,17 +1289,14 @@ mod tests {
         .unwrap();
 
         // 1. Bind path (no guard): drain should see nothing.
-        host.set_window_cache(WindowCache {
-            windows: vec![WindowSnapshot {
+        let mut ctx = FakeContext::new(
+            vec![WindowSnapshot {
                 id: 42,
                 ..Default::default()
             }],
-            focused: Some(WindowSnapshot {
-                id: 42,
-                ..Default::default()
-            }),
-        });
-        let _ = host.call_bind_function(1).unwrap();
+            Some(42),
+        );
+        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         host.begin_open_overrides();
         let after_bind = host.take_open_overrides();
         assert!(
@@ -1431,11 +1457,11 @@ mod tests {
                 local w = neori.focused_window()
                 w:close()
                 w:focus()
-                w:fullscreen(true)   -- snapshot has is_fullscreen=false, should enqueue
-                w:fullscreen(false)  -- already false in snapshot, no-op
+                w:fullscreen(true)   -- not fullscreen, should enqueue
+                w:fullscreen(false)  -- already not fullscreen, no-op
                 w:fullscreen()       -- always enqueue
-                w:float(true)        -- snapshot is_floating=false, enqueues MoveToFloating
-                w:float(false)       -- snapshot is_floating=false, no-op
+                w:float(true)        -- not floating, enqueues MoveToFloating
+                w:float(false)       -- already not floating, no-op
                 w:send_to_workspace(2)
                 w:send_to_workspace("browser")
                 w:send_to_output("eDP-1")
@@ -1445,19 +1471,16 @@ mod tests {
         .config
         .unwrap();
 
-        // Seed a snapshot: is_fullscreen=false, is_floating=false.
+        // The window is not fullscreen and not floating.
         let snap = WindowSnapshot {
             id: 42,
             is_fullscreen: false,
             is_floating: false,
             ..Default::default()
         };
-        host.set_window_cache(WindowCache {
-            windows: vec![snap.clone()],
-            focused: Some(snap),
-        });
+        let mut ctx = FakeContext::new(vec![snap], Some(42));
 
-        let actions = host.call_bind_function(1).unwrap();
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         let kinds: Vec<&str> = actions
             .iter()
             .map(|a| match a {
@@ -1545,20 +1568,16 @@ mod tests {
             id: 99,
             ..Default::default()
         };
-        host.set_window_cache(WindowCache {
-            windows: vec![snap.clone()],
-            focused: Some(snap),
-        });
+        let mut ctx = FakeContext::new(vec![snap], Some(99));
 
-        let actions = host.call_bind_function(1).unwrap();
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
 
-        // Second call: snapshot isn't refreshed, but Lua `stashed` still holds the
-        // original Window userdata. Call it again — must still enqueue the same action
-        // without erroring.
-        host.set_window_cache(WindowCache::default());
-        let actions = host.call_bind_function(1).unwrap();
+        // Second call: the window is gone, but Lua `stashed` still holds the Window
+        // userdata. Call it again — must still enqueue the same action without erroring.
+        let mut ctx = FakeContext::default();
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         assert_eq!(actions.len(), 1);
         assert!(matches!(actions[0], Action::CloseWindow { id: Some(99) }));
     }
@@ -1649,7 +1668,109 @@ mod tests {
     }
 
     #[test]
-    fn neori_windows_reads_cached_snapshots() {
+    fn stashed_window_reads_live_state() {
+        // A Window kept in a Lua variable reads the window's current state on every call,
+        // and falls back to the last state it saw once the window is gone.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                stashed = stashed or neori.focused_window()
+                title = stashed:title()
+                fullscreen = stashed:is_fullscreen()
+                label = tostring(stashed)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let read_string = |name: &str| match host.read_global(name).unwrap() {
+            mlua::Value::String(s) => s.to_str().unwrap().to_string(),
+            other => panic!("{name} is {other:?}"),
+        };
+
+        let window = |title: &str, fullscreen| WindowSnapshot {
+            id: 7,
+            title: Some(title.into()),
+            is_fullscreen: fullscreen,
+            ..Default::default()
+        };
+
+        let mut ctx = FakeContext::new(vec![window("first", false)], Some(7));
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(read_string("title"), "first");
+
+        // The window changed since: the stashed Window sees it.
+        let mut ctx = FakeContext::new(vec![window("second", true)], None);
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(read_string("title"), "second");
+        assert!(matches!(
+            host.read_global("fullscreen").unwrap(),
+            mlua::Value::Boolean(true)
+        ));
+        assert!(read_string("label").contains("second"));
+
+        // The window is gone: reads fall back to what the Window was created with.
+        let mut ctx = FakeContext::default();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(read_string("title"), "first");
+    }
+
+    #[test]
+    fn fullscreen_toggle_checks_live_state() {
+        // w:fullscreen(true) must look at the window's current state, not at the state
+        // from when the Window was created.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                stashed = stashed or neori.focused_window()
+                stashed:fullscreen(true)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let window = |fullscreen| WindowSnapshot {
+            id: 3,
+            is_fullscreen: fullscreen,
+            ..Default::default()
+        };
+
+        let mut ctx = FakeContext::new(vec![window(false)], Some(3));
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert_eq!(actions, [Action::FullscreenWindow { id: Some(3) }]);
+
+        // Now it's fullscreen: setting it again is a no-op.
+        let mut ctx = FakeContext::new(vec![window(true)], Some(3));
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert!(actions.is_empty(), "{actions:?}");
+    }
+
+    #[test]
+    fn windows_are_empty_without_a_callback_context() {
+        // While the config itself is evaluated there's no compositor context.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            count_at_parse = #neori.windows()
+            focused_at_parse = neori.focused_window()
+            "#,
+        )
+        .config
+        .unwrap();
+        assert!(matches!(
+            host.read_global("count_at_parse").unwrap(),
+            mlua::Value::Integer(0)
+        ));
+        assert!(matches!(
+            host.read_global("focused_at_parse").unwrap(),
+            mlua::Value::Nil
+        ));
+    }
+
+    #[test]
+    fn neori_windows_reads_live_windows() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),
             r#"
@@ -1677,11 +1798,8 @@ mod tests {
             is_focused: true,
             ..Default::default()
         };
-        host.set_window_cache(WindowCache {
-            windows: vec![w1, w2.clone()],
-            focused: Some(w2),
-        });
-        host.call_event("startup").unwrap();
+        let mut ctx = FakeContext::new(vec![w1, w2], Some(2));
+        with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
         let seen = host.read_global("seen").unwrap();
         assert!(matches!(seen, mlua::Value::Integer(2)));

@@ -1889,3 +1889,127 @@ fn handle_bind_ignores_unknown_script_function() {
     let _ = KeyState::Pressed;
     let _ = ModifiersState::default();
 }
+
+/// Runs the first Lua-function bind of the fixture's config, like a key press would.
+fn press_first_function_bind(f: &mut Fixture) {
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        config
+            .binds
+            .0
+            .iter()
+            .find(|b| matches!(b.press_action(), Some(Action::ScriptFunction { .. })))
+            .expect("function bind missing")
+            .clone()
+    };
+    f.state
+        .server
+        .state
+        .handle_bind(bind, true, InputTime::now());
+    f.state.server.dispatch();
+}
+
+fn read_global_string(f: &Fixture, name: &str) -> String {
+    match f.state.server.state.scripting.read_global(name).unwrap() {
+        neori_config::mlua::Value::String(s) => s.to_str().unwrap().to_string(),
+        other => panic!("{name} is {other:?}"),
+    }
+}
+
+fn has_output(f: &mut Fixture, name: &str) -> bool {
+    f.neori().global_space.outputs().any(|o| o.name() == name)
+}
+
+#[test]
+fn stashed_window_sees_live_title() {
+    // A Window kept in a Lua variable reads the window's current title, not the one it
+    // had when the Window was first handed to Lua.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            stashed = stashed or neori.focused_window()
+            seen_title = stashed and stashed:title() or "-"
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    let id = f.add_client();
+    let window = f.client(id).create_window();
+    window.set_title("first");
+    let surface = window.surface.clone();
+    window.commit();
+    f.roundtrip(id);
+    let window = f.client(id).window(&surface);
+    window.attach_new_buffer();
+    window.set_size(200, 200);
+    window.ack_last_and_commit();
+    f.double_roundtrip(id);
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "seen_title"), "first");
+
+    let window = f.client(id).window(&surface);
+    window.set_title("second");
+    window.commit();
+    f.double_roundtrip(id);
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "seen_title"), "second");
+}
+
+#[test]
+fn startup_handler_actions_are_dispatched() {
+    // Regression: actions queued by a `startup` handler used to be dropped.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("startup", function()
+            neori.action("create-virtual-output", { name = "from-startup" })
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    f.neori_state().fire_startup();
+    f.state.server.dispatch();
+    assert!(has_output(&mut f, "from-startup"));
+}
+
+#[test]
+fn monitor_added_handler_actions_are_dispatched() {
+    // Regression: actions queued by a `monitor-added` handler used to be dropped.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("monitor-added", function(name)
+            if name ~= "from-monitor" then
+                neori.action("create-virtual-output", { name = "from-monitor" })
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    // monitor-added fires from an idle callback.
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+    assert!(has_output(&mut f, "from-monitor"));
+}
+
+#[test]
+fn workspace_event_handler_actions_are_dispatched() {
+    // Events that already dispatched their actions keep doing so through the shared path.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("workspace-focused", function(ws)
+            if not created then
+                created = true
+                neori.action("create-virtual-output", { name = "from-workspace" })
+            end
+        end)
+        "#,
+    );
+    // The first output coming up focuses its workspace.
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+    assert!(has_output(&mut f, "from-workspace"));
+}

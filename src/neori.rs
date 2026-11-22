@@ -1804,8 +1804,8 @@ impl State {
             self.do_action(action, false, InputTime::now());
         }
 
-        if let Err(err) = self.scripting.call_event("startup") {
-            warn!("{err}");
+        if let Some(call) = self.scripting.event_call("startup") {
+            self.run_lua("startup", call, (), false, InputTime::now());
         }
     }
 
@@ -1827,15 +1827,11 @@ impl State {
             self.do_action(action, false, InputTime::now());
         }
 
-        // Skip the Lua-specific priming + snapshot build + call when no handler
-        // is registered. The declarative config actions above still run.
-        if !self.scripting.has_event_handlers(event) {
+        // Skip the snapshot build + call when no handler is registered. The declarative
+        // config actions above still run.
+        let Some(call) = self.scripting.event_call(event) else {
             return;
-        }
-
-        // Prime the output + window caches so neori.outputs() / focused_output() etc.
-        // see the just-connected / just-removed state.
-        self.prime_window_cache();
+        };
 
         // Build a snapshot for the output that triggered this event (if it still
         // exists in global_space — for monitor-removed we pass the last-known data if
@@ -1852,16 +1848,13 @@ impl State {
                 ..Default::default()
             });
 
-        let result = self.scripting.call_event_with(
+        self.run_lua(
             event,
+            call,
             (connector.to_string(), neori_config::LuaOutput(snapshot)),
+            false,
+            InputTime::now(),
         );
-        self.scripting.clear_script_caches();
-        match result {
-            Ok(_) => {}
-            Err(err) => warn!("{err}"),
-        }
-        self.drain_pending_output_ops_and_dispatch();
         // Workspace / focus side effects of the hotplug are picked up by the
         // next ipc_refresh_workspaces (runs per tick from State::refresh).
     }
@@ -1881,8 +1874,9 @@ impl State {
             self.do_action(action, true, InputTime::now());
         }
 
-        if let Err(err) = self.scripting.call_event(event) {
-            warn!("{err}");
+        // Like the declarative actions above, Lua handlers run even when the session is locked.
+        if let Some(call) = self.scripting.event_call(event) {
+            self.run_lua(event, call, (), true, InputTime::now());
         }
     }
 

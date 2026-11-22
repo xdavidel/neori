@@ -1,0 +1,187 @@
+//! Live access to compositor state from Lua callbacks.
+//!
+//! The Lua API lives in this crate, which can't depend on the compositor. Instead, the compositor
+//! implements [`ScriptContext`] and installs itself with [`with_script_context`] for the duration
+//! of every Lua callback. Userdata methods like `w:title()` then look up the current state through
+//! [`with_context`] instead of reading a snapshot taken before the callback started.
+//!
+//! # Safety
+//!
+//! The context is handed to Lua as a lifetime-erased pointer in a thread-local, valid only while
+//! [`with_script_context`] runs. Two rules keep this sound:
+//!
+//! - The pointer is installed and removed by a guard, so it never outlives the borrow it came from,
+//!   even if the callback panics.
+//! - [`with_context`] lends out the context to one caller at a time. A nested call (for example a
+//!   context method that ends up running Lua again) gets `None` instead of a second `&mut`.
+
+use std::cell::Cell;
+use std::marker::PhantomData;
+use std::ptr::NonNull;
+
+use crate::parse_lua::WindowSnapshot;
+
+/// Compositor state that Lua callbacks can query.
+pub trait ScriptContext {
+    /// Every mapped window.
+    fn windows(&mut self) -> Vec<WindowSnapshot>;
+    /// The mapped window with this id, if it still exists.
+    fn window(&mut self, id: u64) -> Option<WindowSnapshot>;
+    /// The keyboard-focused window, if any.
+    fn focused_window(&mut self) -> Option<WindowSnapshot>;
+}
+
+type ContextPtr = NonNull<dyn ScriptContext + 'static>;
+
+thread_local! {
+    /// The context of the Lua callback currently running on this thread.
+    static CONTEXT: Cell<Option<ContextPtr>> = const { Cell::new(None) };
+    /// Whether [`with_context`] has currently lent out the context.
+    static BORROWED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Restores the previously installed context when dropped.
+struct InstallGuard<'a> {
+    previous: Option<ContextPtr>,
+    previous_borrowed: bool,
+    _borrow: PhantomData<&'a mut ()>,
+}
+
+impl Drop for InstallGuard<'_> {
+    fn drop(&mut self) {
+        CONTEXT.with(|c| c.set(self.previous));
+        BORROWED.with(|b| b.set(self.previous_borrowed));
+    }
+}
+
+/// Runs `f` with `ctx` available to Lua through [`with_context`].
+///
+/// Call this around every invocation of a Lua callback.
+pub fn with_script_context<R>(ctx: &mut dyn ScriptContext, f: impl FnOnce() -> R) -> R {
+    let ptr: NonNull<dyn ScriptContext + '_> = NonNull::from(ctx);
+    // SAFETY: only the lifetime is erased. The guard below removes the pointer before this
+    // function returns, so it's never used after the borrow of `ctx` ends.
+    let ptr: ContextPtr = unsafe { std::mem::transmute(ptr) };
+
+    let _guard = InstallGuard {
+        previous: CONTEXT.with(|c| c.replace(Some(ptr))),
+        previous_borrowed: BORROWED.with(|b| b.replace(false)),
+        _borrow: PhantomData,
+    };
+    f()
+}
+
+/// Clears the borrow flag when dropped.
+struct BorrowGuard;
+
+impl Drop for BorrowGuard {
+    fn drop(&mut self) {
+        BORROWED.with(|b| b.set(false));
+    }
+}
+
+/// Runs `f` with the context of the current Lua callback.
+///
+/// Returns `None` outside of a callback (for example while the config itself is being evaluated),
+/// or if the context is already lent out further up the stack.
+pub fn with_context<R>(f: impl FnOnce(&mut dyn ScriptContext) -> R) -> Option<R> {
+    let ptr = CONTEXT.with(Cell::get)?;
+    if BORROWED.with(|b| b.replace(true)) {
+        return None;
+    }
+    let _guard = BorrowGuard;
+    // SAFETY: the pointer is valid while installed (see `with_script_context`), and the borrow
+    // flag guarantees that this is the only `&mut` to it right now.
+    let ctx = unsafe { &mut *ptr.as_ptr() };
+    Some(f(ctx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct Fake {
+        windows: Vec<WindowSnapshot>,
+        lookups: usize,
+    }
+
+    impl ScriptContext for Fake {
+        fn windows(&mut self) -> Vec<WindowSnapshot> {
+            self.lookups += 1;
+            self.windows.clone()
+        }
+
+        fn window(&mut self, id: u64) -> Option<WindowSnapshot> {
+            self.lookups += 1;
+            self.windows.iter().find(|w| w.id == id).cloned()
+        }
+
+        fn focused_window(&mut self) -> Option<WindowSnapshot> {
+            self.lookups += 1;
+            self.windows.iter().find(|w| w.is_focused).cloned()
+        }
+    }
+
+    fn window(id: u64) -> WindowSnapshot {
+        WindowSnapshot {
+            id,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn no_context_outside_callbacks() {
+        assert!(with_context(|ctx| ctx.windows()).is_none());
+    }
+
+    #[test]
+    fn context_is_available_inside_and_removed_after() {
+        let mut fake = Fake {
+            windows: vec![window(1), window(2)],
+            ..Default::default()
+        };
+        let n = with_script_context(&mut fake, || with_context(|ctx| ctx.windows().len()));
+        assert_eq!(n, Some(2));
+        assert_eq!(fake.lookups, 1);
+        assert!(with_context(|ctx| ctx.windows()).is_none());
+    }
+
+    #[test]
+    fn nested_borrow_is_refused() {
+        let mut fake = Fake::default();
+        let inner = with_script_context(&mut fake, || {
+            with_context(|_| with_context(|ctx| ctx.windows()).is_some())
+        });
+        assert_eq!(inner, Some(false));
+    }
+
+    #[test]
+    fn nested_install_restores_the_outer_context() {
+        let mut outer = Fake {
+            windows: vec![window(1)],
+            ..Default::default()
+        };
+        let mut inner = Fake {
+            windows: vec![window(1), window(2), window(3)],
+            ..Default::default()
+        };
+        let counts = with_script_context(&mut outer, || {
+            let inner_count =
+                with_script_context(&mut inner, || with_context(|c| c.windows().len()));
+            let outer_count = with_context(|c| c.windows().len());
+            (inner_count, outer_count)
+        });
+        assert_eq!(counts, (Some(3), Some(1)));
+    }
+
+    #[test]
+    fn context_is_removed_after_a_panic() {
+        let mut fake = Fake::default();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            with_script_context(&mut fake, || panic!("boom"));
+        }));
+        assert!(result.is_err());
+        assert!(with_context(|ctx| ctx.windows()).is_none());
+    }
+}

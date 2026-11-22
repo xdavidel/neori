@@ -928,24 +928,13 @@ impl State {
     /// Any `neori.action` calls the function makes are drained and dispatched afterwards, with
     /// the same lock permission as the bind itself.
     fn call_script_function(&mut self, id: u64, allow_when_locked: bool, time: InputTime) {
-        // Prime neori.windows() / neori.outputs() / focused_* with current state.
-        self.prime_window_cache();
-        let result = self.scripting.call_bind_function(id);
-        self.clear_script_caches();
-        match result {
-            Ok(pending) => {
-                for action in pending {
-                    self.do_action(action, allow_when_locked, time);
-                }
-            }
+        match self.scripting.bind_call(id) {
+            Ok(call) => self.run_lua("bind", call, (), allow_when_locked, time),
             Err(err) => {
                 warn!("Lua bind callback error: {err}");
                 self.neori.config_error_notification.show();
             }
         }
-        // Drain any output-configuration ops the Lua function enqueued via
-        // `Output` mutation methods (`out:set_scale(…)`, `out:set_mode(…)`, …).
-        self.drain_pending_output_ops_and_dispatch();
     }
 
     /// Spawns the command configured for the named scratchpad, if any, and marks the scratchpad

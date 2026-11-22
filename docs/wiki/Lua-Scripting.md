@@ -188,8 +188,10 @@ declare entries one by one with the singular form instead.
 
 ## Windows
 
-Inside any Lua callback (bind or event), `neori.windows()` returns a snapshot array of
-the mapped windows, and `neori.focused_window()` returns the focused one or `nil`.
+Inside any Lua callback (bind or event), `neori.windows()` returns an array of the
+mapped windows, and `neori.focused_window()` returns the focused one or `nil`.
+While the config file itself is being evaluated there are no windows yet: they return
+an empty array and `nil`.
 Window event handlers receive the subject `Window` as their argument.
 
 ```lua
@@ -229,15 +231,14 @@ end)
 
 ### `Window` methods
 
-Read-only accessors return an immutable snapshot of the window at the time the
-Window value was created. Re-fetch via `neori.windows()` / `neori.focused_window()`
-or a subsequent event if you need up-to-date state.
+Read-only accessors return the window's current state, even for a `Window` you kept in
+a variable from an earlier callback. Once the window is closed, they return the last
+state the `Window` value was created with.
 
 Mutation methods enqueue an IPC action against the window's stable id; the
-compositor dispatches them after your callback returns. A stale id (window already
-closed between snapshot time and the method call) is silently ignored by the
-compositor's dispatch, so it's safe to stash a Window in a Lua local and call
-methods on it across callbacks.
+compositor dispatches them after your callback returns. An action for a window that
+has since closed is silently ignored, so it's safe to keep a Window in a Lua variable
+and call methods on it across callbacks.
 
 **Read-only:**
 
@@ -263,17 +264,15 @@ methods on it across callbacks.
 | `w:fullscreen()`              | Toggle fullscreen unconditionally.                       |
 | `w:float(true)`               | Move to the floating layout (idempotent).                |
 | `w:float(false)`              | Move to the tiling layout (idempotent).                  |
-| `w:float()`                   | Toggle between floating and tiling based on the snapshot. |
+| `w:float()`                   | Toggle between floating and tiling.                       |
 | `w:send_to_workspace(n)`      | Move to workspace index `n` (1-based).                   |
 | `w:send_to_workspace("name")` | Move to the named workspace.                             |
 | `w:send_to_output("eDP-1")`   | Move to the named output.                                |
 
-Set-style calls (`w:fullscreen(true)`, `w:float(false)`, …) skip the IPC round-trip
-when the snapshot already matches the requested state, so repeated calls in a Lua
-loop don't hammer the compositor. If the snapshot was stale (you stashed `w` and
-state changed between calls), a mismatched fullscreen toggle can still land — the
-float set-style methods use dedicated `MoveWindowToFloating` / `MoveWindowToTiling`
-IPC actions, so they're truly idempotent regardless of staleness.
+Set-style calls (`w:fullscreen(true)`, `w:float(false)`, …) do nothing when the window
+already is in the requested state, so repeated calls in a Lua loop don't hammer the
+compositor. Within one callback the state is checked before any queued action runs,
+so `w:fullscreen(true)` twice in a row queues two toggles.
 
 ## Pre-placement window rules (`window-opening`)
 
@@ -618,11 +617,9 @@ action is ignored — Lua methods never raise for that case.
 
 ## Known limitations (today)
 
-- Read-only properties on a `Window` are snapshots. A stashed `Window` won't update
-  its `app_id` / `title` / `is_fullscreen` fields when the live window changes; call
-  `neori.focused_window()` / `neori.windows()` again when you need fresh state.
-  Mutation methods (`w:close()`, `w:send_to_workspace()`, …) take effect against
-  the compositor's current state — they don't care whether the snapshot was stale.
+- `Window` mutations are queued and run after the callback returns, so reads in the
+  same callback don't see them yet. `Output` and `Workspace` properties are still
+  snapshots taken when the value was created.
 - Function binds have no way to set a custom hotkey-overlay title — the overlay falls
   back to a generic label because `neori.bind(key, function)` takes no options table.
 - Function callbacks are synchronous on the compositor thread; don't block.
