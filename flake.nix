@@ -17,7 +17,10 @@
           cairo,
           dbus,
           libGL,
-          libdisplay-info_0_3,
+          libdisplay-info,
+          # Newer nixpkgs moved on to libdisplay-info 0.4 and kept 0.3 under this name; older
+          # nixpkgs (like nixos-26.05) only have libdisplay-info, which is 0.3 there.
+          libdisplay-info_0_3 ? libdisplay-info,
           libinput,
           seatd,
           libxkbcommon,
