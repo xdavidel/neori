@@ -88,6 +88,12 @@ impl Headless {
     }
 
     pub fn init(&mut self, neori: &mut Neori) {
+        // Tests add a renderer explicitly when they need one, so that their behavior doesn't
+        // depend on whether the machine running them has a GPU.
+        if cfg!(test) {
+            return;
+        }
+
         if let Err(err) = self.add_renderer() {
             warn!("failed to create headless renderer: {err:?}");
         } else if let Some(renderer) = self.renderer.as_mut() {
