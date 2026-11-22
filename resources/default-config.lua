@@ -688,6 +688,11 @@ end
 -- Mutation methods: close(), focus(), fullscreen(true|false|nil),
 -- float(true|false|nil), send_to_workspace(idx|name), send_to_output(name).
 --
+-- Window, Output, Workspace and Device values are live: reading a property
+-- returns the current state, even for a value you kept in a variable from an
+-- earlier callback. Once the object is gone, reads return its last known
+-- state. Mutations are queued and applied right after the callback returns.
+--
 -- Pre-placement overrides (only valid inside window-opening handlers):
 -- open_on_output(name), open_on_workspace(name), open_fullscreen(bool),
 -- open_maximized(bool), open_floating(bool). These replace the matching
@@ -754,6 +759,17 @@ end
 --   if w then w:fullscreen(not w:is_fullscreen()) end
 -- end)
 
+-- Mark a window, then jump back to it from anywhere. The kept Window always
+-- shows the window's current title.
+-- local marked
+-- neori.bind("Mod+Alt+M", function() marked = neori.focused_window() end)
+-- neori.bind("Mod+Alt+J", function()
+--   if marked then
+--     marked:focus()
+--     neori.action("spawn-sh", string.format("notify-send 'back to' %q", marked:title() or "?"))
+--   end
+-- end)
+
 -- Float Picture-in-Picture players automatically when they open.
 -- neori.on("window-opened", function(w)
 --   if (w:title() or ""):match("Picture%-in%-Picture") then
@@ -809,6 +825,17 @@ end
 --   end
 -- end)
 
+-- Toggle the laptop panel on and off. neori.outputs() only lists outputs that
+-- are on, so keep the Output around: while it's off, out:is_off() is true and
+-- out:enable() turns it back on.
+-- local panel
+-- neori.bind("Mod+Alt+P", function()
+--   for _, out in ipairs(neori.outputs()) do
+--     if out:name() == "eDP-1" then panel = out end
+--   end
+--   if panel then panel:enable() end
+-- end)
+
 -- Enumerate outputs into a notification.
 -- neori.bind("Mod+Alt+O", function()
 --   local msg = {}
@@ -859,8 +886,8 @@ end
 -- end)
 
 -- Workspace / output lifecycle events. Fire whenever the compositor notices
--- a change (per refresh tick). workspace-removed fires with the last-known
--- snapshot of the workspace that just vanished.
+-- a change (per refresh tick). workspace-removed fires with the last known
+-- state of the workspace that just vanished.
 --
 -- Note: `print(...)` output goes to $XDG_STATE_HOME/neori/lua.log (typically
 -- ~/.local/state/neori/lua.log). Tail it with `tail -f`. For diagnostics, an
@@ -875,8 +902,12 @@ end
 --------------------------------------------------------------------------------
 -- Pointer position + cursor warp.
 --
--- neori.pointer()      -> { x, y, output } in global logical coordinates, or nil
--- neori.warp(x, y)     queues a cursor warp (compositor drains after callback)
+-- neori.pointer()      -> { x, y, output } in global logical coordinates
+-- neori.warp(x, y)     queues a cursor warp, applied after the callback returns
+--
+-- Like all queries, neori.pointer() only works inside callbacks: while the
+-- config file itself is loading it returns nil (and neori.windows() etc.
+-- return empty arrays).
 
 -- Jump the cursor to the top-left of the active output on demand.
 -- neori.bind("Mod+Alt+Home", function()

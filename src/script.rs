@@ -7,9 +7,8 @@
 use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
 use neori_config::{
-    with_script_context, DeviceOp, LuaOutput, LuaWorkspace, OutputCache, OutputSnapshot,
-    PointerSnapshot, ScriptContext, Window as LuaWindow, WindowSnapshot, WorkspaceCache,
-    WorkspaceSnapshot,
+    with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaWorkspace, OutputSnapshot,
+    PointerSnapshot, ScriptContext, Window as LuaWindow, WindowSnapshot, WorkspaceSnapshot,
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
@@ -141,6 +140,63 @@ impl ScriptContext for State {
         let mapped = self.neori.layout.focus()?;
         Some(snapshot_mapped(&self.neori, mapped))
     }
+
+    fn outputs(&mut self) -> Vec<OutputSnapshot> {
+        output_snapshots(self)
+    }
+
+    fn output(&mut self, name: &str) -> Option<OutputSnapshot> {
+        let output = self
+            .neori
+            .global_space
+            .outputs()
+            .find(|o| o.name() == name)?;
+        let vrr = lookup_vrr(&self.backend, name);
+        Some(output_snapshot(&self.neori, output, vrr))
+    }
+
+    fn focused_output(&mut self) -> Option<OutputSnapshot> {
+        let name = self.neori.layout.active_output()?.name();
+        self.output(&name)
+    }
+
+    fn workspaces(&mut self) -> Vec<WorkspaceSnapshot> {
+        workspace_snapshots(&self.neori)
+    }
+
+    fn workspace(&mut self, id: u64) -> Option<WorkspaceSnapshot> {
+        let focused_id = self.neori.layout.active_workspace_id().map(|id| id.get());
+        let (idx, (monitor, _, ws)) = (1u16..)
+            .zip(self.neori.layout.workspaces())
+            .find(|(_, (_, _, ws))| ws.id().get() == id)?;
+        Some(snapshot_workspace(monitor, idx, ws, focused_id))
+    }
+
+    fn focused_workspace(&mut self) -> Option<WorkspaceSnapshot> {
+        let id = self.neori.layout.active_workspace_id()?;
+        self.workspace(id.get())
+    }
+
+    fn pointer(&mut self) -> Option<PointerSnapshot> {
+        pointer_snapshot(&self.neori)
+    }
+
+    fn devices(&mut self) -> Vec<DeviceSnapshot> {
+        self.neori.devices.iter().map(device_snapshot).collect()
+    }
+
+    fn device(&mut self, sysname: &str) -> Option<DeviceSnapshot> {
+        let device = self.neori.devices.iter().find(|d| d.sysname() == sysname)?;
+        Some(device_snapshot(device))
+    }
+
+    fn keyboard_layout(&mut self) -> Option<String> {
+        let keyboard = self.neori.seat.get_keyboard()?;
+        Some(keyboard.with_xkb_state(self, |context| {
+            let xkb = context.xkb().lock().unwrap();
+            xkb.layout_name(xkb.active_layout()).to_owned()
+        }))
+    }
 }
 
 impl State {
@@ -168,10 +224,7 @@ impl State {
         call: LuaCall,
         args: A,
     ) -> Result<Vec<neori_config::Action>, String> {
-        self.refresh_script_caches();
-        let result = with_script_context(self, || call.run(args));
-        self.scripting.clear_script_caches();
-        result
+        with_script_context(self, || call.run(args))
     }
 
     /// Dispatches the result of [`State::call_lua`] and everything else the callback queued.
@@ -221,24 +274,6 @@ impl State {
     /// Costs nothing when no handler is registered.
     pub fn fire_window_event(&mut self, event: &str, snapshot: WindowSnapshot) {
         self.run_lua_event(event, |_| LuaWindow(snapshot));
-    }
-
-    /// Refresh the Lua-facing caches that aren't live yet (output, workspace, pointer,
-    /// device) from current compositor state.
-    fn refresh_script_caches(&self) {
-        let ipc = self.backend.ipc_outputs();
-        let ipc_outputs = ipc.lock().unwrap().clone();
-        let output_cache = build_output_cache(&self.neori, &ipc_outputs);
-        self.scripting.set_output_cache(output_cache);
-        let workspace_cache = build_workspace_cache(&self.neori);
-        self.scripting.set_workspace_cache(workspace_cache);
-        if let Some(snapshot) = build_pointer_snapshot(&self.neori) {
-            self.scripting.set_pointer_cache(snapshot);
-        } else {
-            self.scripting.clear_pointer_cache();
-        }
-        self.scripting
-            .set_device_cache(build_device_cache(&self.neori));
     }
 
     /// Fire the `window-opening` event just before placement.
@@ -314,7 +349,7 @@ pub fn lookup_vrr(backend: &crate::backend::Backend, output_name: &str) -> (bool
 ///
 /// `vrr` is `(vrr_supported, vrr_enabled)`; callers either pass [`lookup_vrr`]
 /// for a single-output path or iterate the full IPC mirror once for a bulk
-/// build (`build_output_cache`).
+/// build (`output_snapshots`).
 pub fn output_snapshot(neori: &Neori, output: &SmithayOutput, vrr: (bool, bool)) -> OutputSnapshot {
     let props = output.physical_properties();
     let serial = if props.serial_number.is_empty() {
@@ -381,38 +416,26 @@ pub fn output_snapshot(neori: &Neori, output: &SmithayOutput, vrr: (bool, bool))
     }
 }
 
-/// Build the full output cache from the current compositor state.
-pub fn build_output_cache(
-    neori: &Neori,
-    ipc_outputs: &std::collections::HashMap<crate::backend::OutputId, neori_ipc::Output>,
-) -> OutputCache {
-    let focused_output = neori.layout.active_output().cloned();
-    let mut outputs: Vec<OutputSnapshot> = Vec::new();
-    let mut focused_snapshot: Option<OutputSnapshot> = None;
-    for output in neori.global_space.outputs() {
-        let name = output.name();
-        let vrr = ipc_outputs
-            .values()
-            .find(|o| o.name == name)
-            .map(|o| (o.vrr_supported, o.vrr_enabled))
-            .unwrap_or((false, false));
-        let snap = output_snapshot(neori, output, vrr);
-        if focused_output.as_ref() == Some(output) {
-            focused_snapshot = Some(snap.clone());
-        }
-        outputs.push(snap);
-    }
-    OutputCache {
-        outputs,
-        focused: focused_snapshot,
-    }
+/// Snapshots every output in the global space.
+fn output_snapshots(state: &State) -> Vec<OutputSnapshot> {
+    let ipc = state.backend.ipc_outputs();
+    let ipc_outputs = ipc.lock().unwrap().clone();
+    state
+        .neori
+        .global_space
+        .outputs()
+        .map(|output| {
+            let name = output.name();
+            let vrr = ipc_outputs
+                .values()
+                .find(|o| o.name == name)
+                .map(|o| (o.vrr_supported, o.vrr_enabled))
+                .unwrap_or((false, false));
+            output_snapshot(&state.neori, output, vrr)
+        })
+        .collect()
 }
 
-/// Build the full workspace cache from the current compositor state.
-///
-/// Walks every workspace in global 1-based order (the same order `Layout::workspaces()`
-/// yields), records the workspace's id, optional name, owning output name, the
-/// MappedIds of its windows, and whether it is the globally focused workspace.
 /// Build a single [`WorkspaceSnapshot`] for the given workspace. Caller supplies
 /// the 1-based global index (position in `layout.workspaces()` order) because
 /// that's the semantic Lua `ws:idx()` has always had, and it isn't recoverable
@@ -434,64 +457,31 @@ pub fn snapshot_workspace(
     }
 }
 
-pub fn build_workspace_cache(neori: &Neori) -> WorkspaceCache {
-    let focused_id = neori.layout.active_workspace_id();
-    let mut workspaces: Vec<WorkspaceSnapshot> = Vec::new();
-    let mut focused_snapshot: Option<WorkspaceSnapshot> = None;
-
-    let mut global_idx: u16 = 0;
-    for (monitor, _per_mon_idx, ws) in neori.layout.workspaces() {
-        global_idx = global_idx.saturating_add(1);
-        let idx_u8 = u8::try_from(global_idx).unwrap_or(u8::MAX);
-        let output_name = monitor.map(|m| m.output().name());
-        let id = ws.id().get();
-        let is_focused = focused_id == Some(ws.id());
-        let window_ids: Vec<u64> = ws.windows().map(|w| w.id().get()).collect();
-        let snap = WorkspaceSnapshot {
-            idx: idx_u8,
-            name: ws.name().cloned(),
-            output_name,
-            is_focused,
-            id,
-            window_ids,
-        };
-        if is_focused {
-            focused_snapshot = Some(snap.clone());
-        }
-        workspaces.push(snap);
-    }
-
-    WorkspaceCache {
-        workspaces,
-        focused: focused_snapshot,
-    }
+/// Snapshots every workspace, in global 1-based order (the order `Layout::workspaces()`
+/// yields).
+fn workspace_snapshots(neori: &Neori) -> Vec<WorkspaceSnapshot> {
+    let focused_id = neori.layout.active_workspace_id().map(|id| id.get());
+    (1u16..)
+        .zip(neori.layout.workspaces())
+        .map(|(idx, (monitor, _, ws))| snapshot_workspace(monitor, idx, ws, focused_id))
+        .collect()
 }
 
-/// Snapshot connected input devices for Lua.
+/// Snapshots one libinput device for Lua.
 ///
-/// Walks `Neori::devices` (the set of libinput devices the compositor is
-/// tracking) and reads each device's metadata and capability bits. Touchpad
-/// detection matches `apply_libinput_settings` (non-zero `tap_finger_count`).
-pub fn build_device_cache(neori: &Neori) -> neori_config::DeviceCache {
+/// Touchpad detection matches `apply_libinput_settings` (non-zero `tap_finger_count`).
+fn device_snapshot(device: &smithay::reexports::input::Device) -> DeviceSnapshot {
     use smithay::reexports::input::DeviceCapability;
-    let mut devices = Vec::new();
-    for device in &neori.devices {
-        let is_touchpad = device.config_tap_finger_count() > 0;
-        let is_pointer = device.has_capability(DeviceCapability::Pointer);
-        let is_keyboard = device.has_capability(DeviceCapability::Keyboard);
-        let is_touch = device.has_capability(DeviceCapability::Touch);
-        devices.push(neori_config::DeviceSnapshot {
-            name: device.name().into_owned(),
-            sysname: device.sysname().to_owned(),
-            product_id: device.id_product(),
-            vendor_id: device.id_vendor(),
-            is_pointer,
-            is_keyboard,
-            is_touch,
-            is_touchpad,
-        });
+    DeviceSnapshot {
+        name: device.name().into_owned(),
+        sysname: device.sysname().to_owned(),
+        product_id: device.id_product(),
+        vendor_id: device.id_vendor(),
+        is_pointer: device.has_capability(DeviceCapability::Pointer),
+        is_keyboard: device.has_capability(DeviceCapability::Keyboard),
+        is_touch: device.has_capability(DeviceCapability::Touch),
+        is_touchpad: device.config_tap_finger_count() > 0,
     }
-    neori_config::DeviceCache { devices }
 }
 
 /// Apply one Lua-enqueued `DeviceOp` to the matching libinput device, if any.
@@ -537,7 +527,7 @@ pub fn apply_device_op(neori: &mut Neori, sysname: &str, op: DeviceOp) {
 ///
 /// Returns `None` if no seat pointer exists (shouldn't happen on a running
 /// compositor, but keeps the signature total for callers).
-pub fn build_pointer_snapshot(neori: &Neori) -> Option<PointerSnapshot> {
+fn pointer_snapshot(neori: &Neori) -> Option<PointerSnapshot> {
     let pointer = neori.seat.get_pointer()?;
     let loc = pointer.current_location();
     let output_name = neori

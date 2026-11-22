@@ -1774,8 +1774,7 @@ fn warp_moves_the_cursor() {
 
 #[test]
 fn keyboard_layout_is_readable_from_lua() {
-    // After the first refresh tick the layout cache should be populated with the
-    // active xkb layout name, visible via neori.keyboard_layout().
+    // neori.keyboard_layout() reads the active xkb layout name.
     let mut f = fixture_from_lua(
         r#"
         neori.bind("Mod+Alt+T", function()
@@ -2012,4 +2011,62 @@ fn workspace_event_handler_actions_are_dispatched() {
     f.state.server.dispatch();
     f.state.server.dispatch();
     assert!(has_output(&mut f, "from-workspace"));
+}
+
+#[test]
+fn stashed_workspace_sees_live_name() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            stashed = stashed or neori.focused_workspace()
+            seen_name = stashed:name() or "-"
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "seen_name"), "-");
+
+    f.neori_state().do_action(
+        Action::SetWorkspaceName {
+            name: "renamed".into(),
+            workspace: None,
+        },
+        false,
+        InputTime::now(),
+    );
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "seen_name"), "renamed");
+}
+
+#[test]
+fn stashed_output_sees_its_new_scale() {
+    // The first press changes the scale; the change is applied after the callback, and the
+    // second press reads it back through the same Output value.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            if not stashed then
+                stashed = neori.focused_output()
+                stashed:set_scale(2)
+            end
+            seen_scale = stashed:scale()
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.state.server.dispatch();
+
+    press_first_function_bind(&mut f);
+    let read_scale = |f: &Fixture| match f.state.server.state.scripting.read_global("seen_scale") {
+        Ok(neori_config::mlua::Value::Number(n)) => n,
+        Ok(neori_config::mlua::Value::Integer(n)) => n as f64,
+        other => panic!("seen_scale is {other:?}"),
+    };
+    assert_eq!(read_scale(&f), 1.0);
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_scale(&f), 2.0);
 }

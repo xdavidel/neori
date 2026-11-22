@@ -46,7 +46,7 @@ fn cheap_window_snapshot() -> WindowSnapshot {
 fn perf_fire_window_event_no_handler() {
     // Baseline: firing an event with no Lua handler registered should cost
     // one HashMap lookup (from event_call) and nothing else. This
-    // is the win from skipping refresh_script_caches when nobody's listening.
+    // is the win from skipping all Lua work when nobody's listening.
     let mut f = fixture("-- no handlers registered\n");
     let state = &mut f.state.server.state;
     let snap = cheap_window_snapshot();

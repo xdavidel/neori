@@ -174,7 +174,7 @@ wins per field. Entry-collections that take names use the singular form, listed 
 | `neori.workspace("name", { … })`                               | [Configuration: Named Workspaces](Configuration:-Named-Workspaces.md) |
 
 The plural `neori.outputs` / `neori.workspaces` / `neori.windows` are **runtime lookup
-functions** — they return the current snapshot arrays and are documented in the sections
+functions** — they return the current objects and are documented in the sections
 below. There is no `neori.outputs(table)` / `neori.workspaces(table)` section setter;
 declare entries one by one with the singular form instead.
 
@@ -317,8 +317,8 @@ placement, so you can keep using it for post-placement side effects
 ## Pointer & keyboard
 
 Inside any Lua callback, `neori.pointer()` returns the current seat pointer
-position as `{ x = …, y = …, output = <connector-name or nil> }`, or `nil` if
-the cache hasn't been seeded yet (shouldn't happen in a running compositor).
+position as `{ x = …, y = …, output = <connector-name or nil> }`. While the config
+file itself is being evaluated it returns `nil`, and so does `neori.keyboard_layout()`.
 The coordinates are in the compositor's global logical space — the same space
 window / output `position` fields use. `neori.warp(x, y)` queues a cursor warp
 to those coordinates; the compositor drains the queue after the callback
@@ -355,7 +355,7 @@ end)
 
 `neori.devices()` returns an array of `Device` userdata — one per libinput
 device the compositor is tracking (keyboards, mice, touchpads, trackballs,
-touch panels). Each snapshot carries metadata and capability bits; mutation
+touch panels). Each one reads the device's current metadata and capability bits; mutation
 methods call the matching libinput tuning setters on the real device.
 
 ```lua
@@ -484,9 +484,10 @@ end)
 
 ### `Output` methods
 
-Read-only accessors return the snapshot captured at the moment the Output was
-constructed. Mutation methods enqueue an `OutputAction`; the compositor drains
-and applies them via `apply_transient_output_config` after the callback returns.
+Read-only accessors return the output's current state, even for an `Output` kept in a
+variable from an earlier callback. Once the output is turned off or unplugged, they
+return its last known state, and `out:is_off()` returns `true`. Mutation methods
+enqueue an `OutputAction`; the compositor applies them after the callback returns.
 
 **Read-only:**
 
@@ -585,9 +586,10 @@ end)
 
 ### `Workspace` methods
 
-Read-only accessors return the snapshot captured at the moment the Workspace was
-constructed. Mutation methods enqueue an `Action`; the compositor drains and
-dispatches them after the callback returns, just like window mutations.
+Read-only accessors return the workspace's current state, even for a `Workspace` kept
+in a variable from an earlier callback. Once the workspace is removed, they return its
+last known state. Mutation methods enqueue an `Action`; the compositor dispatches them
+after the callback returns, just like window mutations.
 
 **Read-only:**
 
@@ -617,9 +619,8 @@ action is ignored — Lua methods never raise for that case.
 
 ## Known limitations (today)
 
-- `Window` mutations are queued and run after the callback returns, so reads in the
-  same callback don't see them yet. `Output` and `Workspace` properties are still
-  snapshots taken when the value was created.
+- Mutations (on windows, outputs, workspaces and devices) are queued and run after the
+  callback returns, so reads in the same callback don't see them yet.
 - Function binds have no way to set a custom hotkey-overlay title — the overlay falls
   back to a generic label because `neori.bind(key, function)` takes no options table.
 - Function callbacks are synchronous on the compositor thread; don't block.

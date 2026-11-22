@@ -19,16 +19,72 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use crate::parse_lua::WindowSnapshot;
+use crate::parse_lua::{
+    DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowSnapshot, WorkspaceSnapshot,
+};
 
 /// Compositor state that Lua callbacks can query.
+///
+/// Every method defaults to "nothing there", so test contexts only need to implement what they
+/// use. The compositor implements all of them.
 pub trait ScriptContext {
     /// Every mapped window.
-    fn windows(&mut self) -> Vec<WindowSnapshot>;
+    fn windows(&mut self) -> Vec<WindowSnapshot> {
+        Vec::new()
+    }
     /// The mapped window with this id, if it still exists.
-    fn window(&mut self, id: u64) -> Option<WindowSnapshot>;
+    fn window(&mut self, id: u64) -> Option<WindowSnapshot> {
+        self.windows().into_iter().find(|w| w.id == id)
+    }
     /// The keyboard-focused window, if any.
-    fn focused_window(&mut self) -> Option<WindowSnapshot>;
+    fn focused_window(&mut self) -> Option<WindowSnapshot> {
+        self.windows().into_iter().find(|w| w.is_focused)
+    }
+
+    /// Every connected output.
+    fn outputs(&mut self) -> Vec<OutputSnapshot> {
+        Vec::new()
+    }
+    /// The output with this connector name, if it's still connected.
+    fn output(&mut self, name: &str) -> Option<OutputSnapshot> {
+        self.outputs().into_iter().find(|o| o.name == name)
+    }
+    /// The focused output, if any.
+    fn focused_output(&mut self) -> Option<OutputSnapshot> {
+        self.outputs().into_iter().find(|o| o.is_focused)
+    }
+
+    /// Every workspace, in global index order.
+    fn workspaces(&mut self) -> Vec<WorkspaceSnapshot> {
+        Vec::new()
+    }
+    /// The workspace with this id, if it still exists.
+    fn workspace(&mut self, id: u64) -> Option<WorkspaceSnapshot> {
+        self.workspaces().into_iter().find(|ws| ws.id == id)
+    }
+    /// The focused workspace, if any.
+    fn focused_workspace(&mut self) -> Option<WorkspaceSnapshot> {
+        self.workspaces().into_iter().find(|ws| ws.is_focused)
+    }
+
+    /// The pointer position, if there is a pointer.
+    fn pointer(&mut self) -> Option<PointerSnapshot> {
+        None
+    }
+
+    /// Every input device.
+    fn devices(&mut self) -> Vec<DeviceSnapshot> {
+        Vec::new()
+    }
+    /// The input device with this sysname, if it's still connected.
+    fn device(&mut self, sysname: &str) -> Option<DeviceSnapshot> {
+        self.devices().into_iter().find(|d| d.sysname == sysname)
+    }
+
+    /// The name of the active keyboard layout.
+    fn keyboard_layout(&mut self) -> Option<String> {
+        None
+    }
 }
 
 type ContextPtr = NonNull<dyn ScriptContext + 'static>;

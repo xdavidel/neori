@@ -664,11 +664,6 @@ impl State {
             (active.0 as u8, xkb.layout_name(active).to_owned())
         });
 
-        // Always keep the Lua `neori.keyboard_layout()` cache in sync. Cache
-        // refresh is cheap and must happen even when the idx didn't change,
-        // because the cache can be cold from startup / reload.
-        self.scripting.set_keyboard_layout(Some(name.clone()));
-
         // Did the layout change since last call? In the happy path IPC's own
         // state.keyboard_layouts.current_idx is the source of truth. On the
         // degraded IPC-absent path (IpcServer::start failed) we fall back to

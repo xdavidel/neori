@@ -60,9 +60,8 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    DeviceCache, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides,
-    OutputCache, OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot,
-    WorkspaceCache, WorkspaceSnapshot,
+    DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaWorkspace, OpenOverrides, OutputSnapshot,
+    PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot, WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
@@ -384,16 +383,50 @@ mod tests {
     use super::*;
     use crate::output::{MaxBpc, Mode};
 
-    /// A [`ScriptContext`] serving a fixed set of windows, for running Lua callbacks in tests.
+    /// A [`ScriptContext`] serving fixed compositor state, for running Lua callbacks in tests.
     #[derive(Default)]
     struct FakeContext {
         windows: Vec<WindowSnapshot>,
         focused: Option<u64>,
+        outputs: Vec<OutputSnapshot>,
+        focused_output: Option<String>,
+        workspaces: Vec<WorkspaceSnapshot>,
+        focused_workspace: Option<u64>,
+        pointer: Option<PointerSnapshot>,
+        devices: Vec<DeviceSnapshot>,
+        keyboard_layout: Option<String>,
     }
 
     impl FakeContext {
         fn new(windows: Vec<WindowSnapshot>, focused: Option<u64>) -> Self {
-            Self { windows, focused }
+            Self {
+                windows,
+                focused,
+                ..Default::default()
+            }
+        }
+
+        fn with_outputs(outputs: Vec<OutputSnapshot>, focused: Option<&str>) -> Self {
+            Self {
+                outputs,
+                focused_output: focused.map(String::from),
+                ..Default::default()
+            }
+        }
+
+        fn with_workspaces(workspaces: Vec<WorkspaceSnapshot>, focused: Option<u64>) -> Self {
+            Self {
+                workspaces,
+                focused_workspace: focused,
+                ..Default::default()
+            }
+        }
+
+        fn with_devices(devices: Vec<DeviceSnapshot>) -> Self {
+            Self {
+                devices,
+                ..Default::default()
+            }
         }
     }
 
@@ -402,13 +435,39 @@ mod tests {
             self.windows.clone()
         }
 
-        fn window(&mut self, id: u64) -> Option<WindowSnapshot> {
-            self.windows.iter().find(|w| w.id == id).cloned()
-        }
-
         fn focused_window(&mut self) -> Option<WindowSnapshot> {
             let id = self.focused?;
             self.window(id)
+        }
+
+        fn outputs(&mut self) -> Vec<OutputSnapshot> {
+            self.outputs.clone()
+        }
+
+        fn focused_output(&mut self) -> Option<OutputSnapshot> {
+            let name = self.focused_output.clone()?;
+            self.output(&name)
+        }
+
+        fn workspaces(&mut self) -> Vec<WorkspaceSnapshot> {
+            self.workspaces.clone()
+        }
+
+        fn focused_workspace(&mut self) -> Option<WorkspaceSnapshot> {
+            let id = self.focused_workspace?;
+            self.workspace(id)
+        }
+
+        fn pointer(&mut self) -> Option<PointerSnapshot> {
+            self.pointer.clone()
+        }
+
+        fn devices(&mut self) -> Vec<DeviceSnapshot> {
+            self.devices.clone()
+        }
+
+        fn keyboard_layout(&mut self) -> Option<String> {
+            self.keyboard_layout.clone()
         }
     }
 
@@ -618,11 +677,9 @@ mod tests {
             vrr_supported: true,
             vrr_enabled: false,
         };
-        host.set_output_cache(OutputCache {
-            outputs: vec![snap.clone()],
-            focused: Some(snap),
-        });
-        host.call_event("startup").unwrap();
+        let name = snap.name.clone();
+        let mut ctx = FakeContext::with_outputs(vec![snap], Some(&name));
+        with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
         let captured = host.read_global("captured").unwrap();
         let mlua::Value::Table(t) = captured else {
@@ -673,11 +730,9 @@ mod tests {
             off: false,
             ..Default::default()
         };
-        host.set_output_cache(OutputCache {
-            outputs: vec![snap.clone()],
-            focused: Some(snap),
-        });
-        host.call_event("startup").unwrap();
+        let name = snap.name.clone();
+        let mut ctx = FakeContext::with_outputs(vec![snap], Some(&name));
+        with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
         let ops = host.drain_pending_output_ops();
         let kinds: Vec<&str> = ops
@@ -799,11 +854,8 @@ mod tests {
             id: 1234,
             window_ids: vec![42, 7],
         };
-        host.set_workspace_cache(WorkspaceCache {
-            workspaces: vec![ws_snap.clone()],
-            focused: Some(ws_snap),
-        });
         // ws:windows() filters the live windows by window_ids.
+        let focused_ws = Some(ws_snap.id);
         let mut ctx = FakeContext::new(
             vec![
                 WindowSnapshot {
@@ -824,6 +876,8 @@ mod tests {
             ],
             None,
         );
+        ctx.workspaces = vec![ws_snap];
+        ctx.focused_workspace = focused_ws;
         with_script_context(&mut ctx, || host.call_event("startup")).unwrap();
 
         let captured = host.read_global("captured").unwrap();
@@ -1020,30 +1074,28 @@ mod tests {
         assert_eq!(count_cold, 0);
 
         // Seed with three devices: a touchpad, a mouse, a keyboard.
-        host.set_device_cache(DeviceCache {
-            devices: vec![
-                DeviceSnapshot {
-                    name: "SynPS/2 Touchpad".into(),
-                    sysname: "event4".into(),
-                    is_pointer: true,
-                    is_touchpad: true,
-                    ..Default::default()
-                },
-                DeviceSnapshot {
-                    name: "Logitech MX Master".into(),
-                    sysname: "event6".into(),
-                    is_pointer: true,
-                    ..Default::default()
-                },
-                DeviceSnapshot {
-                    name: "AT Translated Set 2 keyboard".into(),
-                    sysname: "event3".into(),
-                    is_keyboard: true,
-                    ..Default::default()
-                },
-            ],
-        });
-        let _ = host.call_bind_function(1).unwrap();
+        let mut ctx = FakeContext::with_devices(vec![
+            DeviceSnapshot {
+                name: "SynPS/2 Touchpad".into(),
+                sysname: "event4".into(),
+                is_pointer: true,
+                is_touchpad: true,
+                ..Default::default()
+            },
+            DeviceSnapshot {
+                name: "Logitech MX Master".into(),
+                sysname: "event6".into(),
+                is_pointer: true,
+                ..Default::default()
+            },
+            DeviceSnapshot {
+                name: "AT Translated Set 2 keyboard".into(),
+                sysname: "event3".into(),
+                is_keyboard: true,
+                ..Default::default()
+            },
+        ]);
+        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         let ops = host.drain_pending_device_ops();
         assert_eq!(
             ops.len(),
@@ -1097,16 +1149,14 @@ mod tests {
         .config
         .unwrap();
 
-        host.set_device_cache(DeviceCache {
-            devices: vec![DeviceSnapshot {
-                name: "mouse".into(),
-                sysname: "event1".into(),
-                is_pointer: true,
-                ..Default::default()
-            }],
-        });
+        let mut ctx = FakeContext::with_devices(vec![DeviceSnapshot {
+            name: "mouse".into(),
+            sysname: "event1".into(),
+            is_pointer: true,
+            ..Default::default()
+        }]);
 
-        let err = host.call_bind_function(1).unwrap_err();
+        let err = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap_err();
         assert!(err.contains("out of range"), "unexpected error: {err}");
         assert!(host.drain_pending_device_ops().is_empty());
     }
@@ -1147,14 +1197,16 @@ mod tests {
         assert!(t.get::<bool>("pointer_nil").unwrap());
         assert!(t.get::<bool>("layout_nil").unwrap());
 
-        // Seed caches and drive the bind.
-        host.set_pointer_cache(PointerSnapshot {
-            x: 42.5,
-            y: 17.25,
-            output_name: Some("eDP-1".into()),
-        });
-        host.set_keyboard_layout(Some("English (US)".into()));
-        let _ = host.call_bind_function(1).unwrap();
+        let mut ctx = FakeContext {
+            pointer: Some(PointerSnapshot {
+                x: 42.5,
+                y: 17.25,
+                output_name: Some("eDP-1".into()),
+            }),
+            keyboard_layout: Some("English (US)".into()),
+            ..Default::default()
+        };
+        let _ = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
 
         let seen = host.read_global("seen").unwrap();
         let mlua::Value::Table(t) = seen else {
@@ -1390,12 +1442,10 @@ mod tests {
             id: 777,
             window_ids: vec![],
         };
-        host.set_workspace_cache(WorkspaceCache {
-            workspaces: vec![ws_snap.clone()],
-            focused: Some(ws_snap),
-        });
+        let id = ws_snap.id;
+        let mut ctx = FakeContext::with_workspaces(vec![ws_snap], Some(id));
 
-        let actions = host.call_bind_function(1).unwrap();
+        let actions = with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
         let kinds: Vec<&str> = actions
             .iter()
             .map(|a| match a {
@@ -1767,6 +1817,136 @@ mod tests {
             host.read_global("focused_at_parse").unwrap(),
             mlua::Value::Nil
         ));
+    }
+
+    #[test]
+    fn stashed_output_workspace_and_device_read_live_state() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                out = out or neori.focused_output()
+                ws = ws or neori.focused_workspace()
+                dev = dev or neori.devices()[1]
+                scale = out:scale()
+                off = out:is_off()
+                ws_name = ws:name()
+                ws_idx = ws:idx()
+                dev_name = dev:name()
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let read = |name: &str| host.read_global(name).unwrap();
+        let ctx = |scale, ws_name: &str, idx, dev_name: &str| FakeContext {
+            outputs: vec![OutputSnapshot {
+                name: "eDP-1".into(),
+                scale: Some(scale),
+                ..Default::default()
+            }],
+            focused_output: Some("eDP-1".into()),
+            workspaces: vec![WorkspaceSnapshot {
+                id: 5,
+                idx,
+                name: Some(ws_name.into()),
+                ..Default::default()
+            }],
+            focused_workspace: Some(5),
+            devices: vec![DeviceSnapshot {
+                sysname: "event4".into(),
+                name: dev_name.into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut first = ctx(1.0, "web", 1, "old");
+        with_script_context(&mut first, || host.call_bind_function(1)).unwrap();
+        assert!(matches!(read("scale"), mlua::Value::Number(s) if s == 1.0));
+
+        let mut second = ctx(2.0, "chat", 3, "new");
+        with_script_context(&mut second, || host.call_bind_function(1)).unwrap();
+        assert!(matches!(read("scale"), mlua::Value::Number(s) if s == 2.0));
+        assert!(matches!(read("off"), mlua::Value::Boolean(false)));
+        assert!(matches!(read("ws_idx"), mlua::Value::Integer(3)));
+        let mlua::Value::String(ws_name) = read("ws_name") else {
+            panic!("ws_name is not a string");
+        };
+        assert_eq!(ws_name.to_str().unwrap(), "chat");
+        let mlua::Value::String(dev_name) = read("dev_name") else {
+            panic!("dev_name is not a string");
+        };
+        assert_eq!(dev_name.to_str().unwrap(), "new");
+
+        // The output is no longer listed (turned off or unplugged): it reads as off, and the
+        // other objects keep their last known state.
+        let mut gone = FakeContext::default();
+        with_script_context(&mut gone, || host.call_bind_function(1)).unwrap();
+        assert!(matches!(read("off"), mlua::Value::Boolean(true)));
+        assert!(matches!(read("scale"), mlua::Value::Number(s) if s == 1.0));
+        assert!(matches!(read("ws_idx"), mlua::Value::Integer(1)));
+    }
+
+    #[test]
+    fn output_enable_checks_live_state() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+Alt+T", function()
+                out = out or neori.focused_output()
+                out:enable(true)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let output = || OutputSnapshot {
+            name: "eDP-1".into(),
+            ..Default::default()
+        };
+
+        // On: enable(true) is a no-op.
+        let mut ctx = FakeContext::with_outputs(vec![output()], Some("eDP-1"));
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        assert!(host.drain_pending_output_ops().is_empty());
+
+        // Turned off since: enable(true) turns it back on.
+        let mut ctx = FakeContext::default();
+        with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
+        let ops = host.drain_pending_output_ops();
+        assert_eq!(ops.len(), 1, "{ops:?}");
+        assert_eq!(ops[0].0, "eDP-1");
+        assert!(matches!(ops[0].1, neori_ipc::OutputAction::On));
+    }
+
+    #[test]
+    fn queries_are_empty_without_a_callback_context() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            results = {
+                outputs = #neori.outputs(),
+                workspaces = #neori.workspaces(),
+                devices = #neori.devices(),
+                focused_output = neori.focused_output() == nil,
+                focused_workspace = neori.focused_workspace() == nil,
+                pointer = neori.pointer() == nil,
+                layout = neori.keyboard_layout() == nil,
+            }
+            "#,
+        )
+        .config
+        .unwrap();
+        let mlua::Value::Table(results) = host.read_global("results").unwrap() else {
+            panic!("results is not a table");
+        };
+        for key in ["outputs", "workspaces", "devices"] {
+            assert_eq!(results.get::<i64>(key).unwrap(), 0, "{key}");
+        }
+        for key in ["focused_output", "focused_workspace", "pointer", "layout"] {
+            assert!(results.get::<bool>(key).unwrap(), "{key}");
+        }
     }
 
     #[test]
