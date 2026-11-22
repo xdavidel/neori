@@ -3,6 +3,14 @@
 //! [`State`] implements [`ScriptContext`], so Lua reads compositor state live while a callback
 //! runs. Every callback goes through [`State::run_lua`], which installs that context and then
 //! dispatches whatever the callback queued.
+//!
+//! Lua never runs inside another Lua callback, except for `window-opening`, whose result is
+//! needed right away. An event that fires while a callback or the actions it queued are running
+//! goes into the [`LuaEventQueue`], and is delivered once the current callback is done. Events
+//! caused by a queued event are queued one level deeper; past [`MAX_LUA_EVENT_DEPTH`] levels they
+//! are dropped, so handlers that keep triggering each other can't loop forever.
+
+use std::collections::VecDeque;
 
 use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
@@ -123,6 +131,45 @@ fn global_workspace_info_for_window(
     None
 }
 
+/// How many levels deep an event may be caused by other events before it is dropped.
+pub const MAX_LUA_EVENT_DEPTH: u32 = 16;
+
+/// A Lua event waiting to be delivered.
+struct DeferredLua {
+    label: String,
+    run: Box<dyn FnOnce() -> Result<Vec<neori_config::Action>, String>>,
+    allow_when_locked: bool,
+    time: InputTime,
+    depth: u32,
+}
+
+/// Lua events that fired while Lua was already running.
+#[derive(Default)]
+pub struct LuaEventQueue {
+    /// The depth of the event being delivered, or `None` when no Lua is running.
+    current: Option<u32>,
+    queue: VecDeque<DeferredLua>,
+}
+
+impl LuaEventQueue {
+    /// Whether a Lua callback, or the dispatch of what it queued, is running.
+    pub fn is_running(&self) -> bool {
+        self.current.is_some()
+    }
+
+    /// Queues an event fired while Lua is running, one level deeper than the current one.
+    /// Returns the depth, or `Err` with the depth if it's too deep and was dropped.
+    fn defer(&mut self, mut event: DeferredLua) -> Result<u32, u32> {
+        let depth = self.current.map_or(0, |d| d + 1);
+        if depth > MAX_LUA_EVENT_DEPTH {
+            return Err(depth);
+        }
+        event.depth = depth;
+        self.queue.push_back(event);
+        Ok(depth)
+    }
+}
+
 impl ScriptContext for State {
     fn windows(&mut self) -> Vec<WindowSnapshot> {
         window_snapshots(&self.neori)
@@ -206,7 +253,10 @@ impl State {
     ///
     /// `label` names the callback in error messages. Errors are warn!'d and flash the
     /// config-error notification; they do not propagate.
-    pub fn run_lua<A: IntoLuaMulti + Clone>(
+    ///
+    /// If Lua is already running, the call is queued instead, and runs once the current callback
+    /// is done (see the module docs).
+    pub fn run_lua<A: IntoLuaMulti + Clone + 'static>(
         &mut self,
         label: &str,
         call: LuaCall,
@@ -214,8 +264,51 @@ impl State {
         allow_when_locked: bool,
         time: InputTime,
     ) {
-        let result = self.call_lua(call, args);
-        self.dispatch_lua_result(label, result, allow_when_locked, time);
+        let event = DeferredLua {
+            label: label.to_owned(),
+            run: Box::new(move || call.run(args)),
+            allow_when_locked,
+            time,
+            depth: 0,
+        };
+        if self.lua_events.is_running() {
+            if let Err(depth) = self.lua_events.defer(event) {
+                warn!(
+                    "Lua {label} callback dropped: Lua events caused each other {depth} levels \
+                     deep; do handlers keep triggering each other?"
+                );
+                self.neori.config_error_notification.show();
+            }
+            return;
+        }
+        self.with_lua_running(0, |state| state.deliver(event));
+        self.deliver_queued_lua_events();
+    }
+
+    /// Runs `f` with Lua marked as running at `depth`, so that events it fires are queued.
+    pub(crate) fn with_lua_running<R>(&mut self, depth: u32, f: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = self.lua_events.current.replace(depth);
+        let result = f(self);
+        self.lua_events.current = outer;
+        result
+    }
+
+    /// Runs a Lua event and dispatches what it queued.
+    fn deliver(&mut self, event: DeferredLua) {
+        let result = with_script_context(self, event.run);
+        self.dispatch_lua_result(&event.label, result, event.allow_when_locked, event.time);
+    }
+
+    /// Delivers queued Lua events in order, including the ones they cause in turn.
+    ///
+    /// Only the outermost delivery does this; nested ones leave it to it.
+    pub(crate) fn deliver_queued_lua_events(&mut self) {
+        if self.lua_events.is_running() {
+            return;
+        }
+        while let Some(event) = self.lua_events.queue.pop_front() {
+            self.with_lua_running(event.depth, |state| state.deliver(event));
+        }
     }
 
     /// Runs a prepared Lua call with `self` as its [`ScriptContext`], without dispatching
@@ -260,7 +353,7 @@ impl State {
 
     /// Runs the Lua handlers for `event`, if there are any, including those connected to
     /// `target`, the object the event is about.
-    fn run_lua_event<A: IntoLuaMulti + Clone>(
+    fn run_lua_event<A: IntoLuaMulti + Clone + 'static>(
         &mut self,
         event: &str,
         target: Option<SignalTarget>,
@@ -294,12 +387,19 @@ impl State {
         let Some(call) = self.scripting.event_call("window-opening", None) else {
             return neori_config::OpenOverrides::default();
         };
-        self.scripting.begin_open_overrides();
-        let result = self.call_lua(call, LuaWindow(snapshot));
-        // Take the overrides before dispatching: an action could open another window and
-        // re-enter this function.
-        let overrides = self.scripting.take_open_overrides();
-        self.dispatch_lua_result("window-opening", result, false, InputTime::now());
+        // The window waits for the result, so this runs right away even if Lua is already
+        // running. Events it causes are queued as usual.
+        let depth = self.lua_events.current.map_or(0, |d| d + 1);
+        let overrides = self.with_lua_running(depth, |state| {
+            state.scripting.begin_open_overrides();
+            let result = state.call_lua(call, LuaWindow(snapshot));
+            // Take the overrides before dispatching: an action could open another window and
+            // re-enter this function.
+            let overrides = state.scripting.take_open_overrides();
+            state.dispatch_lua_result("window-opening", result, false, InputTime::now());
+            overrides
+        });
+        self.deliver_queued_lua_events();
         overrides
     }
 
@@ -568,5 +668,51 @@ fn smithay_transform_name(t: smithay::utils::Transform) -> &'static str {
         Transform::Flipped90 => "flipped-90",
         Transform::Flipped180 => "flipped-180",
         Transform::Flipped270 => "flipped-270",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(label: &str) -> DeferredLua {
+        DeferredLua {
+            label: label.to_owned(),
+            run: Box::new(|| Ok(Vec::new())),
+            allow_when_locked: false,
+            time: InputTime::now(),
+            depth: 0,
+        }
+    }
+
+    #[test]
+    fn queued_events_are_one_level_deeper_and_in_order() {
+        let mut queue = LuaEventQueue::default();
+        assert!(!queue.is_running());
+
+        queue.current = Some(0);
+        assert_eq!(queue.defer(event("a")), Ok(1));
+        assert_eq!(queue.defer(event("b")), Ok(1));
+        queue.current = Some(4);
+        assert_eq!(queue.defer(event("c")), Ok(5));
+
+        let order: Vec<_> = queue
+            .queue
+            .iter()
+            .map(|e| (e.label.as_str(), e.depth))
+            .collect();
+        assert_eq!(order, [("a", 1), ("b", 1), ("c", 5)]);
+    }
+
+    #[test]
+    fn too_deep_events_are_dropped() {
+        let mut queue = LuaEventQueue {
+            current: Some(MAX_LUA_EVENT_DEPTH - 1),
+            ..Default::default()
+        };
+        assert_eq!(queue.defer(event("last")), Ok(MAX_LUA_EVENT_DEPTH));
+        queue.current = Some(MAX_LUA_EVENT_DEPTH);
+        assert_eq!(queue.defer(event("dropped")), Err(MAX_LUA_EVENT_DEPTH + 1));
+        assert_eq!(queue.queue.len(), 1);
     }
 }

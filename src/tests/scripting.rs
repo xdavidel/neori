@@ -2389,3 +2389,109 @@ fn signal_list_tracks_handlers_through_real_events() {
     press_first_function_bind(&mut f);
     assert_eq!(read_global_string(&f, "summary"), "1+0");
 }
+
+fn focused_snapshot(f: &mut Fixture) -> neori_config::WindowSnapshot {
+    let neori = f.neori();
+    let mapped = neori.layout.focus().unwrap();
+    crate::script::snapshot_mapped(neori, mapped)
+}
+
+#[test]
+fn events_fired_while_lua_runs_are_delivered_afterwards_in_order() {
+    // Nothing fires Lua events from inside a callback yet, so simulate it: mark Lua as running,
+    // fire two events, and check that they wait for the "callback" to finish.
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("window-focused", function(w) log = log .. "focused;" end)
+        neori.on("layout-changed", function(name) log = log .. name .. ";" end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+    let snap = focused_snapshot(&mut f);
+    let before = read_global_string(&f, "log");
+
+    let state = f.neori_state();
+    state.with_lua_running(0, |state| {
+        state.fire_window_event("window-focused", snap);
+        state.fire_layout_changed_event("second".into());
+    });
+    assert_eq!(
+        read_global_string(&f, "log"),
+        before,
+        "must not run while Lua runs"
+    );
+
+    f.neori_state().deliver_queued_lua_events();
+    assert_eq!(
+        read_global_string(&f, "log"),
+        format!("{before}focused;second;")
+    );
+}
+
+#[test]
+fn queued_events_dispatch_their_actions() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("layout-changed", function(name)
+            neori.action("create-virtual-output", { name = name })
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_state().with_lua_running(0, |state| {
+        state.fire_layout_changed_event("from-queue".into());
+    });
+    assert!(!has_output(&mut f, "from-queue"));
+    f.neori_state().deliver_queued_lua_events();
+    assert!(has_output(&mut f, "from-queue"));
+}
+
+#[test]
+fn too_deeply_caused_events_are_dropped_with_an_error() {
+    let mut f = fixture_from_lua(
+        r#"
+        ran = 0
+        neori.on("layout-changed", function() ran = ran + 1 end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let notification_shown =
+        |f: &mut Fixture| f.neori().config_error_notification.are_animations_ongoing();
+    assert!(!notification_shown(&mut f));
+
+    // One level below the limit: still delivered.
+    let max = crate::script::MAX_LUA_EVENT_DEPTH;
+    f.neori_state().with_lua_running(max - 1, |state| {
+        state.fire_layout_changed_event("ok".into());
+    });
+    f.neori_state().deliver_queued_lua_events();
+    assert_eq!(read_global_int(&f, "ran"), 1);
+    assert!(!notification_shown(&mut f));
+
+    // At the limit: dropped, and the user is told.
+    f.neori_state().with_lua_running(max, |state| {
+        state.fire_layout_changed_event("too-deep".into());
+    });
+    f.neori_state().deliver_queued_lua_events();
+    assert_eq!(read_global_int(&f, "ran"), 1);
+    assert!(notification_shown(&mut f));
+}
+
+#[test]
+fn window_opening_still_runs_right_away_while_lua_runs() {
+    // window-opening's result is needed immediately, so it isn't queued.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("window-opening", function(w) w:open_floating(true) end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let overrides = f.neori_state().with_lua_running(0, |state| {
+        state.fire_window_opening_event(neori_config::WindowSnapshot::default())
+    });
+    assert_eq!(overrides.open_floating, Some(true));
+}

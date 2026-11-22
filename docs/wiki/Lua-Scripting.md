@@ -165,6 +165,26 @@ end)
 `emit` runs every connected function even if one fails, then raises the first error to its
 caller.
 
+### Delivery order
+
+A built-in signal never interrupts Lua code that is already running. If one fires while a
+callback runs, or while the compositor carries out the actions that callback queued, it waits
+and is delivered right after, in the order the signals fired. `window-opening` is the
+exception: the window waits for its handlers, so they always run immediately.
+
+A signal delivered that way can cause more signals, which wait their turn too. If such a chain
+goes more than 16 levels deep, the next signal is dropped, a warning is logged and the config
+error notification appears, so handlers that keep causing each other's signals can't hang the
+compositor.
+
+This only covers signals caused while Lua runs. Most built-in signals fire on the next frame
+instead (focus, workspace and output changes are noticed once per frame), and each frame starts
+over. So two `window-focused` handlers that keep focusing each other's window don't hit the
+limit: they bounce focus back and forth on every frame until one of them stops.
+
+`neori.emit` is different: it calls the handlers of your own signals directly, like a function
+call.
+
 ### Listing signals
 
 `neori.signals()` returns an array describing every built-in signal, in the order of the table

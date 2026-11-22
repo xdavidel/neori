@@ -806,6 +806,8 @@ pub struct State {
     /// config reloads so the log file stays open. `None` on tests and when the
     /// log file could not be opened — callers fall back to stdout in that case.
     pub print_log_sink: Option<PrintSink>,
+    /// Lua events that fired while Lua was already running, waiting to be delivered.
+    pub lua_events: crate::script::LuaEventQueue,
 }
 
 impl State {
@@ -854,6 +856,7 @@ impl State {
             neori,
             scripting: ScriptHost::default(),
             print_log_sink: None,
+            lua_events: Default::default(),
         };
 
         // Create any declaratively-configured virtual outputs early, so that options like
