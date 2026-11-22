@@ -2408,6 +2408,78 @@ mod tests {
     }
 
     #[test]
+    fn api_functions_cant_be_assigned() {
+        // `neori.prefer_no_csd = true` would replace the function and set nothing.
+        let msg = format!(
+            "{:?}",
+            Config::parse_mem("neori.prefer_no_csd = true").unwrap_err()
+        );
+        assert!(
+            msg.contains("neori.prefer_no_csd is a function and can't be assigned"),
+            "{msg}"
+        );
+        assert!(msg.contains("neori.prefer_no_csd(...)"), "{msg}");
+
+        // New fields are fine, for sharing code between included files, and the API keeps
+        // working and listing itself.
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.my_helper = function() return 42 end
+            helper_result = neori.my_helper()
+            neori.prefer_no_csd(true)
+            has_bind = false
+            for name in pairs(neori) do
+                if name == "bind" then has_bind = true end
+            end
+            "#,
+        )
+        .config
+        .unwrap();
+        assert!(matches!(
+            host.read_global("helper_result").unwrap(),
+            mlua::Value::Integer(42)
+        ));
+        assert!(matches!(
+            host.read_global("has_bind").unwrap(),
+            mlua::Value::Boolean(true)
+        ));
+    }
+
+    #[test]
+    fn false_disables_screenshots_and_unsets_environment_variables() {
+        let config = Config::parse_mem(
+            r#"
+            neori.screenshot_path(false)
+            neori.environment { DISPLAY = false, QT_QPA_PLATFORM = "wayland" }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.screenshot_path.0, None);
+        let mut env: Vec<_> = config
+            .environment
+            .0
+            .iter()
+            .map(|v| (v.name.as_str(), v.value.as_deref()))
+            .collect();
+        env.sort();
+        assert_eq!(
+            env,
+            [("DISPLAY", None), ("QT_QPA_PLATFORM", Some("wayland"))]
+        );
+
+        let config = Config::parse_mem(r#"neori.screenshot_path("~/shot.png")"#).unwrap();
+        assert_eq!(config.screenshot_path.0.as_deref(), Some("~/shot.png"));
+
+        // `true` isn't a path: a warning, or an error in strict mode.
+        let msg = format!(
+            "{:?}",
+            Config::parse_mem("neori.strict(true) neori.screenshot_path(true)").unwrap_err()
+        );
+        assert!(msg.contains("screenshot_path"), "{msg}");
+    }
+
+    #[test]
     fn bind_options_argument() {
         // neori.bind(key, action, options) works for every kind of action.
         let config = Config::parse_mem(

@@ -2149,8 +2149,45 @@ fn setup_neori_api(
         neori.set("emit", func).map_err(err)?;
     }
 
-    lua.globals().set("neori", neori).map_err(err)?;
+    lua.globals()
+        .set("neori", protect_api(lua, neori).map_err(err)?)
+        .map_err(err)?;
     Ok(data)
+}
+
+/// Wraps the `neori` API table so that its functions can't be overwritten.
+///
+/// `neori.prefer_no_csd = true` looks like it sets an option, but would only replace the
+/// function and set nothing. Assigning to an API function raises an error that shows the call
+/// form instead. New fields (`neori.my_helper = …`, to share code between included files) are
+/// fine, and `pairs(neori)` still lists the API.
+fn protect_api(lua: &Lua, api: LuaTable) -> LuaResult<LuaTable> {
+    let proxy = lua.create_table()?;
+    let meta = lua.create_table()?;
+    meta.set("__index", api.clone())?;
+    {
+        let api = api.clone();
+        meta.set(
+            "__newindex",
+            lua.create_function(move |_, (_, key, value): (LuaTable, Value, Value)| {
+                if let Value::Function(_) = api.raw_get::<Value>(key.clone())? {
+                    let name = key.to_string()?;
+                    return Err(LuaError::runtime(format!(
+                        "neori.{name} is a function and can't be assigned: call it instead, \
+                         like neori.{name}(...)"
+                    )));
+                }
+                api.raw_set(key, value)
+            })?,
+        )?;
+    }
+    let next: mlua::Function = lua.globals().get("next")?;
+    meta.set(
+        "__pairs",
+        lua.create_function(move |_, _: LuaTable| Ok((next.clone(), api.clone(), Value::Nil)))?,
+    )?;
+    proxy.set_metatable(Some(meta));
+    Ok(proxy)
 }
 
 /// Appends `value` to the sequence stored at `data[section]`, creating it if needed.
@@ -2436,13 +2473,11 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
             },
             Value::Boolean(b) => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = b,
-                _ => invalid_config(&format!("key `{key_str}` does not accept a boolean value"))?,
-            },
-            Value::Nil => match key_str.as_str() {
-                "screenshot_path" | "screenshot-path" => {
+                // A nil value can't be stored in a Lua table, so `false` turns saving off.
+                "screenshot_path" | "screenshot-path" if !b => {
                     config.screenshot_path = ScreenshotPath(None);
                 }
-                _ => invalid_config(&format!("key `{key_str}` does not accept a nil value"))?,
+                _ => invalid_config(&format!("key `{key_str}` does not accept a boolean value"))?,
             },
             _ => match key_str.as_str() {
                 "prefer_no_csd" | "prefer-no-csd" => config.prefer_no_csd = value_is_truthy(&value),
@@ -4543,9 +4578,10 @@ fn parse_environment_section(table: LuaTable, config: &mut Config) -> Result<(),
     for pair in table.pairs::<Value, Value>() {
         let (key, value) = pair.map_err(|e| format!("environment error: {e}"))?;
         let name = key_str(&key)?;
+        // A nil value can't be stored in a Lua table, so `false` unsets the variable.
         let val = match &value {
             Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
-            Value::Nil => None,
+            Value::Boolean(false) => None,
             _ => Some(value_to_string(&value)?),
         };
         vars.push(EnvironmentVariable { name, value: val });

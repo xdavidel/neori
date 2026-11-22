@@ -1096,7 +1096,7 @@ Enable border, set [`geometry-corner-radius`](#geometry-corner-radius) and `clip
 ![A screenshot showing a window with rounded corners, and a border](./img/border-radius-clip.png)
 
 ```lua
-neori.prefer_no_csd = true
+neori.prefer_no_csd(true)
 neori.layout {
     focus_ring = {
         off = true,

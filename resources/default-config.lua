@@ -269,15 +269,16 @@ neori.layout {
 -- }
 
 -- neori.environment {
---   "DISPLAY",
---   "XDG_CURRENT_DESKTOP=neori",
---   "QT_QPA_PLATFORM=wayland",
---   "MOZ_ENABLE_WAYLAND=1",
---   "SDL_VIDEODRIVER=wayland",
+--   DISPLAY = false,                        -- false unsets a variable
+--   XDG_CURRENT_DESKTOP = "neori",
+--   QT_QPA_PLATFORM = "wayland",
+--   MOZ_ENABLE_WAYLAND = "1",
+--   SDL_VIDEODRIVER = "wayland",
 -- }
 
--- neori.prefer_no_csd = true                -- ask toplevels to hide their own title bars
+-- neori.prefer_no_csd(true)                 -- ask toplevels to hide their own title bars
 
+-- Pass false instead to not save screenshots to disk.
 neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png")
 
 --------------------------------------------------------------------------------

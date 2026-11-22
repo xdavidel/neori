@@ -113,14 +113,14 @@ Flags are plain booleans, so they can always be set to `false` to disable them.
 -- csd.lua
 
 -- Write false to explicitly disable.
-neori.prefer_no_csd = false
+neori.prefer_no_csd(false)
 ```
 
 ```lua
 -- config.lua
 
 -- Enable prefer_no_csd in the main config.
-neori.prefer_no_csd = true
+neori.prefer_no_csd(true)
 
 -- Including csd.lua disables it again.
 neori.include("csd.lua")

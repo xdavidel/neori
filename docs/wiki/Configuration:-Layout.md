@@ -477,7 +477,7 @@ neori.layout {
 }
 -- Also ask windows to omit client-side decorations, so that
 -- they don't draw their own window shadows.
-neori.prefer_no_csd = true
+neori.prefer_no_csd(true)
 ```
 
 [CSS box-shadow]: https://developer.mozilla.org/en-US/docs/Web/CSS/box-shadow

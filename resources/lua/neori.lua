@@ -284,16 +284,17 @@ function neori.clipboard(config) end
 function neori.config_notification(config) end
 ---@param config table
 function neori.xwayland_satellite(config) end
----Environment variables for programs spawned by neori.
----@param variables table<string, string|number>
+---Environment variables for programs spawned by neori. `false` unsets a variable.
+---@param variables table<string, string|number|false>
 function neori.environment(variables) end
 ---@param config table
 function neori.debug(config) end
 ---Ask apps to not draw their own title bars and borders.
 ---@param prefer boolean
 function neori.prefer_no_csd(prefer) end
----Where screenshots are saved, as a `strftime` pattern. `~` expands to the home directory.
----@param path string
+---Where screenshots are saved, as a `strftime` pattern (`~` expands to the home directory), or
+---false to not save them.
+---@param path string|false
 function neori.screenshot_path(path) end
 ---Replaces all window rules.
 ---@param rules table[]

@@ -6,11 +6,11 @@ Here are all of these options at a glance:
 neori.on("startup", neori.spawn("waybar"))
 neori.on("startup", neori.spawn("alacritty"))
 neori.on("startup", neori.spawn_sh("qs -c ~/source/qs/MyAwesomeShell"))
-neori.prefer_no_csd = true
-neori.screenshot_path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+neori.prefer_no_csd(true)
+neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png")
 neori.environment {
     QT_QPA_PLATFORM = "wayland",
-    DISPLAY = nil,
+    DISPLAY = false,
 }
 neori.cursor {
     xcursor_theme = "breeze_cursors",
@@ -104,7 +104,7 @@ With `prefer-no-csd` set, applications that negotiate server-side decorations th
 > Restart applications after changing `prefer-no-csd` in the config to fully apply it.
 
 ```lua
-neori.prefer_no_csd = true
+neori.prefer_no_csd(true)
 ```
 
 ### `screenshot-path`
@@ -117,13 +117,13 @@ The path is formatted with `strftime(3)` to give you the screenshot date and tim
 Neori will create the last folder of the path if it doesn't exist.
 
 ```lua
-neori.screenshot_path = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png")
 ```
 
-You can also set this option to `null` to disable saving screenshots to disk.
+Pass `false` to disable saving screenshots to disk.
 
 ```lua
-neori.screenshot_path = nil
+neori.screenshot_path(false)
 ```
 
 ### `environment`
@@ -131,7 +131,11 @@ neori.screenshot_path = nil
 Override environment variables for processes spawned by neori.
 
 ```lua
-neori.environment = true
+neori.environment {
+    QT_QPA_PLATFORM = "wayland",
+    -- Unset a variable with false (a nil value can't be stored in a Lua table).
+    DISPLAY = false,
+}
 ```
 
 Note that these variables do not propagate to the systemd global environment, so tools and applications started by systemd do not see them.
