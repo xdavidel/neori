@@ -649,8 +649,10 @@ end
 -- right away, in order, so the next line already sees their result.
 --
 -- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and the
--- known limitations (no timers yet, function binds don't appear in the hotkey
--- overlay with their title).
+-- known limitations (no timers yet).
+--
+-- Bind options go in an optional third argument, for any kind of action:
+-- neori.bind("Mod+Alt+G", function() ... end, { hotkey_overlay_title = "…", ["repeat"] = false })
 
 -- A function bind that composes two actions:
 -- neori.bind("Mod+Alt+G", function()

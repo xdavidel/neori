@@ -2408,6 +2408,109 @@ mod tests {
     }
 
     #[test]
+    fn bind_options_argument() {
+        // neori.bind(key, action, options) works for every kind of action.
+        let config = Config::parse_mem(
+            r#"
+            local spawn = neori.spawn("wl-freeze")
+            neori.bind("Mod+A", function() end, {
+                ["repeat"] = false,
+                cooldown_ms = 150,
+                allow_when_locked = true,
+                allow_inhibiting = false,
+                hotkey_overlay_title = "Function",
+            })
+            neori.bind("Mod+B", spawn, { hotkey_overlay_title = "Pause program", ["repeat"] = false })
+            -- The same action table in another bind doesn't pick up the options above.
+            neori.bind("Mod+C", spawn)
+            neori.bind("Mod+D", "close-window", { hotkey_overlay_title = "Close" })
+            "#,
+        )
+        .unwrap();
+        let binds = &config.binds.0;
+
+        assert!(matches!(
+            binds[0].press_action(),
+            Some(Action::ScriptFunction { .. })
+        ));
+        assert!(!binds[0].repeat);
+        assert_eq!(
+            binds[0].cooldown,
+            Some(std::time::Duration::from_millis(150))
+        );
+        assert!(binds[0].allow_when_locked);
+        assert!(!binds[0].allow_inhibiting);
+        assert_eq!(binds[0].hotkey_overlay_title, Some(Some("Function".into())));
+
+        assert!(matches!(
+            binds[1].press_action(),
+            Some(Action::Spawn { .. })
+        ));
+        assert!(!binds[1].repeat);
+        assert_eq!(
+            binds[1].hotkey_overlay_title,
+            Some(Some("Pause program".into()))
+        );
+
+        assert!(binds[2].repeat);
+        assert_eq!(binds[2].hotkey_overlay_title, None);
+
+        assert!(matches!(
+            binds[3].press_action(),
+            Some(Action::CloseWindow { .. })
+        ));
+        assert_eq!(binds[3].hotkey_overlay_title, Some(Some("Close".into())));
+    }
+
+    #[test]
+    fn bind_options_errors() {
+        let err = |lua: &str| format!("{:?}", Config::parse_mem(lua).unwrap_err());
+
+        let msg = err(r#"neori.bind("Mod+A", "close-window", { reapeat = false })"#);
+        assert!(msg.contains("unknown bind option `reapeat`"), "{msg}");
+
+        let msg = err(
+            r#"neori.bind("Mod+A", { close_window = true, hotkey_overlay_title = "A" },
+                { hotkey_overlay_title = "B" })"#,
+        );
+        assert!(
+            msg.contains("`hotkey_overlay_title` is set both in the action and in the options"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn function_binds_take_options_in_table_form() {
+        // { press = function, <options> } gives a Lua function bind the usual bind options.
+        let config = Config::parse_mem(
+            r#"
+            neori.bind("Mod+T", {
+                press = function() end,
+                ["repeat"] = false,
+                cooldown_ms = 150,
+                allow_when_locked = true,
+                allow_inhibiting = false,
+                hotkey_overlay_title = "Do the thing",
+            })
+            "#,
+        )
+        .unwrap();
+        let bind = &config.binds.0[0];
+        assert!(matches!(
+            bind.press_action(),
+            Some(Action::ScriptFunction { .. })
+        ));
+        assert!(!bind.repeat);
+        assert_eq!(bind.cooldown, Some(std::time::Duration::from_millis(150)));
+        assert!(bind.allow_when_locked);
+        assert!(!bind.allow_inhibiting);
+        assert_eq!(
+            bind.hotkey_overlay_title,
+            Some(Some("Do the thing".to_string()))
+        );
+    }
+
+    #[test]
     fn neori_windows_reads_live_windows() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),

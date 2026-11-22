@@ -34,13 +34,32 @@ Because the call is synchronous and on the compositor thread, keep it short — 
 work by spawning a helper process (`neori.action("spawn", { … })`) instead of blocking in
 Lua. A long-running function blocks input, and there is no Lua-side timer API today.
 
-Function binds take no per-bind options — the compositor accepts `(key, function)` only.
-The flags that declarative table binds carry (`allow_when_locked`, `allow_inhibiting`,
-`repeat`, `cooldown_ms`, `hotkey_overlay_title`) have no function-bind equivalent today.
-In particular, a function bind is **never** counted as "allowed when locked" or
-"allowed during screenshot" by the default allowlist — the compositor cannot predict
-what the function will do. If you need either, bind a declarative action that already
-has those flags set, and route your custom behaviour through that.
+### Bind options
+
+`neori.bind` takes the bind's options as an optional third argument, whatever the action is:
+
+```lua
+neori.bind("Mod+Ctrl+P", function()
+    local out = neori.focused_output()
+    if out then neori.action("spawn", { "wl-mirror", out:name() }) end
+end, { hotkey_overlay_title = "Mirror Display", ["repeat"] = false })
+
+neori.bind("Mod+Return", neori.spawn("kitty"), { hotkey_overlay_title = "Terminal" })
+neori.bind("Mod+Q", "close-window", { ["repeat"] = false })
+```
+
+The options are `repeat`, `cooldown_ms`, `allow_when_locked`, `allow_inhibiting`,
+`pass_through`, `keycode` and `hotkey_overlay_title`. An unknown name is an error, and so is
+setting an option both there and in a table action (`{ close_window = true, … }` also accepts
+the options as keys).
+
+Without options, a function bind repeats while the key is held, shows a generic label in the
+hotkey overlay, and doesn't run while the session is locked or during a screenshot, since the
+compositor can't predict what the function will do. Set `allow_when_locked = true` if you need
+it.
+
+A bind can run different functions on press and release:
+`neori.bind("Mod+Space", { press = function() … end, release = function() … end })`.
 
 Lua's built-in `print(...)` is overridden to append to a log file; see
 [`print(...)` output](#print-output) below.
@@ -745,8 +764,6 @@ for that case.
 
 - Handlers that keep undoing each other across frames aren't stopped: a `window-focused`
   handler that always focuses another window makes focus bounce on every frame.
-- Function binds have no way to set a custom hotkey-overlay title — the overlay falls
-  back to a generic label because `neori.bind(key, function)` takes no options table.
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for
   function binds (the compositor can't inspect what the function does).

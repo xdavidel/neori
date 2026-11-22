@@ -1612,7 +1612,8 @@ fn setup_neori_api(
         neori.set("include", func).map_err(err)?;
     }
 
-    // neori.bind(key, action) accepts a string, a table, or a Lua function. Binds are
+    // neori.bind(key, action, options?) accepts a string, a table, or a Lua function, and an
+    // optional table of bind options (repeat, cooldown_ms, hotkey_overlay_title, …). Binds are
     // appended to a sequence so that definition order is preserved (it matters for the
     // hotkey overlay). A function callback is stored in `bind_functions` keyed by a
     // monotonic id; the parsed Bind carries that id in `Action::ScriptFunction`.
@@ -1621,73 +1622,78 @@ fn setup_neori_api(
         let bind_functions = Arc::clone(bind_functions);
         let next_bind_fn_id = Arc::clone(next_bind_fn_id);
         let func = lua
-            .create_function(move |lua, (key, action): (String, Value)| {
-                match &action {
-                    Value::String(_) | Value::Table(_) | Value::Function(_) => {}
-                    _ => {
-                        return Err(LuaError::runtime(
-                            "action must be a string, a table, or a function",
-                        ))
-                    }
-                }
-                key.parse::<Key>()
-                    .map_err(|e| LuaError::runtime(format!("invalid keybind '{key}': {e}")))?;
-
-                let binds: Option<LuaTable> = data.get("binds")?;
-                let binds = match binds {
-                    Some(binds) => binds,
-                    None => {
-                        let binds = lua.create_table()?;
-                        data.set("binds", binds.clone())?;
-                        binds
-                    }
-                };
-                for pair in binds.clone().pairs::<Value, Value>() {
-                    let (existing_key, existing_value) = pair?;
-                    let existing = match &existing_key {
-                        Value::String(s) => Some(s.to_str()?.to_string()),
-                        Value::Integer(_) => existing_value
-                            .as_table()
-                            .map(|t| t.get::<Option<String>>("key"))
-                            .and_then(Result::ok)
-                            .flatten(),
-                        _ => None,
-                    };
-                    if existing.as_deref() == Some(key.as_str()) {
-                        return Err(LuaError::runtime(format!("duplicate keybind: {key}")));
-                    }
-                }
-                let entry = lua.create_table()?;
-                entry.set("key", key)?;
-                // Encode a Lua function reference as a table action so the normal
-                // bind-entry parser picks it up via `script_fn_id`.
-                let register_fn = |f: mlua::Function| -> LuaResult<LuaTable> {
-                    let id = next_bind_fn_id.fetch_add(1, Ordering::SeqCst);
-                    bind_functions.lock().unwrap().insert(id, f);
-                    let fn_table = lua.create_table()?;
-                    fn_table.set("script_fn_id", id)?;
-                    Ok(fn_table)
-                };
-                match action {
-                    Value::Function(f) => {
-                        entry.set("action", register_fn(f)?)?;
-                    }
-                    Value::Table(t) => {
-                        // Functions can also be given as press and release actions.
-                        for slot in ["press", "release"] {
-                            if let Value::Function(f) = t.get::<Value>(slot)? {
-                                t.set(slot, register_fn(f)?)?;
-                            }
+            .create_function(
+                move |lua, (key, action, options): (String, Value, Option<LuaTable>)| {
+                    match &action {
+                        Value::String(_) | Value::Table(_) | Value::Function(_) => {}
+                        _ => {
+                            return Err(LuaError::runtime(
+                                "action must be a string, a table, or a function",
+                            ))
                         }
-                        entry.set("action", t)?;
                     }
-                    other => {
-                        entry.set("action", other)?;
+                    key.parse::<Key>()
+                        .map_err(|e| LuaError::runtime(format!("invalid keybind '{key}': {e}")))?;
+
+                    let binds: Option<LuaTable> = data.get("binds")?;
+                    let binds = match binds {
+                        Some(binds) => binds,
+                        None => {
+                            let binds = lua.create_table()?;
+                            data.set("binds", binds.clone())?;
+                            binds
+                        }
+                    };
+                    for pair in binds.clone().pairs::<Value, Value>() {
+                        let (existing_key, existing_value) = pair?;
+                        let existing = match &existing_key {
+                            Value::String(s) => Some(s.to_str()?.to_string()),
+                            Value::Integer(_) => existing_value
+                                .as_table()
+                                .map(|t| t.get::<Option<String>>("key"))
+                                .and_then(Result::ok)
+                                .flatten(),
+                            _ => None,
+                        };
+                        if existing.as_deref() == Some(key.as_str()) {
+                            return Err(LuaError::runtime(format!("duplicate keybind: {key}")));
+                        }
                     }
-                }
-                binds.push(entry)?;
-                Ok(())
-            })
+                    let entry = lua.create_table()?;
+                    entry.set("key", key)?;
+                    // Encode a Lua function reference as a table action so the normal
+                    // bind-entry parser picks it up via `script_fn_id`.
+                    let register_fn = |f: mlua::Function| -> LuaResult<LuaTable> {
+                        let id = next_bind_fn_id.fetch_add(1, Ordering::SeqCst);
+                        bind_functions.lock().unwrap().insert(id, f);
+                        let fn_table = lua.create_table()?;
+                        fn_table.set("script_fn_id", id)?;
+                        Ok(fn_table)
+                    };
+                    match action {
+                        Value::Function(f) => {
+                            entry.set("action", register_fn(f)?)?;
+                        }
+                        Value::Table(t) => {
+                            // Functions can also be given as press and release actions.
+                            for slot in ["press", "release"] {
+                                if let Value::Function(f) = t.get::<Value>(slot)? {
+                                    t.set(slot, register_fn(f)?)?;
+                                }
+                            }
+                            entry.set("action", t)?;
+                        }
+                        other => {
+                            entry.set("action", other)?;
+                        }
+                    }
+                    if let Some(options) = options {
+                        entry.set("options", options)?;
+                    }
+                    binds.push(entry)?;
+                    Ok(())
+                },
+            )
             .map_err(err)?;
         neori.set("bind", func).map_err(err)?;
     }
@@ -4623,7 +4629,7 @@ fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<
                     for bpair in t.clone().pairs::<Value, Value>() {
                         let (bk, bv) = bpair.map_err(|e| format!("{e}"))?;
                         let bks = key_str(&bk)?;
-                        let Ok(bind) = parse_bind_entry(&bks, bv) else {
+                        let Ok(bind) = parse_bind_entry(&bks, bv, None) else {
                             continue;
                         };
                         if let Err(err) = validate_recent_windows_bind(&bks, &bind, &binds) {
@@ -4648,7 +4654,7 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
         let (key, value) = pair.map_err(|e| format!("binds error: {e}"))?;
         // Sequence entries produced by neori.bind carry their key inside the entry;
         // map-style entries (from `return { binds = { ... } }`) use the table key.
-        let (key_name, action) = match key {
+        let (key_name, action, options) = match key {
             Value::Integer(_) => {
                 let entry = match value {
                     Value::Table(t) => t,
@@ -4664,11 +4670,14 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
                 let entry_action: Value = entry
                     .get("action")
                     .map_err(|e| format!("binds error: {e}"))?;
-                (entry_key, entry_action)
+                let entry_options: Option<LuaTable> = entry
+                    .get("options")
+                    .map_err(|e| format!("binds error: {e}"))?;
+                (entry_key, entry_action, entry_options)
             }
-            k => (key_str(&k)?, value),
+            k => (key_str(&k)?, value, None),
         };
-        let bind = parse_bind_entry(&key_name, action)?;
+        let bind = parse_bind_entry(&key_name, action, options)?;
         if let Some((prev_name, prev_key)) = seen_keys
             .iter()
             .find(|(_, prev_key)| prev_key.conflicts_with(&bind.key))
@@ -4688,7 +4697,91 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
     Ok(())
 }
 
-fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
+/// The options of a bind, given in its action table or in the options table of `neori.bind`.
+struct BindOptions {
+    /// `None` means the default: repeat unless the bind has a release action.
+    repeat: Option<bool>,
+    cooldown: Option<Duration>,
+    allow_when_locked: bool,
+    allow_inhibiting: bool,
+    pass_through: Option<bool>,
+    /// `None` means the default (keycode when possible, falling back to keysym for keys
+    /// without a US-layout keycode such as XF86 media keys).
+    by_keycode: Option<bool>,
+    hotkey_overlay_title: Option<String>,
+    has_hotkey_overlay_title: bool,
+    /// The options set so far, by canonical name.
+    set: Vec<&'static str>,
+}
+
+impl Default for BindOptions {
+    fn default() -> Self {
+        Self {
+            repeat: None,
+            cooldown: None,
+            allow_when_locked: false,
+            allow_inhibiting: true,
+            pass_through: None,
+            by_keycode: None,
+            hotkey_overlay_title: None,
+            has_hotkey_overlay_title: false,
+            set: Vec::new(),
+        }
+    }
+}
+
+impl BindOptions {
+    /// Sets the option `key` to `value`. Returns its canonical name, or `None` if `key` isn't a
+    /// bind option.
+    fn apply(&mut self, key: &str, value: &Value) -> Result<Option<&'static str>, String> {
+        let name = match key {
+            "repeat" => {
+                self.repeat = Some(value_is_truthy(value));
+                "repeat"
+            }
+            "cooldown_ms" => {
+                if let Ok(ms) = value_to_u64(value) {
+                    self.cooldown = Some(Duration::from_millis(ms));
+                }
+                "cooldown_ms"
+            }
+            "allow_when_locked" | "allow-when-locked" => {
+                self.allow_when_locked = value_is_truthy(value);
+                "allow_when_locked"
+            }
+            "allow_inhibiting" | "allow-inhibiting" => {
+                self.allow_inhibiting = value_is_truthy(value);
+                "allow_inhibiting"
+            }
+            "pass_through" | "pass-through" => {
+                self.pass_through = Some(value_is_truthy(value));
+                "pass_through"
+            }
+            "keycode" | "key-code" => {
+                self.by_keycode = Some(value_is_truthy(value));
+                "keycode"
+            }
+            "hotkey_overlay_title" | "hotkey-overlay-title" => {
+                self.has_hotkey_overlay_title = true;
+                self.hotkey_overlay_title = match value {
+                    Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
+                    _ => None,
+                };
+                "hotkey_overlay_title"
+            }
+            _ => return Ok(None),
+        };
+        self.set.push(name);
+        Ok(Some(name))
+    }
+}
+
+/// Parses a bind. `options` is the optional third argument of `neori.bind`.
+fn parse_bind_entry(
+    key_name: &str,
+    value: Value,
+    options: Option<LuaTable>,
+) -> Result<Bind, String> {
     let mut key: Key = key_name
         .parse::<Key>()
         .map_err(|e| format!("invalid keybind '{key_name}': {e}"))?;
@@ -4697,17 +4790,7 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
     let mut action: Option<Action> = None;
     let mut press_action: Option<Action> = None;
     let mut release_action: Option<Action> = None;
-    // `None` means the default: repeat unless the bind has a release action.
-    let mut repeat: Option<bool> = None;
-    let mut cooldown = None;
-    let mut allow_when_locked = false;
-    let mut allow_inhibiting = true;
-    let mut pass_through: Option<bool> = None;
-    // `None` means the default (keycode when possible, falling back to keysym for keys
-    // without a US-layout keycode such as XF86 media keys).
-    let mut by_keycode: Option<bool> = None;
-    let mut hotkey_overlay_title: Option<String> = None;
-    let mut has_hotkey_overlay_title = false;
+    let mut opts = BindOptions::default();
 
     match &value {
         Value::String(s) => {
@@ -4740,36 +4823,10 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
                     action = Some(a);
                     continue;
                 }
+                if opts.apply(&aks, &av)?.is_some() {
+                    continue;
+                }
                 match aks.as_str() {
-                    "repeat" => {
-                        repeat = Some(value_is_truthy(&av));
-                    }
-                    "cooldown_ms" => {
-                        if let Ok(ms) = value_to_u64(&av) {
-                            cooldown = Some(Duration::from_millis(ms));
-                        }
-                    }
-                    "allow_when_locked" | "allow-when-locked" => {
-                        allow_when_locked = value_is_truthy(&av);
-                    }
-                    "allow_inhibiting" | "allow-inhibiting" => {
-                        allow_inhibiting = value_is_truthy(&av);
-                    }
-                    "pass_through" | "pass-through" => {
-                        pass_through = Some(value_is_truthy(&av));
-                    }
-                    "keycode" | "key-code" => {
-                        by_keycode = Some(value_is_truthy(&av));
-                    }
-                    "hotkey_overlay_title" | "hotkey-overlay-title" => {
-                        has_hotkey_overlay_title = true;
-                        if let Value::String(s) = &av {
-                            hotkey_overlay_title =
-                                Some(s.to_str().map_err(|e| format!("{e}"))?.to_string());
-                        } else {
-                            hotkey_overlay_title = None;
-                        }
-                    }
                     "skip_confirmation" | "skip-confirmation" | "write_to_disk"
                     | "write-to-disk" | "show_pointer" | "show-pointer" | "delay_ms"
                     | "delay-ms" | "path" => {}
@@ -4779,6 +4836,41 @@ fn parse_bind_entry(key_name: &str, value: Value) -> Result<Bind, String> {
         }
         _ => {}
     }
+
+    // Options from the separate options table.
+    if let Some(options) = options {
+        let in_action = opts.set.clone();
+        for pair in options.pairs::<Value, Value>() {
+            let (ok, ov) = pair.map_err(|e| format!("bind {key_name}: options: {e}"))?;
+            let oks = key_str(&ok)?;
+            match opts.apply(&oks, &ov)? {
+                Some(name) if in_action.contains(&name) => {
+                    return Err(format!(
+                        "bind {key_name}: `{name}` is set both in the action and in the options"
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    return Err(format!(
+                        "bind {key_name}: unknown bind option `{oks}` (expected repeat, \
+                         cooldown_ms, allow_when_locked, allow_inhibiting, pass_through, keycode \
+                         or hotkey_overlay_title)"
+                    ));
+                }
+            }
+        }
+    }
+    let BindOptions {
+        repeat,
+        cooldown,
+        allow_when_locked,
+        mut allow_inhibiting,
+        pass_through,
+        by_keycode,
+        hotkey_overlay_title,
+        has_hotkey_overlay_title,
+        ..
+    } = opts;
 
     if action.is_some() && (press_action.is_some() || release_action.is_some()) {
         return Err(format!(
@@ -6073,7 +6165,7 @@ mod tests {
 
     fn bind(lua: &Lua, key: &str) -> Bind {
         let action = Value::String(lua.create_string("close-window").unwrap());
-        parse_bind_entry(key, action).unwrap()
+        parse_bind_entry(key, action, None).unwrap()
     }
 
     #[test]
