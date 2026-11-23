@@ -100,6 +100,11 @@ pub struct WindowSnapshot {
     pub is_fullscreen: bool,
     /// Whether the window requests attention.
     pub is_urgent: bool,
+    /// Whether the window is maximized to the edges of its output.
+    pub is_maximized: bool,
+    /// Process id of the app, or `None` if unknown or shared by many windows (X11 windows all
+    /// belong to xwayland-satellite).
+    pub pid: Option<i32>,
     /// 1-based global index of the workspace the window lives on.
     pub workspace_idx: Option<u8>,
     pub workspace_name: Option<String>,
@@ -809,6 +814,17 @@ impl mlua::UserData for Window {
         methods.add_method("is_focused", |_, this, ()| Ok(this.current().is_focused));
         methods.add_method("is_floating", |_, this, ()| Ok(this.current().is_floating));
         methods.add_method("is_urgent", |_, this, ()| Ok(this.current().is_urgent));
+        methods.add_method("is_maximized", |_, this, ()| {
+            Ok(this.current().is_maximized)
+        });
+        methods.add_method("pid", |_, this, ()| Ok(this.current().pid));
+        // w:geometry() -> { x, y, width, height }, or nil once the window is gone.
+        methods.add_method("geometry", |_, this, ()| {
+            if this.0.id == 0 {
+                return Ok(None);
+            }
+            Ok(with_context(|ctx| ctx.window_geometry(this.0.id)).flatten())
+        });
         methods.add_method("is_fullscreen", |_, this, ()| {
             Ok(this.current().is_fullscreen)
         });
@@ -843,6 +859,33 @@ impl mlua::UserData for Window {
         methods.add_method("focus", |_, this, ()| {
             apply_action(Action::FocusWindow { id: this.0.id })?;
             Ok(())
+        });
+
+        // w:maximize(true) / w:maximize(false) / w:maximize() (toggle): maximized to the
+        // edges of the output, like `maximize-window-to-edges`.
+        methods.add_method("maximize", |_, this, enable: Option<bool>| {
+            if let Some(desired) = enable {
+                if desired == this.current().is_maximized {
+                    return Ok(());
+                }
+            }
+            apply_action(Action::MaximizeWindowToEdges {
+                id: Some(this.0.id),
+            })
+        });
+
+        methods.add_method("center", |_, this, ()| {
+            apply_action(Action::CenterWindow {
+                id: Some(this.0.id),
+            })
+        });
+
+        // w:kill() ends the app's process with SIGKILL, for an app that doesn't react to
+        // w:close().
+        methods.add_method("kill", |_, this, ()| {
+            with_context(|ctx| ctx.kill_window(this.0.id))
+                .ok_or_else(|| outside_callback("Window"))?
+                .map_err(LuaError::runtime)
         });
 
         // `w:fullscreen(true)` / `w:fullscreen(false)` / `w:fullscreen()` (toggle).
@@ -1638,6 +1681,29 @@ fn format_lua_value(lua: &Lua, value: &Value, depth: usize) -> LuaResult<String>
     })
 }
 
+/// Where a window is, as `w:geometry()` returns it, in the compositor's global logical space.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowGeometry {
+    /// Position of the window's top-left corner, or `None` while it isn't on screen (for
+    /// example on a workspace that isn't shown).
+    pub position: Option<(f64, f64)>,
+    pub width: i32,
+    pub height: i32,
+}
+
+impl IntoLua for WindowGeometry {
+    fn into_lua(self, lua: &Lua) -> LuaResult<Value> {
+        let t = lua.create_table()?;
+        if let Some((x, y)) = self.position {
+            t.set("x", x)?;
+            t.set("y", y)?;
+        }
+        t.set("width", self.width)?;
+        t.set("height", self.height)?;
+        Ok(Value::Table(t))
+    }
+}
+
 /// The old value of a property, passed to the handlers of a property signal like
 /// `window-title-changed`.
 #[derive(Debug, Clone, PartialEq)]
@@ -2125,6 +2191,18 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set("action", func).map_err(err)?;
+    }
+
+    // neori.window_at(x, y) returns the window at those global coordinates, or nil.
+    {
+        let func = lua
+            .create_function(|_, (x, y): (f64, f64)| {
+                Ok(with_context(|ctx| ctx.window_at(x, y))
+                    .flatten()
+                    .map(Window))
+            })
+            .map_err(err)?;
+        neori.set("window_at", func).map_err(err)?;
     }
 
     // neori.windows() returns every mapped window, and neori.focused_window() the focused

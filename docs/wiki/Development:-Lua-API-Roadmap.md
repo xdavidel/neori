@@ -48,8 +48,8 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 ### Phase 2: wider object coverage
 
-- **Window:** `pid`, `geometry`, `urgent`, `maximized`, `opacity`, `parent`, `kill()`, `center()`,
-  and `neori.window_at(x, y)`.
+- **Window (done, except `opacity` and `parent`):** `pid`, `geometry`, `is_urgent`, `is_maximized`,
+  `maximize()`, `kill()`, `center()`, and `neori.window_at(x, y)`.
 - **Output:** `workarea`, physical size, `dpms`, `enabled`, `windows()`, and `neori.output_at(x, y)`.
 - **Input devices:** `device-added` and `device-removed` signals, and settable `accel_profile`,
   `scroll_method`, `click_method`, `dwt`, `middle_emulation`, `map_to_output`.

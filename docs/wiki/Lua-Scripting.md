@@ -434,6 +434,8 @@ declare entries one by one with the singular form instead.
 
 Inside any Lua callback (bind or event), `neori.windows()` returns an array of the
 mapped windows, and `neori.focused_window()` returns the focused one or `nil`.
+`neori.window_at(x, y)` returns the window at those global coordinates, for example the one under
+the pointer: `neori.window_at(neori.pointer().x, neori.pointer().y)`.
 While the config file itself is being evaluated there are no windows yet: they return
 an empty array and `nil`.
 Window event handlers receive the subject `Window` as their argument.
@@ -496,6 +498,9 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:is_floating()`   | boolean                                                    |
 | `w:is_fullscreen()` | boolean                                                    |
 | `w:is_urgent()`     | boolean — whether the window requests attention            |
+| `w:is_maximized()`  | boolean — maximized to the edges of its output             |
+| `w:pid()`           | the app's process id, or `nil` (always `nil` for X11 windows, which all belong to xwayland-satellite) |
+| `w:geometry()`      | `{ x, y, width, height }` in global logical coordinates; `x` and `y` are `nil` while the window isn't on screen |
 | `w:workspace()`     | `{ idx = <number>, name = <string?> }` or `nil`            |
 | `w:output()`        | connector-name string or `nil`                             |
 
@@ -511,6 +516,9 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:float(true)`               | Move to the floating layout (idempotent).                |
 | `w:float(false)`              | Move to the tiling layout (idempotent).                  |
 | `w:float()`                   | Toggle between floating and tiling.                       |
+| `w:maximize(true/false/())`   | Maximize to the output's edges, restore, or toggle (`maximize-window-to-edges`). |
+| `w:center()`                  | Center the window on its output.                          |
+| `w:kill()`                    | End the app's process with SIGKILL, for an app that ignores `w:close()`. Errors for X11 windows, whose process serves every X11 app. |
 | `w:send_to_workspace(n)`      | Move to workspace index `n` (1-based).                   |
 | `w:send_to_workspace("name")` | Move to the named workspace.                             |
 | `w:send_to_output("eDP-1")`   | Move to the named output.                                |

@@ -49,7 +49,13 @@ pub fn window_snapshot(
     is_focused: bool,
     placement: Option<Placement>,
     output_name: Option<String>,
+    xwayland_pid: Option<i32>,
 ) -> WindowSnapshot {
+    // X11 windows all belong to xwayland-satellite, so its pid says nothing about the window.
+    let pid = mapped
+        .credentials()
+        .map(|c| c.pid)
+        .filter(|&pid| Some(pid) != xwayland_pid);
     WindowSnapshot {
         id: mapped.id().get(),
         app_id: mapped.last_known_app_id().map(str::to_owned),
@@ -61,10 +67,17 @@ pub fn window_snapshot(
             .map_or_else(|| mapped.is_floating(), |p| p.floating),
         is_fullscreen: mapped.pending_sizing_mode().is_fullscreen(),
         is_urgent: mapped.is_urgent(),
+        is_maximized: mapped.pending_sizing_mode().is_maximized(),
+        pid,
         workspace_idx: placement.as_ref().map(|p| p.idx),
         workspace_name: placement.and_then(|p| p.name),
         output_name,
     }
+}
+
+/// The pid of xwayland-satellite, which all X11 windows belong to, if it runs.
+fn xwayland_pid(neori: &Neori) -> Option<i32> {
+    neori.satellite.as_ref().and_then(|s| s.pid())
 }
 
 /// Where a window is in the layout.
@@ -87,12 +100,13 @@ pub fn snapshot_mapped(neori: &Neori, mapped: &Mapped) -> WindowSnapshot {
         .find_window_and_output(mapped.window.toplevel().expect("no x11").wl_surface())
         .and_then(|(_, output)| output.map(|o| o.name()));
     let is_focused = neori.layout.focus().is_some_and(|f| f.id() == mapped.id());
-    window_snapshot(mapped, is_focused, placement, out_name)
+    window_snapshot(mapped, is_focused, placement, out_name, xwayland_pid(neori))
 }
 
 /// Snapshots every mapped window, resolving its workspace (global 1-based index) and output
 /// name.
 pub fn window_snapshots(neori: &Neori) -> Vec<WindowSnapshot> {
+    let xwayland_pid = xwayland_pid(neori);
     let focused = neori.layout.focus().map(Mapped::id);
     // Pre-build a reverse index window-id → (global workspace idx, workspace name)
     // in one pass over workspaces. The naive per-window version (which the
@@ -125,7 +139,13 @@ pub fn window_snapshots(neori: &Neori) -> Vec<WindowSnapshot> {
             None => (None, None),
         };
         let is_focused = focused == Some(mapped.id());
-        windows.push(window_snapshot(mapped, is_focused, placement, out_name));
+        windows.push(window_snapshot(
+            mapped,
+            is_focused,
+            placement,
+            out_name,
+            xwayland_pid,
+        ));
     }
 
     windows
@@ -314,6 +334,78 @@ impl ScriptContext for State {
     fn focused_window(&mut self) -> Option<WindowSnapshot> {
         let mapped = self.neori.layout.focus()?;
         Some(snapshot_mapped(&self.neori, mapped))
+    }
+
+    fn window_geometry(&mut self, id: u64) -> Option<neori_config::WindowGeometry> {
+        let global_space = &self.neori.global_space;
+        // A window has a position on screen only if its workspace is the one its monitor shows.
+        let shown: HashSet<_> = self
+            .neori
+            .layout
+            .monitors()
+            .map(|mon| mon.active_workspace_ref().id())
+            .collect();
+        let mut geometry = None;
+        self.neori
+            .layout
+            .with_windows(|mapped, output, ws_id, layout| {
+                if geometry.is_some() || mapped.id().get() != id {
+                    return;
+                }
+                let output_loc = output
+                    .filter(|_| ws_id.is_some_and(|ws| shown.contains(&ws)))
+                    .and_then(|o| global_space.output_geometry(o))
+                    .map(|g| g.loc.to_f64());
+                let position =
+                    output_loc
+                        .zip(layout.tile_pos_in_workspace_view)
+                        .map(|(output, (x, y))| {
+                            let (dx, dy) = layout.window_offset_in_tile;
+                            (output.x + x + dx, output.y + y + dy)
+                        });
+                geometry = Some(neori_config::WindowGeometry {
+                    position,
+                    width: layout.window_size.0,
+                    height: layout.window_size.1,
+                });
+            });
+        geometry
+    }
+
+    fn window_at(&mut self, x: f64, y: f64) -> Option<WindowSnapshot> {
+        let mapped = self
+            .neori
+            .window_under(smithay::utils::Point::from((x, y)))?;
+        Some(snapshot_mapped(&self.neori, mapped))
+    }
+
+    fn kill_window(&mut self, id: u64) -> Result<(), String> {
+        let (_, mapped) = self
+            .neori
+            .layout
+            .windows()
+            .find(|(_, m)| m.id().get() == id)
+            .ok_or("this window is gone")?;
+        let pid = mapped
+            .credentials()
+            .map(|c| c.pid)
+            .ok_or("this window's process is unknown")?;
+        if Some(pid) == xwayland_pid(&self.neori) {
+            return Err(
+                "can't kill an X11 window: its process, xwayland-satellite, serves every \
+                        X11 app; use w:close() instead"
+                    .to_owned(),
+            );
+        }
+        if pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
+            return Err(format!("refusing to kill process {pid}"));
+        }
+        // SAFETY: kill() has no memory safety requirements.
+        if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
+            let err = std::io::Error::last_os_error();
+            return Err(format!("error killing process {pid}: {err}"));
+        }
+        Ok(())
     }
 
     fn outputs(&mut self) -> Vec<OutputSnapshot> {

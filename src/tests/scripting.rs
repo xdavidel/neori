@@ -3089,3 +3089,101 @@ fn reload_leaves_a_mode_that_is_gone() {
     );
     assert_eq!(f.state.server.state.neori.active_mode, None);
 }
+
+#[test]
+fn window_pid_geometry_and_window_at() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            local g = w:geometry()
+            info = string.format("pid=%s w=%d h=%d", tostring(w:pid() ~= nil), g.width, g.height)
+            on_screen = g.x ~= nil and g.y ~= nil
+            local under = neori.window_at(g.x + g.width / 2, g.y + g.height / 2)
+            found = under ~= nil and under:id() == w:id()
+            nothing = neori.window_at(-10000, -10000) == nil
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    use crate::layout::LayoutElement;
+    let size = f.neori().layout.focus().unwrap().size();
+    assert_eq!(
+        read_global_string(&f, "info"),
+        format!("pid=true w={} h={}", size.w, size.h)
+    );
+    let read_bool = |f: &Fixture, name: &str| {
+        matches!(
+            f.state.server.state.scripting.read_global(name).unwrap(),
+            neori_config::mlua::Value::Boolean(true)
+        )
+    };
+    assert!(read_bool(&f, "on_screen"));
+    assert!(read_bool(&f, "found"));
+    assert!(read_bool(&f, "nothing"));
+}
+
+#[test]
+fn window_geometry_off_screen_has_no_position() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            for _, w in ipairs(neori.windows()) do
+                if w:title() == "away" then
+                    local g = w:geometry()
+                    away = tostring(g.x) .. "," .. tostring(g.width > 0)
+                end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "away");
+    f.state.server.dispatch();
+    let window = f.neori().layout.focus().unwrap().id().get();
+    act(
+        &mut f,
+        Action::MoveWindowToWorkspace {
+            window_id: Some(window),
+            reference: neori_ipc::WorkspaceReferenceArg::Index(2),
+            focus: false,
+        },
+    );
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "away"), "nil,true");
+}
+
+#[test]
+fn window_maximize_and_kill_guard() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            w:maximize(true)
+            maximized = tostring(w:is_maximized())
+            w:maximize(true)            -- already maximized: stays
+            still = tostring(w:is_maximized())
+            w:center()
+            -- The test client runs in the test process, so this is neori's own pid.
+            ok, err = pcall(function() w:kill() end)
+            err = tostring(err)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    assert_eq!(read_global_string(&f, "maximized"), "true");
+    assert_eq!(read_global_string(&f, "still"), "true");
+    let err = read_global_string(&f, "err");
+    assert!(err.contains("refusing to kill process"), "{err}");
+}

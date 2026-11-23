@@ -63,7 +63,7 @@ pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
     while_reloading, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace,
     OpenOverrides, OutputSnapshot, PointerSnapshot, PrintSink, PropertyValue, ScriptHost, Window,
-    WindowSnapshot, WorkspaceSnapshot,
+    WindowGeometry, WindowSnapshot, WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
@@ -1715,6 +1715,8 @@ mod tests {
             is_floating: false,
             is_fullscreen: false,
             is_urgent: false,
+            is_maximized: false,
+            pid: Some(1234),
             workspace_idx: Some(3),
             workspace_name: Some("browser".to_string()),
             output_name: Some("eDP-1".to_string()),
@@ -2968,6 +2970,62 @@ mod tests {
             panic!("err is not a string");
         };
         assert!(err.to_str().unwrap().contains("no mode is named \"nope\""));
+    }
+
+    #[test]
+    fn window_maximize_center_and_kill() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.bind("Mod+T", function()
+                local w = neori.focused_window()
+                w:maximize(false)   -- not maximized: nothing to do
+                w:maximize(true)    -- toggles
+                w:maximize()        -- always toggles
+                w:center()
+                pid = w:pid()
+                geometry = w:geometry()
+                ok, err = pcall(function() w:kill() end)
+                err = tostring(err)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext::new(
+            vec![WindowSnapshot {
+                id: 5,
+                pid: Some(4242),
+                ..Default::default()
+            }],
+            Some(5),
+        );
+        let actions = run_bind(&host, &mut ctx);
+        assert_eq!(
+            actions,
+            [
+                Action::MaximizeWindowToEdges { id: Some(5) },
+                Action::MaximizeWindowToEdges { id: Some(5) },
+                Action::CenterWindow { id: Some(5) },
+            ]
+        );
+        assert!(matches!(
+            host.read_global("pid").unwrap(),
+            mlua::Value::Integer(4242)
+        ));
+        // The fake context knows no geometry and can't kill.
+        assert!(matches!(
+            host.read_global("geometry").unwrap(),
+            mlua::Value::Nil
+        ));
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(
+            err.to_str().unwrap().contains("isn't supported"),
+            "{:?}",
+            err
+        );
     }
 
     #[test]

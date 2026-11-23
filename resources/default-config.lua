@@ -711,10 +711,12 @@ end
 -- Window events + Window userdata.
 --
 -- Read-only methods: id(), app_id(), title(), is_focused(), is_floating(),
--- is_fullscreen(), is_urgent(), workspace(), output().
+-- is_fullscreen(), is_urgent(), is_maximized(), pid(), geometry(), workspace(),
+-- output(). neori.window_at(x, y) finds the window at a point.
 --
 -- Mutation methods: close(), focus(), fullscreen(true|false|nil),
--- float(true|false|nil), send_to_workspace(idx|name), send_to_output(name).
+-- float(true|false|nil), maximize(true|false|nil), center(), kill(),
+-- send_to_workspace(idx|name), send_to_output(name).
 --
 -- Window, Output, Workspace and Device values are live: reading a property
 -- returns the current state, even for a value you kept in a variable from an
@@ -780,6 +782,39 @@ end
 --       return
 --     end
 --   end
+-- end)
+
+-- Force-quit the focused app when it hangs: close() asks it to quit, kill()
+-- ends its process. kill() refuses X11 windows, so fall back to close() there.
+-- neori.bind("Mod+Ctrl+Q", function()
+--   local w = neori.focused_window()
+--   if w and not pcall(function() w:kill() end) then w:close() end
+-- end, { hotkey_overlay_title = "Force Quit" })
+
+-- Focus the window under the pointer.
+-- neori.bind("Mod+Alt+Space", function()
+--   local p = neori.pointer()
+--   local w = p and neori.window_at(p.x, p.y)
+--   if w then w:focus() end
+-- end)
+
+-- Maximize the focused window to the screen edges, and center it when it's
+-- restored.
+-- neori.bind("Mod+Ctrl+M", function()
+--   local w = neori.focused_window()
+--   if not w then return end
+--   w:maximize()
+--   if not w:is_maximized() then w:center() end
+-- end)
+
+-- Show where the focused window is and which process it belongs to.
+-- neori.bind("Mod+Alt+I", function()
+--   local w = neori.focused_window()
+--   if not w then return end
+--   local g = w:geometry()
+--   neori.action("spawn", { "notify-send", w:title() or "?", string.format(
+--     "pid %s, %dx%d at %s,%s", tostring(w:pid()), g.width, g.height,
+--     tostring(g.x), tostring(g.y)) })
 -- end)
 
 -- Toggle fullscreen on the focused window.

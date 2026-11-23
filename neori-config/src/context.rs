@@ -24,7 +24,8 @@ use std::time::Duration;
 use neori_ipc::{Action, OutputAction};
 
 use crate::parse_lua::{
-    DeviceOp, DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowSnapshot, WorkspaceSnapshot,
+    DeviceOp, DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowGeometry, WindowSnapshot,
+    WorkspaceSnapshot,
 };
 
 /// Compositor state that Lua callbacks can query.
@@ -43,6 +44,22 @@ pub trait ScriptContext {
     /// The keyboard-focused window, if any.
     fn focused_window(&mut self) -> Option<WindowSnapshot> {
         self.windows().into_iter().find(|w| w.is_focused)
+    }
+
+    /// Where the window with this id is, if it still exists.
+    fn window_geometry(&mut self, id: u64) -> Option<WindowGeometry> {
+        let _ = id;
+        None
+    }
+    /// The window at these global logical coordinates, if any.
+    fn window_at(&mut self, x: f64, y: f64) -> Option<WindowSnapshot> {
+        let _ = (x, y);
+        None
+    }
+    /// Ends the process of the window with this id with SIGKILL.
+    fn kill_window(&mut self, id: u64) -> Result<(), String> {
+        let _ = id;
+        Err("killing windows isn't supported here".to_owned())
     }
 
     /// Every connected output.

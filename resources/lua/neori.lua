@@ -79,6 +79,14 @@
 ---Connector name of the output under the pointer.
 ---@field output? string
 
+---Where a window is, in the compositor's global logical space.
+---@class neori.WindowGeometry
+---Position of the top-left corner; nil while the window isn't on screen.
+---@field x number?
+---@field y number?
+---@field width integer
+---@field height integer
+
 ---The workspace of a window.
 ---@class neori.WindowWorkspace
 ---Global 1-based index.
@@ -298,6 +306,13 @@ function neori.windows() end
 ---@return neori.Window?
 function neori.focused_window() end
 
+---The window at these global logical coordinates, like the one under the pointer:
+---`neori.window_at(neori.pointer().x, neori.pointer().y)`.
+---@param x number
+---@param y number
+---@return neori.Window?
+function neori.window_at(x, y) end
+
 ---Every connected output that is on.
 ---@return neori.Output[]
 function neori.outputs() end
@@ -491,6 +506,16 @@ function Window:is_fullscreen() end
 ---Whether the window requests attention.
 ---@return boolean
 function Window:is_urgent() end
+---Whether the window is maximized to the edges of its output.
+---@return boolean
+function Window:is_maximized() end
+---Process id of the app; nil if unknown, and for X11 windows (they all belong to
+---xwayland-satellite).
+---@return integer?
+function Window:pid() end
+---Where the window is; nil once it's gone.
+---@return neori.WindowGeometry?
+function Window:geometry() end
 ---@return neori.WindowWorkspace?
 function Window:workspace() end
 ---Connector name of its output.
@@ -502,6 +527,15 @@ function Window:focus() end
 ---Enters (true) or leaves (false) fullscreen, or toggles it (nil).
 ---@param enable? boolean
 function Window:fullscreen(enable) end
+---Maximizes the window to the edges of its output (true), restores it (false), or toggles it
+---(nil).
+---@param enable? boolean
+function Window:maximize(enable) end
+---Centers the window on its output.
+function Window:center() end
+---Ends the app's process with SIGKILL, for an app that doesn't react to `close()`. Raises an
+---error for X11 windows, whose process serves every X11 app.
+function Window:kill() end
 ---Moves to the floating (true) or tiling (false) layout, or toggles it (nil).
 ---@param enable? boolean
 function Window:float(enable) end
