@@ -52,6 +52,28 @@ pub type PrintSink = Arc<Mutex<Box<dyn Write + Send>>>;
 /// state has already been built.
 type PrintSinkSlot = Arc<Mutex<Option<PrintSink>>>;
 
+thread_local! {
+    /// Whether the config being loaded on this thread is a reload; see [`while_reloading`].
+    static RELOADING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f`, which loads a config, as a reload: in the configs it loads, `neori.is_startup()`
+/// returns false.
+pub fn while_reloading<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RELOADING.with(|r| r.set(self.0));
+        }
+    }
+    let _restore = Restore(RELOADING.with(|r| r.replace(true)));
+    f()
+}
+
+/// Whether a config is the compositor's first one, still starting up: shared by
+/// `neori.is_startup()` and [`ScriptHost::end_startup`].
+type StartupFlag = Arc<std::sync::atomic::AtomicBool>;
+
 /// While `Some`, Lua `print(...)` output is collected here instead of being logged: used to send
 /// it back to `neori msg lua`.
 type PrintCapture = Arc<Mutex<Option<String>>>;
@@ -1155,6 +1177,8 @@ pub struct ScriptHost {
     print_sink: PrintSinkSlot,
     /// Collects `print(...)` output while `neori msg lua` code runs.
     print_capture: PrintCapture,
+    /// Whether this is the compositor's first config, still starting up.
+    startup: StartupFlag,
 }
 
 impl ScriptHost {
@@ -1167,12 +1191,14 @@ impl ScriptHost {
         let open_overrides: SharedOpenOverrides = Arc::new(Mutex::new(None));
         let print_sink: PrintSinkSlot = Arc::new(Mutex::new(None));
         let print_capture: PrintCapture = Arc::default();
+        let startup: StartupFlag = Arc::new((!RELOADING.with(|r| r.get())).into());
 
         // Stash the shared state that userdata methods (`w:connect(…)`, `w:open_*(…)`, …)
         // need on the Lua state, so they can reach it via `lua.app_data_ref` without a
         // reference to Self.
         lua.set_app_data::<SharedSignals>(Arc::clone(&signals));
         lua.set_app_data::<SharedTimers>(Arc::clone(&timers));
+        lua.set_app_data::<StartupFlag>(Arc::clone(&startup));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
 
         // Override Lua's default `print` so it routes to the installed sink
@@ -1227,6 +1253,7 @@ impl ScriptHost {
             open_overrides,
             print_sink,
             print_capture,
+            startup,
         })
     }
 
@@ -1417,6 +1444,12 @@ impl ScriptHost {
     /// that handlers of closed windows and removed workspaces are cleaned up.
     pub fn has_object_signals(&self) -> bool {
         self.signals.lock().unwrap().has_objects()
+    }
+
+    /// Ends the startup of the compositor's first config: from now on, `neori.is_startup()`
+    /// returns false. The compositor calls this once the `startup` handlers ran.
+    pub fn end_startup(&self) {
+        self.startup.store(false, Ordering::SeqCst);
     }
 
     /// The timers that are running, with their timeouts. The compositor arms them after
@@ -2498,6 +2531,19 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set(name, func).map_err(err)?;
+    }
+
+    // neori.is_startup() is true while the compositor's first config loads and its startup
+    // handlers run, and false in a reloaded config.
+    {
+        let func = lua
+            .create_function(|lua, ()| {
+                Ok(lua
+                    .app_data_ref::<StartupFlag>()
+                    .is_some_and(|s| s.load(Ordering::SeqCst)))
+            })
+            .map_err(err)?;
+        neori.set("is_startup", func).map_err(err)?;
     }
 
     // neori.emit(name, ...) calls every function connected to the global signal with `...`.

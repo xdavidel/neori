@@ -298,6 +298,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .run(None, &mut state, |state| state.refresh_and_flush_clients())
         .unwrap();
 
+    // The event loop stopped: neori is about to exit.
+    state.fire_lua_lifecycle_event("shutdown");
+
     Ok(())
 }
 

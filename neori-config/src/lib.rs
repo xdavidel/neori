@@ -61,9 +61,9 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace, OpenOverrides,
-    OutputSnapshot, PointerSnapshot, PrintSink, PropertyValue, ScriptHost, Window, WindowSnapshot,
-    WorkspaceSnapshot,
+    while_reloading, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace,
+    OpenOverrides, OutputSnapshot, PointerSnapshot, PrintSink, PropertyValue, ScriptHost, Window,
+    WindowSnapshot, WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;
@@ -2813,6 +2813,44 @@ mod tests {
         // Prints go back to the log once the code is done.
         let out = eval("return 1").unwrap();
         assert!(out.printed.is_empty());
+    }
+
+    #[test]
+    fn is_startup() {
+        let lua = r#"
+            while_loading = neori.is_startup()
+            neori.bind("Mod+T", function() in_callback = neori.is_startup() end)
+        "#;
+        let read = |host: &ScriptHost, name: &str| match host.read_global(name).unwrap() {
+            mlua::Value::Boolean(b) => b,
+            other => panic!("{name} is {other:?}"),
+        };
+
+        // The compositor's first config: starting up until the startup handlers ran.
+        let (_config, host) = Config::parse_with_host(std::path::Path::new("test.lua"), lua)
+            .config
+            .unwrap();
+        assert!(read(&host, "while_loading"));
+        run_bind(&host, &mut FakeContext::default());
+        assert!(read(&host, "in_callback"));
+        host.end_startup();
+        run_bind(&host, &mut FakeContext::default());
+        assert!(!read(&host, "in_callback"));
+
+        // A reloaded config never is.
+        let (_config, host) = while_reloading(|| {
+            Config::parse_with_host(std::path::Path::new("test.lua"), lua).config
+        })
+        .unwrap();
+        assert!(!read(&host, "while_loading"));
+        run_bind(&host, &mut FakeContext::default());
+        assert!(!read(&host, "in_callback"));
+
+        // while_reloading only applies to what runs inside it.
+        let (_config, host) = Config::parse_with_host(std::path::Path::new("test.lua"), lua)
+            .config
+            .unwrap();
+        assert!(read(&host, "while_loading"));
     }
 
     #[test]

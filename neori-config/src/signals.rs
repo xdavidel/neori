@@ -287,6 +287,18 @@ pub const BUILTIN_SIGNALS: &[BuiltinSignal] = &[
         None,
     ),
     builtin(
+        "config-reloaded",
+        "the config was reloaded; runs in the newly loaded config",
+        "nothing",
+        None,
+    ),
+    builtin(
+        "shutdown",
+        "the compositor is about to exit",
+        "nothing",
+        None,
+    ),
+    builtin(
         "window-title-changed",
         "a window's title changed",
         "Window, old title",

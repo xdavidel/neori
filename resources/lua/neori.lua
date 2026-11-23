@@ -31,6 +31,8 @@
 ---| "workspace-removed" # A workspace was removed.
 ---| "output-focused" # An output became the active one.
 ---| "layout-changed" # The keyboard layout changed.
+---| "config-reloaded" # The config was reloaded; runs in the newly loaded config.
+---| "shutdown" # The compositor is about to exit.
 ---| "window-title-changed" # A window's title changed.
 ---| "window-fullscreen-changed" # A window entered or left fullscreen.
 ---| "window-floating-changed" # A window moved between the floating and the tiling layout.
@@ -194,6 +196,8 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "workspace-removed", handler: fun(workspace: neori.Workspace))
 ---@overload fun(event: "output-focused", handler: fun(output: neori.Output))
 ---@overload fun(event: "layout-changed", handler: fun(layout: string))
+---@overload fun(event: "config-reloaded", handler: fun()|neori.Action)
+---@overload fun(event: "shutdown", handler: fun()|neori.Action)
 ---@overload fun(event: "window-title-changed", handler: fun(window: neori.Window, old_title: string?))
 ---@overload fun(event: "window-fullscreen-changed", handler: fun(window: neori.Window, was_fullscreen: boolean))
 ---@overload fun(event: "window-floating-changed", handler: fun(window: neori.Window, was_floating: boolean))
@@ -224,6 +228,8 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "workspace-removed", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
 ---@overload fun(signal: "output-focused", handler: fun(output: neori.Output)): fun(output: neori.Output)
 ---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
+---@overload fun(signal: "config-reloaded", handler: fun()): fun()
+---@overload fun(signal: "shutdown", handler: fun()): fun()
 ---@overload fun(signal: "window-title-changed", handler: fun(window: neori.Window, old_title: string?)): fun(window: neori.Window, old_title: string?)
 ---@overload fun(signal: "window-fullscreen-changed", handler: fun(window: neori.Window, was_fullscreen: boolean)): fun(window: neori.Window, was_fullscreen: boolean)
 ---@overload fun(signal: "window-floating-changed", handler: fun(window: neori.Window, was_floating: boolean)): fun(window: neori.Window, was_floating: boolean)
@@ -411,6 +417,11 @@ function neori.workspace(name, config) end
 function neori.scratchpad(name, config) end
 
 -- Utilities (while the config loads)
+
+---Whether this is the compositor's first config, still starting up: true while it loads and
+---while its `startup` handlers run; false in a reloaded config.
+---@return boolean
+function neori.is_startup() end
 
 ---Writes a value straight into the config data, for a field no section function covers.
 ---@param key string

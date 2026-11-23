@@ -43,7 +43,7 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   `neori.exit_mode()`, shown in the hotkey overlay.
 - **Lua over IPC (done):** `neori msg lua '<expr>'` and `neori msg lua -f script.lua`.
   The socket is only accessible to the same user, like the existing `spawn` action.
-- **Lifecycle:** `neori.is_startup()`, plus `reload` and `shutdown` signals.
+- **Lifecycle (done):** `neori.is_startup()`, plus `config-reloaded` and `shutdown` signals.
 
 ### Phase 2: wider object coverage
 

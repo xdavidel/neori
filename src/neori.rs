@@ -1817,6 +1817,7 @@ impl State {
         if let Some(call) = self.scripting.event_call("startup", None) {
             self.run_lua("startup", call, (), false, InputTime::now());
         }
+        self.scripting.end_startup();
     }
 
     /// Fires a monitor event: executes queued actions from the config, then runs the Lua
@@ -2289,6 +2290,9 @@ impl State {
         self.neori.queue_redraw_all();
         // Named-workspace unname/ensure side effects are picked up by the next
         // ipc_refresh_workspaces tick.
+
+        // Last, so that its handlers see the new config applied.
+        self.fire_lua_lifecycle_event("config-reloaded");
     }
 
     pub fn reload_output_config(&mut self) {

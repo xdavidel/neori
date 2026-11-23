@@ -143,6 +143,8 @@ Supported event names and their handler arg:
 | `workspace-removed`  | `Workspace` userdata — last known state of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
 | `layout-changed`     | string — the new active keyboard layout's name      |
+| `config-reloaded`    | — (no arg); runs in the newly loaded config, after a successful reload |
+| `shutdown`           | — (no arg); the compositor is about to exit         |
 | `window-title-changed`      | `Window`, its old title                      |
 | `window-fullscreen-changed` | `Window`, whether it was fullscreen          |
 | `window-floating-changed`   | `Window`, whether it was floating            |
@@ -423,6 +425,7 @@ declare entries one by one with the singular form instead.
 | call                                                           | what it does                            |
 |---                                                             |---                                      |
 | `neori.set("key", value)`                                      | low-level: write directly into the config data table (escape hatch for a field no section setter covers) |
+| `neori.is_startup()`                                           | `true` while the compositor's first config loads and its `startup` handlers run; `false` in a reloaded config |
 | `neori.strict(true)` / `neori.strict(false)` / `neori.strict()` | toggle strict parsing — unknown config keys become errors instead of warnings |
 | `neori.include("other.lua", "snippets/*.lua", "~/dir/")`       | evaluate other Lua files in the same environment; see [Configuration: Include](Configuration:-Include.md) for path rules |
 

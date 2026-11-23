@@ -454,6 +454,13 @@ neori.on("startup", neori.spawn("waybar"))
 --   neori.action("spawn-sh", string.format("notify-send 'output removed' %q", connector))
 -- end)
 
+-- Lifecycle: config-reloaded runs in the new config after a successful reload,
+-- and shutdown runs when neori is about to exit. neori.is_startup() tells the
+-- first config of a session (true until its startup handlers ran) from a reload.
+-- neori.on("config-reloaded", function()
+--   neori.action("spawn", { "notify-send", "neori", "config reloaded" })
+-- end)
+
 -- Switch events (also configurable as declarative actions via neori.switch_events).
 -- neori.on("lid-open",       function() neori.action("spawn-sh", "notify-send 'lid open'") end)
 -- neori.on("lid-closed",     function() neori.action("power-off-monitors") end)

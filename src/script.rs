@@ -516,6 +516,11 @@ impl State {
         result
     }
 
+    /// Fires a lifecycle event without arguments: `config-reloaded` or `shutdown`.
+    pub fn fire_lua_lifecycle_event(&mut self, event: &str) {
+        self.run_lua_event(event, None, |_| ());
+    }
+
     /// Fires the property signals (`window-title-changed`, …) for what changed since the last
     /// refresh.
     ///

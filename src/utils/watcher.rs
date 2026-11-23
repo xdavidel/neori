@@ -190,7 +190,7 @@ pub fn setup(state: &mut State, config_path: &ConfigPath, includes: Vec<PathBuf>
     // Parsing the config actually takes > 20 ms on my beefy machine, so let's do it on the
     // watcher thread.
     let process = |path: &ConfigPath| {
-        path.load_with_host().map_config_res(|res| {
+        neori_config::while_reloading(|| path.load_with_host()).map_config_res(|res| {
             res.map_err(|err| {
                 warn!("{err:?}");
             })

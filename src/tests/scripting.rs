@@ -2881,3 +2881,75 @@ fn property_diff_keeps_no_state_without_handlers() {
     refresh(&mut f);
     assert_eq!(read_global_int(&f, "fired"), 1);
 }
+
+#[test]
+fn is_startup_ends_after_the_startup_handlers() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("startup", function() in_startup = tostring(neori.is_startup()) end)
+        neori.bind("Mod+Alt+T", function() later = tostring(neori.is_startup()) end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_state().fire_startup();
+    assert_eq!(read_global_string(&f, "in_startup"), "true");
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "later"), "false");
+}
+
+#[test]
+fn config_reloaded_fires_in_the_new_config() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("config-reloaded", function() old_config_ran = true end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_state().fire_startup();
+
+    let reloaded = neori_config::while_reloading(|| {
+        Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            loading_saw = tostring(neori.is_startup())
+            neori.on("config-reloaded", function()
+                reloaded_saw = tostring(neori.is_startup())
+                neori.action("create-virtual-output", { name = "after-reload" })
+            end)
+            "#,
+        )
+        .config
+    })
+    .unwrap();
+    f.neori_state().reload_config(Ok(reloaded));
+
+    // The new config's handler ran, with its action, and the old config's didn't.
+    assert_eq!(read_global_string(&f, "loading_saw"), "false");
+    assert_eq!(read_global_string(&f, "reloaded_saw"), "false");
+    assert!(has_output(&mut f, "after-reload"));
+    assert!(matches!(
+        f.state
+            .server
+            .state
+            .scripting
+            .read_global("old_config_ran")
+            .unwrap(),
+        neori_config::mlua::Value::Nil
+    ));
+}
+
+#[test]
+fn shutdown_runs_its_handlers() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.on("shutdown", function()
+            said_goodbye = "yes"
+            neori.action("create-virtual-output", { name = "goodbye" })
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.neori_state().fire_lua_lifecycle_event("shutdown");
+    assert_eq!(read_global_string(&f, "said_goodbye"), "yes");
+    assert!(has_output(&mut f, "goodbye"));
+}
