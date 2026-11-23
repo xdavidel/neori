@@ -1062,8 +1062,17 @@ end
 -- is_pointer(), is_keyboard(), is_touch(), is_touchpad().
 --
 -- Mutation methods: set_tap(bool), set_natural_scroll(bool), set_accel(speed),
--- set_left_handed(bool), set_disabled(bool). Mutations go directly to
+-- set_left_handed(bool), set_disabled(bool), set_accel_profile("flat"|...),
+-- set_scroll_method("two-finger"|...), set_click_method("clickfinger"|...),
+-- set_dwt(bool), set_middle_emulation(bool). Mutations go directly to
 -- libinput and persist until the next config reload wipes them.
+--
+-- device-added and device-removed fire when a device is plugged in or out.
+
+-- Give any mouse plugged in later a flat acceleration profile.
+-- neori.on("device-added", function(d)
+--   if d:is_pointer() and not d:is_touchpad() then d:set_accel_profile("flat") end
+-- end)
 
 -- Tune every touchpad at startup.
 -- neori.on("startup", function()

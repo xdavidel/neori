@@ -218,6 +218,11 @@ pub enum DeviceOp {
     SetAccel(f64),
     SetLeftHanded(bool),
     SetDisabled(bool),
+    SetAccelProfile(AccelProfile),
+    SetScrollMethod(ScrollMethod),
+    SetClickMethod(ClickMethod),
+    SetDwt(bool),
+    SetMiddleEmulation(bool),
 }
 
 /// Pre-placement overrides a Lua `window-opening` handler can set on the window
@@ -759,6 +764,10 @@ fn create_timer(lua: &Lua, ms: u64, fun: mlua::Function, repeat: bool) -> LuaRes
 
 impl mlua::UserData for LuaDevice {
     fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        add_signal_methods(methods, |this: &Self| {
+            Ok(SignalTarget::Device(this.0.sysname.clone()))
+        });
+
         // Read-only accessors.
         methods.add_method("name", |_, this, ()| Ok(this.current().name));
         methods.add_method("sysname", |_, this, ()| Ok(this.0.sysname.clone()));
@@ -796,6 +805,25 @@ impl mlua::UserData for LuaDevice {
         methods.add_method("set_disabled", |_, this, disabled: bool| {
             apply_device_op(&this.0.sysname, DeviceOp::SetDisabled(disabled))?;
             Ok(())
+        });
+        // These take the same values as the matching neori.input options.
+        methods.add_method("set_accel_profile", |_, this, profile: String| {
+            let profile = profile.parse().map_err(LuaError::runtime)?;
+            apply_device_op(&this.0.sysname, DeviceOp::SetAccelProfile(profile))
+        });
+        methods.add_method("set_scroll_method", |_, this, method: String| {
+            let method = method.parse().map_err(LuaError::runtime)?;
+            apply_device_op(&this.0.sysname, DeviceOp::SetScrollMethod(method))
+        });
+        methods.add_method("set_click_method", |_, this, method: String| {
+            let method = method.parse().map_err(LuaError::runtime)?;
+            apply_device_op(&this.0.sysname, DeviceOp::SetClickMethod(method))
+        });
+        methods.add_method("set_dwt", |_, this, enable: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetDwt(enable))
+        });
+        methods.add_method("set_middle_emulation", |_, this, enable: bool| {
+            apply_device_op(&this.0.sysname, DeviceOp::SetMiddleEmulation(enable))
         });
 
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {

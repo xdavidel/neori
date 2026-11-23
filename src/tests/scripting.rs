@@ -3267,3 +3267,34 @@ fn output_workarea_leaves_out_panels() {
     // Headless outputs have no physical size.
     assert_eq!(read_global_string(&f, "physical"), "nil");
 }
+
+#[test]
+fn device_added_and_removed_signals() {
+    // Real libinput devices can't be made in tests, so fire the events the way
+    // process_libinput_event does.
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("device-added", function(d)
+            log = log .. "added:" .. d:name() .. ";"
+            neori.action("create-virtual-output", { name = "for-" .. d:sysname() })
+        end)
+        neori.on("device-removed", function(d) log = log .. "removed:" .. d:sysname() .. ";" end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let device = neori_config::DeviceSnapshot {
+        name: "Test Mouse".into(),
+        sysname: "event9".into(),
+        is_pointer: true,
+        ..Default::default()
+    };
+    f.neori_state()
+        .fire_device_event("device-added", device.clone());
+    f.neori_state().fire_device_event("device-removed", device);
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "added:Test Mouse;removed:event9;"
+    );
+    assert!(has_output(&mut f, "for-event9"));
+}

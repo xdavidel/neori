@@ -3032,6 +3032,78 @@ mod tests {
     }
 
     #[test]
+    fn device_settings_and_signals() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            removed = 0
+            neori.bind("Mod+T", function()
+                local d = neori.devices()[1]
+                d:set_accel_profile("flat")
+                d:set_scroll_method("two-finger")
+                d:set_click_method("clickfinger")
+                d:set_dwt(true)
+                d:set_middle_emulation(false)
+                ok, err = pcall(function() d:set_accel_profile("bouncy") end)
+                err = tostring(err)
+                d:connect("removed", function(dev) removed = removed + 1 end)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext::with_devices(vec![DeviceSnapshot {
+            sysname: "event7".into(),
+            ..Default::default()
+        }]);
+        run_bind(&host, &mut ctx);
+        let ops: Vec<_> = ctx
+            .device_ops
+            .iter()
+            .map(|(_, op)| format!("{op:?}"))
+            .collect();
+        assert_eq!(
+            ops,
+            [
+                "SetAccelProfile(Flat)",
+                "SetScrollMethod(TwoFinger)",
+                "SetClickMethod(Clickfinger)",
+                "SetDwt(true)",
+                "SetMiddleEmulation(false)",
+            ]
+        );
+        assert!(ctx
+            .device_ops
+            .iter()
+            .all(|(sysname, _)| sysname == "event7"));
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(
+            err.to_str().unwrap().contains("invalid accel profile"),
+            "{:?}",
+            err
+        );
+
+        // device-removed reaches the device's own handler, then drops it: the sysname can be
+        // reused by another device.
+        let target = SignalTarget::Device("event7".into());
+        let device = LuaDevice(DeviceSnapshot {
+            sysname: "event7".into(),
+            ..Default::default()
+        });
+        host.event_call("device-removed", Some(&target))
+            .unwrap()
+            .run(device)
+            .unwrap();
+        assert!(matches!(
+            host.read_global("removed").unwrap(),
+            mlua::Value::Integer(1)
+        ));
+        assert!(!host.has_object_signals());
+    }
+
+    #[test]
     fn timers() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),

@@ -143,6 +143,8 @@ Supported event names and their handler arg:
 | `workspace-removed`  | `Workspace` userdata — last known state of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
 | `layout-changed`     | string — the new active keyboard layout's name      |
+| `device-added`       | `Device` — an input device was connected (after the config's input settings were applied to it) |
+| `device-removed`     | `Device` — its last known state                     |
 | `mode-changed`       | the new mode's name or `nil`, the old mode's name or `nil` — see [keybinding modes](Configuration:-Key-Bindings.md#keybinding-modes); `neori.current_mode()` returns the active one |
 | `config-reloaded`    | — (no arg); runs in the newly loaded config, after a successful reload |
 | `shutdown`           | — (no arg); the compositor is about to exit         |
@@ -313,6 +315,7 @@ The built-in events also reach the object they're about, under a short name:
 | `Window`    | `focused`, `closed` (from `window-focused`, `window-closed`), and `title-changed`, `fullscreen-changed`, `floating-changed`, `urgent-changed`, `workspace-changed` |
 | `Workspace` | `focused`, `removed`, `name-changed` (from `workspace-focused`, …)          |
 | `Output`    | `focused` (from `output-focused`), `mode-changed`; `added`, `removed` (from `monitor-added`, `monitor-removed`, called with the connector name and the `Output`, like the global event) |
+| `Device`    | `removed` (from `device-removed`); its functions are then dropped, since another device may get the same sysname |
 
 ```lua
 -- Get a notification when this particular window closes.
@@ -662,6 +665,11 @@ Mutation:
 | `d:set_accel(f64)`               | Pointer acceleration speed (−1.0 fastest … 1.0 slowest).         |
 | `d:set_left_handed(bool)`        | Swap left/right mouse buttons.                                   |
 | `d:set_disabled(bool)`           | Set libinput `send_events` to DISABLED / ENABLED.                |
+| `d:set_accel_profile(s)`         | `"adaptive"` or `"flat"`.                                        |
+| `d:set_scroll_method(s)`         | `"no-scroll"`, `"two-finger"`, `"edge"` or `"on-button-down"`.   |
+| `d:set_click_method(s)`          | `"clickfinger"` or `"button-areas"`.                             |
+| `d:set_dwt(bool)`                | Disable-while-typing, for touchpads.                             |
+| `d:set_middle_emulation(bool)`   | Middle click by pressing the left and right buttons together.    |
 
 Mutations go directly to libinput; they persist on the device until the next
 config reload re-applies the static `input { … }` block, at which point the

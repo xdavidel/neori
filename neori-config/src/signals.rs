@@ -18,6 +18,7 @@ pub enum ObjectKind {
     Window,
     Workspace,
     Output,
+    Device,
 }
 
 /// The object a signal is attached to.
@@ -30,6 +31,9 @@ pub enum SignalTarget {
     /// An output, by its connector name. Output handlers survive the output being unplugged and
     /// plugged back in.
     Output(String),
+    /// An input device, by its sysname. Its handlers are dropped when it's removed: another
+    /// device may get the same sysname later.
+    Device(String),
 }
 
 impl SignalTarget {
@@ -38,6 +42,7 @@ impl SignalTarget {
             SignalTarget::Window(_) => ObjectKind::Window,
             SignalTarget::Workspace(_) => ObjectKind::Workspace,
             SignalTarget::Output(_) => ObjectKind::Output,
+            SignalTarget::Device(_) => ObjectKind::Device,
         }
     }
 }
@@ -287,6 +292,18 @@ pub const BUILTIN_SIGNALS: &[BuiltinSignal] = &[
         None,
     ),
     builtin(
+        "device-added",
+        "an input device was connected",
+        "Device",
+        None,
+    ),
+    builtin(
+        "device-removed",
+        "an input device was disconnected",
+        "Device (its last known state)",
+        Some(ObjectKind::Device),
+    ),
+    builtin(
         "mode-changed",
         "a keybinding mode was entered or left",
         "new mode name or nil, old mode name or nil",
@@ -387,7 +404,10 @@ pub fn object_signal(event: &str) -> &str {
 /// Whether the built-in global signal `event` means that its subject is gone for good, so its
 /// object handlers can be dropped.
 pub fn ends_target(event: &str) -> bool {
-    matches!(event, "window-closed" | "workspace-removed")
+    matches!(
+        event,
+        "window-closed" | "workspace-removed" | "device-removed"
+    )
 }
 
 #[cfg(test)]

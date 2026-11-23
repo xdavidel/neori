@@ -295,11 +295,17 @@ impl State {
                     device,
                     self.neori.touchpad_disabled_by_toggle,
                 );
+
+                // After the config's settings, so that a handler's own settings win.
+                let snapshot = crate::script::device_snapshot(device);
+                self.fire_device_event("device-added", snapshot);
             }
             InputEvent::DeviceRemoved { device } => {
+                let snapshot = crate::script::device_snapshot(device);
                 self.neori.touch.remove(device);
                 self.neori.tablets.remove(device);
                 self.neori.devices.remove(device);
+                self.fire_device_event("device-removed", snapshot);
             }
             _ => (),
         }

@@ -31,6 +31,8 @@
 ---| "workspace-removed" # A workspace was removed.
 ---| "output-focused" # An output became the active one.
 ---| "layout-changed" # The keyboard layout changed.
+---| "device-added" # An input device was connected.
+---| "device-removed" # An input device was disconnected.
 ---| "mode-changed" # A keybinding mode was entered or left.
 ---| "config-reloaded" # The config was reloaded; runs in the newly loaded config.
 ---| "shutdown" # The compositor is about to exit.
@@ -232,6 +234,8 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "workspace-removed", handler: fun(workspace: neori.Workspace))
 ---@overload fun(event: "output-focused", handler: fun(output: neori.Output))
 ---@overload fun(event: "layout-changed", handler: fun(layout: string))
+---@overload fun(event: "device-added", handler: fun(device: neori.Device))
+---@overload fun(event: "device-removed", handler: fun(device: neori.Device))
 ---@overload fun(event: "mode-changed", handler: fun(mode: string?, old_mode: string?))
 ---@overload fun(event: "config-reloaded", handler: fun()|neori.Action)
 ---@overload fun(event: "shutdown", handler: fun()|neori.Action)
@@ -265,6 +269,8 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "workspace-removed", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
 ---@overload fun(signal: "output-focused", handler: fun(output: neori.Output)): fun(output: neori.Output)
 ---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
+---@overload fun(signal: "device-added", handler: fun(device: neori.Device)): fun(device: neori.Device)
+---@overload fun(signal: "device-removed", handler: fun(device: neori.Device)): fun(device: neori.Device)
 ---@overload fun(signal: "mode-changed", handler: fun(mode: string?, old_mode: string?)): fun(mode: string?, old_mode: string?)
 ---@overload fun(signal: "config-reloaded", handler: fun()): fun()
 ---@overload fun(signal: "shutdown", handler: fun()): fun()
@@ -779,3 +785,32 @@ function Device:set_accel(speed) end
 function Device:set_left_handed(enable) end
 ---@param disabled boolean
 function Device:set_disabled(disabled) end
+---@param profile "adaptive"|"flat"
+function Device:set_accel_profile(profile) end
+---@param method "no-scroll"|"two-finger"|"edge"|"on-button-down"
+function Device:set_scroll_method(method) end
+---@param method "clickfinger"|"button-areas"
+function Device:set_click_method(method) end
+---Disable-while-typing, for touchpads.
+---@param enable boolean
+function Device:set_dwt(enable) end
+---Emulate a middle click by pressing the left and right buttons together.
+---@param enable boolean
+function Device:set_middle_emulation(enable) end
+
+---Connects a function to a signal of this device: `"removed"`, or one of your own. Its
+---functions are dropped when the device is removed.
+---@generic F: function
+---@param signal "removed"|string
+---@param handler F
+---@return F
+function Device:connect(signal, handler) end
+---@param signal "removed"|string
+---@param handler? function
+---@return boolean
+function Device:disconnect(signal, handler) end
+---@param signal string
+---@param ... any
+function Device:emit(signal, ...) end
+---@return neori.SignalInfo[]
+function Device:signals() end

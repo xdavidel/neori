@@ -17,7 +17,7 @@ use std::time::Duration;
 use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
 use neori_config::{
-    with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaTimer, LuaWorkspace,
+    with_script_context, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace,
     OutputSnapshot, PointerSnapshot, PropertyValue, ScriptContext, SignalTarget,
     Window as LuaWindow, WindowSnapshot, WorkspaceSnapshot,
 };
@@ -624,6 +624,12 @@ impl State {
         self.run_lua_event("mode-changed", None, |_| (mode, old));
     }
 
+    /// Fires `device-added` or `device-removed` for a libinput device.
+    pub fn fire_device_event(&mut self, event: &str, snapshot: DeviceSnapshot) {
+        let target = SignalTarget::Device(snapshot.sysname.clone());
+        self.run_lua_event(event, Some(target), |_| LuaDevice(snapshot));
+    }
+
     /// Fires a lifecycle event without arguments: `config-reloaded` or `shutdown`.
     pub fn fire_lua_lifecycle_event(&mut self, event: &str) {
         self.run_lua_event(event, None, |_| ());
@@ -999,7 +1005,7 @@ fn workspace_snapshots(neori: &Neori) -> Vec<WorkspaceSnapshot> {
 /// Snapshots one libinput device for Lua.
 ///
 /// Touchpad detection matches `apply_libinput_settings` (non-zero `tap_finger_count`).
-fn device_snapshot(device: &smithay::reexports::input::Device) -> DeviceSnapshot {
+pub(crate) fn device_snapshot(device: &smithay::reexports::input::Device) -> DeviceSnapshot {
     use smithay::reexports::input::DeviceCapability;
     DeviceSnapshot {
         name: device.name().into_owned(),
@@ -1041,6 +1047,21 @@ pub fn apply_device_op(neori: &mut Neori, sysname: &str, op: DeviceOp) {
         }
         DeviceOp::SetLeftHanded(enable) => {
             let _ = device.config_left_handed_set(enable);
+        }
+        DeviceOp::SetAccelProfile(profile) => {
+            let _ = device.config_accel_set_profile(profile.into());
+        }
+        DeviceOp::SetScrollMethod(method) => {
+            let _ = device.config_scroll_set_method(method.into());
+        }
+        DeviceOp::SetClickMethod(method) => {
+            let _ = device.config_click_set_method(method.into());
+        }
+        DeviceOp::SetDwt(enable) => {
+            let _ = device.config_dwt_set_enabled(enable);
+        }
+        DeviceOp::SetMiddleEmulation(enable) => {
+            let _ = device.config_middle_emulation_set_enabled(enable);
         }
         DeviceOp::SetDisabled(disabled) => {
             let _ = device.config_send_events_set_mode(if disabled {
