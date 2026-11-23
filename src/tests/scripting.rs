@@ -3618,3 +3618,210 @@ fn device_map_to_output_until_reset_or_reload() {
     f.neori_state().reload_config(Ok(reloaded));
     assert!(f.neori().device_output_maps.is_empty());
 }
+
+fn send_button(f: &mut Fixture, code: u32, pressed: bool) {
+    use smithay::backend::input::{ButtonState, InputEvent};
+
+    use crate::tests::test_input_backend::{TestInputBackend, TestPointerButtonEvent};
+
+    let state = if pressed {
+        ButtonState::Pressed
+    } else {
+        ButtonState::Released
+    };
+    let event = TestPointerButtonEvent { code, state };
+    f.neori_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerButton { event });
+    f.state.server.dispatch();
+}
+
+fn send_gesture(
+    f: &mut Fixture,
+    make: impl FnOnce(
+        crate::tests::test_input_backend::TestGestureEvent,
+    ) -> smithay::backend::input::InputEvent<
+        crate::tests::test_input_backend::TestInputBackend,
+    >,
+    event: crate::tests::test_input_backend::TestGestureEvent,
+) {
+    f.neori_state().process_input_event(make(event));
+    f.state.server.dispatch();
+}
+
+#[test]
+fn pointer_and_gesture_signals_fire_with_event_tables() {
+    use smithay::backend::input::InputEvent;
+
+    use crate::tests::test_input_backend::{
+        TestGestureEvent, TestInputBackend, TestPointerAxisEvent,
+    };
+
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        local function add(s) log = log .. s .. ";" end
+        neori.on("pointer-button", function(e)
+            add(string.format("button %d %s %s", e.button, e.name, tostring(e.pressed)))
+        end)
+        neori.on("pointer-axis", function(e)
+            add(string.format("axis %s %g %g", e.source, e.dy_v120, e.dy))
+        end)
+        neori.on("gesture-swipe-begin", function(e) add("swipe-begin " .. e.fingers) end)
+        neori.on("gesture-swipe-update", function(e) add(string.format("swipe %g %g", e.dx, e.dy)) end)
+        neori.on("gesture-swipe-end", function(e) add("swipe-end " .. tostring(e.cancelled)) end)
+        neori.on("gesture-pinch-begin", function(e) add("pinch-begin " .. e.fingers) end)
+        neori.on("gesture-pinch-update", function(e)
+            add(string.format("pinch %g %g", e.scale, e.rotation))
+        end)
+        neori.on("gesture-pinch-end", function(e) add("pinch-end " .. tostring(e.cancelled)) end)
+        neori.on("gesture-hold-begin", function(e) add("hold-begin " .. e.fingers) end)
+        neori.on("gesture-hold-end", function(e) add("hold-end " .. tostring(e.cancelled)) end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    send_button(&mut f, 0x110, true);
+    send_button(&mut f, 0x110, false);
+    send_button(&mut f, 0x200, true);
+
+    let event = TestPointerAxisEvent {
+        horizontal_v120: 0.,
+        vertical_v120: 120.,
+    };
+    f.neori_state()
+        .process_input_event(InputEvent::<TestInputBackend>::PointerAxis { event });
+
+    let g = TestGestureEvent::default;
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GestureSwipeBegin { event },
+        TestGestureEvent { fingers: 5, ..g() },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GestureSwipeUpdate { event },
+        TestGestureEvent {
+            dx: 1.5,
+            dy: -2.,
+            ..g()
+        },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GestureSwipeEnd { event },
+        TestGestureEvent {
+            cancelled: true,
+            ..g()
+        },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GesturePinchBegin { event },
+        TestGestureEvent { fingers: 2, ..g() },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GesturePinchUpdate { event },
+        TestGestureEvent {
+            scale: 1.25,
+            rotation: 10.,
+            ..g()
+        },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GesturePinchEnd { event },
+        TestGestureEvent::default(),
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GestureHoldBegin { event },
+        TestGestureEvent { fingers: 3, ..g() },
+    );
+    send_gesture(
+        &mut f,
+        |event| InputEvent::GestureHoldEnd { event },
+        TestGestureEvent::default(),
+    );
+
+    // Button 0x200 has no name.
+    let log = read_global_string(&f, "log");
+    assert_eq!(
+        log,
+        "button 272 left true;button 272 left false;button 512 nil true;axis wheel 120 15;\
+         swipe-begin 5;swipe 1.5 -2;swipe-end true;pinch-begin 2;pinch 1.25 10;\
+         pinch-end false;hold-begin 3;hold-end false;"
+    );
+}
+
+#[test]
+fn begin_move_and_resize_need_a_held_button_and_end_on_release() {
+    use crate::input::move_grab::MoveGrab;
+    use crate::input::resize_grab::ResizeGrab;
+
+    let mut f = fixture_from_lua(
+        r#"
+        presses = 0
+        errors = ""
+        neori.on("pointer-button", function(e)
+            local w = neori.focused_window()
+            if e.pressed then presses = presses + 1 end
+            local ok, err = pcall(function()
+                if presses == 1 then w:begin_move()
+                elseif presses == 2 then w:begin_resize("bottom-right")
+                else w:begin_resize("sideways") end
+            end)
+            if not ok then errors = errors .. tostring(err) .. ";" end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "win");
+
+    let grab_is = |f: &mut Fixture, check: fn(&dyn std::any::Any) -> bool| {
+        let pointer = f.neori().seat.get_pointer().unwrap();
+        pointer
+            .with_grab(|_, grab| check(grab.as_any()))
+            .unwrap_or(false)
+    };
+    let is_move: fn(&dyn std::any::Any) -> bool = |g| g.downcast_ref::<MoveGrab>().is_some();
+    let is_resize: fn(&dyn std::any::Any) -> bool = |g| g.downcast_ref::<ResizeGrab>().is_some();
+
+    // Pressed: the move starts. Released: it ends, and begin_move() without a held button fails.
+    send_button(&mut f, 0x110, true);
+    assert!(grab_is(&mut f, is_move));
+    send_button(&mut f, 0x110, false);
+    assert!(!f.neori().seat.get_pointer().unwrap().is_grabbed());
+    let errors = read_global_string(&f, "errors");
+    assert!(errors.contains("needs a held mouse button"), "{errors}");
+
+    send_button(&mut f, 0x110, true);
+    assert!(grab_is(&mut f, is_resize));
+    send_button(&mut f, 0x110, false);
+    assert!(!f.neori().seat.get_pointer().unwrap().is_grabbed());
+
+    // Bad edges: nothing starts; the press goes to the window as usual.
+    send_button(&mut f, 0x110, true);
+    assert!(!grab_is(&mut f, is_move) && !grab_is(&mut f, is_resize));
+    let errors = read_global_string(&f, "errors");
+    assert!(errors.contains("unknown edges \"sideways\""), "{errors}");
+}
+
+#[test]
+fn begin_move_from_a_mouse_bind_ends_on_release() {
+    // The bind suppresses the button; starting a move lets its release through to end it.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("MouseLeft", function() neori.focused_window():begin_move() end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "win");
+
+    send_button(&mut f, 0x110, true);
+    assert!(f.neori().seat.get_pointer().unwrap().is_grabbed());
+    send_button(&mut f, 0x110, false);
+    assert!(!f.neori().seat.get_pointer().unwrap().is_grabbed());
+}

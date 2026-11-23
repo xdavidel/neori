@@ -1116,6 +1116,28 @@ end
 --   end
 -- end)
 
+-- Pointer and gesture signals: pointer-button, pointer-axis, and
+-- gesture-swipe/pinch/hold-begin/-update/-end. Handlers get one table, like
+-- { button = 275, name = "side", pressed = true, x = …, y = … }, and only
+-- observe: binds and built-in gestures keep working.
+
+-- Move windows by dragging them with the side mouse button.
+-- neori.on("pointer-button", function(e)
+--   if e.name == "side" and e.pressed then
+--     local w = neori.window_at(e.x, e.y)
+--     if w then w:begin_move() end
+--   end
+-- end)
+
+-- Open the overview by pinching in on the touchpad.
+-- neori.on("gesture-pinch-update", function(e)
+--   if e.scale < 0.7 and not pinched then
+--     pinched = true
+--     neori.action("open-overview")
+--   end
+-- end)
+-- neori.on("gesture-pinch-end", function() pinched = false end)
+
 -- Layer surfaces (panels, bars, launchers, notifications, wallpapers):
 -- neori.layers() lists them as LayerSurface objects with id(), namespace(),
 -- layer(), output(), pid(), keyboard_interactivity(), close() and kill().

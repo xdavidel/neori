@@ -208,6 +208,37 @@ pub struct DeviceSnapshot {
     pub is_touchpad: bool,
 }
 
+/// A value in an [`EventTable`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventValue {
+    Int(i64),
+    Num(f64),
+    Bool(bool),
+    Str(&'static str),
+    Nil,
+}
+
+/// The table an input signal's handlers receive, like `{ button = 272, pressed = true }`. Built
+/// in Rust and turned into a Lua table only when a handler runs.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EventTable(pub Vec<(&'static str, EventValue)>);
+
+impl IntoLua for EventTable {
+    fn into_lua(self, lua: &Lua) -> LuaResult<Value> {
+        let table = lua.create_table_with_capacity(0, self.0.len())?;
+        for (key, value) in self.0 {
+            match value {
+                EventValue::Int(x) => table.set(key, x)?,
+                EventValue::Num(x) => table.set(key, x)?,
+                EventValue::Bool(x) => table.set(key, x)?,
+                EventValue::Str(x) => table.set(key, x)?,
+                EventValue::Nil => (),
+            }
+        }
+        Ok(Value::Table(table))
+    }
+}
+
 /// State of a layer-shell surface (a panel, bar, launcher, notification, …), exposed to Lua as
 /// the `LayerSurface` userdata.
 #[derive(Debug, Default, Clone)]
@@ -1054,6 +1085,20 @@ impl mlua::UserData for Window {
                 }
             }
             with_context(|ctx| ctx.set_window_opacity(this.0.id, opacity))
+                .ok_or_else(|| outside_callback("Window"))?
+                .map_err(LuaError::runtime)
+        });
+        // w:begin_move() starts moving the window with the pointer, like Mod+drag, while a mouse
+        // button is held: from a pointer-button handler or a mouse bind.
+        methods.add_method("begin_move", |_, this, ()| {
+            with_context(|ctx| ctx.begin_window_move(this.0.id))
+                .ok_or_else(|| outside_callback("Window"))?
+                .map_err(LuaError::runtime)
+        });
+        // w:begin_resize(edges) starts resizing it the same way, from "bottom-right" and so on;
+        // without edges, from the edges nearest the pointer.
+        methods.add_method("begin_resize", |_, this, edges: Option<String>| {
+            with_context(|ctx| ctx.begin_window_resize(this.0.id, edges.as_deref()))
                 .ok_or_else(|| outside_callback("Window"))?
                 .map_err(LuaError::runtime)
         });

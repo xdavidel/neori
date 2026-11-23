@@ -1,6 +1,9 @@
 use smithay::backend::input::{
-    Device, DeviceCapability, Event, InputBackend, InputTime, KeyState, KeyboardKeyEvent, Keycode,
-    UnusedEvent,
+    Axis, AxisRelativeDirection, AxisSource, ButtonState, Device, DeviceCapability, Event,
+    GestureBeginEvent, GestureEndEvent, GestureHoldBeginEvent, GestureHoldEndEvent,
+    GesturePinchBeginEvent, GesturePinchEndEvent, GesturePinchUpdateEvent, GestureSwipeBeginEvent,
+    GestureSwipeEndEvent, GestureSwipeUpdateEvent, InputBackend, InputTime, KeyState,
+    KeyboardKeyEvent, Keycode, PointerAxisEvent, PointerButtonEvent, UnusedEvent,
 };
 use smithay::output::Output;
 
@@ -22,19 +25,19 @@ impl InputBackend for TestInputBackend {
     type Device = TestInputDevice;
 
     type KeyboardKeyEvent = TestKeyboardKeyEvent;
-    type PointerAxisEvent = UnusedEvent;
-    type PointerButtonEvent = UnusedEvent;
+    type PointerAxisEvent = TestPointerAxisEvent;
+    type PointerButtonEvent = TestPointerButtonEvent;
     type PointerMotionEvent = UnusedEvent;
     type PointerMotionAbsoluteEvent = UnusedEvent;
 
-    type GestureSwipeBeginEvent = UnusedEvent;
-    type GestureSwipeUpdateEvent = UnusedEvent;
-    type GestureSwipeEndEvent = UnusedEvent;
-    type GesturePinchBeginEvent = UnusedEvent;
-    type GesturePinchUpdateEvent = UnusedEvent;
-    type GesturePinchEndEvent = UnusedEvent;
-    type GestureHoldBeginEvent = UnusedEvent;
-    type GestureHoldEndEvent = UnusedEvent;
+    type GestureSwipeBeginEvent = TestGestureEvent;
+    type GestureSwipeUpdateEvent = TestGestureEvent;
+    type GestureSwipeEndEvent = TestGestureEvent;
+    type GesturePinchBeginEvent = TestGestureEvent;
+    type GesturePinchUpdateEvent = TestGestureEvent;
+    type GesturePinchEndEvent = TestGestureEvent;
+    type GestureHoldBeginEvent = TestGestureEvent;
+    type GestureHoldEndEvent = TestGestureEvent;
 
     type TouchDownEvent = UnusedEvent;
     type TouchUpEvent = UnusedEvent;
@@ -100,5 +103,136 @@ impl KeyboardKeyEvent<TestInputBackend> for TestKeyboardKeyEvent {
 
     fn count(&self) -> u32 {
         self.count
+    }
+}
+
+pub struct TestPointerButtonEvent {
+    pub code: u32,
+    pub state: ButtonState,
+}
+
+impl Event<TestInputBackend> for TestPointerButtonEvent {
+    fn time(&self) -> InputTime {
+        InputTime::now()
+    }
+
+    fn device(&self) -> TestInputDevice {
+        TestInputDevice
+    }
+}
+
+impl PointerButtonEvent<TestInputBackend> for TestPointerButtonEvent {
+    fn button_code(&self) -> u32 {
+        self.code
+    }
+
+    fn state(&self) -> ButtonState {
+        self.state
+    }
+}
+
+/// A wheel scroll by `v120` steps on each axis.
+pub struct TestPointerAxisEvent {
+    pub horizontal_v120: f64,
+    pub vertical_v120: f64,
+}
+
+impl Event<TestInputBackend> for TestPointerAxisEvent {
+    fn time(&self) -> InputTime {
+        InputTime::now()
+    }
+
+    fn device(&self) -> TestInputDevice {
+        TestInputDevice
+    }
+}
+
+impl PointerAxisEvent<TestInputBackend> for TestPointerAxisEvent {
+    fn amount(&self, axis: Axis) -> Option<f64> {
+        let v120 = self.amount_v120(axis)?;
+        Some(v120 / 120. * 15.)
+    }
+
+    fn amount_v120(&self, axis: Axis) -> Option<f64> {
+        Some(match axis {
+            Axis::Horizontal => self.horizontal_v120,
+            Axis::Vertical => self.vertical_v120,
+        })
+    }
+
+    fn source(&self) -> AxisSource {
+        AxisSource::Wheel
+    }
+
+    fn relative_direction(&self, _axis: Axis) -> AxisRelativeDirection {
+        AxisRelativeDirection::Identical
+    }
+}
+
+/// Any touchpad gesture event: each kind reads the fields it has.
+#[derive(Default)]
+pub struct TestGestureEvent {
+    pub fingers: u32,
+    pub dx: f64,
+    pub dy: f64,
+    pub scale: f64,
+    pub rotation: f64,
+    pub cancelled: bool,
+}
+
+impl Event<TestInputBackend> for TestGestureEvent {
+    fn time(&self) -> InputTime {
+        InputTime::now()
+    }
+
+    fn device(&self) -> TestInputDevice {
+        TestInputDevice
+    }
+}
+
+impl GestureBeginEvent<TestInputBackend> for TestGestureEvent {
+    fn fingers(&self) -> u32 {
+        self.fingers
+    }
+}
+
+impl GestureEndEvent<TestInputBackend> for TestGestureEvent {
+    fn cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
+
+impl GestureSwipeBeginEvent<TestInputBackend> for TestGestureEvent {}
+impl GestureSwipeEndEvent<TestInputBackend> for TestGestureEvent {}
+impl GesturePinchBeginEvent<TestInputBackend> for TestGestureEvent {}
+impl GesturePinchEndEvent<TestInputBackend> for TestGestureEvent {}
+impl GestureHoldBeginEvent<TestInputBackend> for TestGestureEvent {}
+impl GestureHoldEndEvent<TestInputBackend> for TestGestureEvent {}
+
+impl GestureSwipeUpdateEvent<TestInputBackend> for TestGestureEvent {
+    fn delta_x(&self) -> f64 {
+        self.dx
+    }
+
+    fn delta_y(&self) -> f64 {
+        self.dy
+    }
+}
+
+impl GesturePinchUpdateEvent<TestInputBackend> for TestGestureEvent {
+    fn delta_x(&self) -> f64 {
+        self.dx
+    }
+
+    fn delta_y(&self) -> f64 {
+        self.dy
+    }
+
+    fn scale(&self) -> f64 {
+        self.scale
+    }
+
+    fn rotation(&self) -> f64 {
+        self.rotation
     }
 }

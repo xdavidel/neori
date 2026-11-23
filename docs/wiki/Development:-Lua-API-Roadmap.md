@@ -46,7 +46,7 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   The socket is only accessible to the same user, like the existing `spawn` action.
 - **Lifecycle (done):** `neori.is_startup()`, plus `config-reloaded` and `shutdown` signals.
 
-### Phase 2: wider object coverage
+### Phase 2: wider object coverage (done)
 
 - **Window (done):** `pid`, `geometry`, `is_urgent`, `is_maximized`, `opacity`, `parent`,
   `maximize()`, `kill()`, `center()`, `set_opacity()`, and `neori.window_at(x, y)`.
@@ -56,8 +56,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **Input devices (done):** `device-added` and `device-removed` signals, a per-device `removed`
   signal, settable `accel_profile`, `scroll_method`, `click_method`, `dwt` and `middle_emulation`,
   and `map_to_output()` for tablets and touch screens.
-- **Pointer:** button, axis and gesture (swipe, pinch, hold) signals, opt-in and rate aware, and
-  starting an interactive move or resize from Lua.
+- **Pointer (done):** `pointer-button`, `pointer-axis` and `gesture-swipe/pinch/hold-*` signals,
+  which cost nothing without handlers and skip the lock screen, and `w:begin_move()` /
+  `w:begin_resize(edges)` to start an interactive move or resize from Lua.
 - **Layer surfaces (done):** `neori.layers()` and a `LayerSurface` object (`namespace`, `layer`,
   `output`, `pid`, `keyboard_interactivity`, `close()`, `kill()`) with `layer-added` and
   `layer-removed` signals and a per-surface `removed` signal.

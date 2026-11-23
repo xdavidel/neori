@@ -147,6 +147,11 @@ Supported event names and their handler arg:
 | `device-removed`     | `Device` — its last known state                     |
 | `layer-added`        | `LayerSurface` — a layer-shell surface (panel, bar, launcher, …) was mapped |
 | `layer-removed`      | `LayerSurface` — its last known state; also fires when the app unmaps it with a null buffer |
+| `pointer-button`     | event table — see [pointer and gesture signals](#pointer-and-gesture-signals) |
+| `pointer-axis`       | event table — the pointer scrolled                  |
+| `gesture-swipe-begin`, `-update`, `-end` | event table — a touchpad swipe |
+| `gesture-pinch-begin`, `-update`, `-end` | event table — a touchpad pinch |
+| `gesture-hold-begin`, `-end` | event table — fingers held still on the touchpad |
 | `mode-changed`       | the new mode's name or `nil`, the old mode's name or `nil` — see [keybinding modes](Configuration:-Key-Bindings.md#keybinding-modes); `neori.current_mode()` returns the active one |
 | `config-reloaded`    | — (no arg); runs in the newly loaded config, after a successful reload |
 | `shutdown`           | — (no arg); the compositor is about to exit         |
@@ -542,6 +547,8 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:maximize(true/false/())`   | Maximize to the output's edges, restore, or toggle (`maximize-window-to-edges`). |
 | `w:center()`                  | Center the window on its output.                          |
 | `w:kill()`                    | End the app's process with SIGKILL, for an app that ignores `w:close()`. Errors for X11 windows, whose process serves every X11 app. |
+| `w:begin_move()`              | Start moving the window with the pointer, like Mod+drag, until the button is released. Needs a held mouse button: call it from a mouse bind or a `pointer-button` handler for a press. |
+| `w:begin_resize(edges)`       | Start resizing it the same way, from `"bottom-right"`, `"top"`, `"left"` and so on; without `edges`, from the edges nearest the pointer. |
 | `w:set_opacity(x)`            | Draw the window with opacity `x` (0 to 1), over any window rule's; `w:set_opacity(nil)` goes back to the rule. Kept until the window closes. |
 | `w:send_to_workspace(n)`      | Move to workspace index `n` (1-based).                   |
 | `w:send_to_workspace("name")` | Move to the named workspace.                             |
@@ -625,6 +632,44 @@ neori.on("layout-changed", function(name)
         "notify-send layout %q", name))
 end)
 ```
+
+### Pointer and gesture signals
+
+These signals tell Lua about mouse buttons, scrolling and touchpad gestures. Handlers only
+observe: neori and the apps still get the input, so binds and built-in gestures keep working.
+They don't fire while the screen is locked. Each handler gets one table:
+
+| signal | fields |
+|---|---|
+| `pointer-button` | `button` (evdev code, like 272), `name` (`"left"`, `"right"`, `"middle"`, `"side"`, `"extra"`, `"forward"`, `"back"` or `nil`), `pressed`, `x`, `y` |
+| `pointer-axis` | `dx`, `dy` (scroll amounts), `dx_v120`, `dy_v120` (wheel steps, 120 per notch, `nil` for touchpads), `source` (`"wheel"`, `"finger"`, `"continuous"`, `"wheel-tilt"`), `x`, `y` |
+| `gesture-swipe-begin`, `gesture-pinch-begin`, `gesture-hold-begin` | `fingers` |
+| `gesture-swipe-update` | `dx`, `dy` |
+| `gesture-pinch-update` | `dx`, `dy`, `scale` (1 is unchanged), `rotation` (degrees since the last update) |
+| `gesture-swipe-end`, `gesture-pinch-end`, `gesture-hold-end` | `cancelled` |
+
+`pointer-button` fires after neori handled the button, so a handler for a press can start a
+move or resize with it:
+
+```lua
+-- Move windows by dragging them with the side button.
+neori.on("pointer-button", function(e)
+    if e.name == "side" and e.pressed then
+        local w = neori.window_at(e.x, e.y)
+        if w then w:begin_move() end
+    end
+end)
+
+-- Or with a mouse bind.
+neori.bind("Mod+Shift+MouseLeft", function()
+    local p = neori.pointer()
+    local w = p and neori.window_at(p.x, p.y)
+    if w then w:begin_resize() end
+end)
+```
+
+Update signals (`pointer-axis`, `gesture-*-update`) can fire many times a second. A connected
+handler runs for each one, so keep it short; with no handlers they cost nothing.
 
 ## Input devices
 

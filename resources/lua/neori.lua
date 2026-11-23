@@ -35,6 +35,16 @@
 ---| "device-removed" # An input device was disconnected.
 ---| "layer-added" # A layer-shell surface (a panel, bar, launcher, …) appeared.
 ---| "layer-removed" # A layer-shell surface went away.
+---| "pointer-button" # A mouse button was pressed or released.
+---| "pointer-axis" # The pointer scrolled.
+---| "gesture-swipe-begin" # A touchpad swipe started.
+---| "gesture-swipe-update" # A touchpad swipe moved.
+---| "gesture-swipe-end" # A touchpad swipe ended.
+---| "gesture-pinch-begin" # A touchpad pinch started.
+---| "gesture-pinch-update" # A touchpad pinch moved.
+---| "gesture-pinch-end" # A touchpad pinch ended.
+---| "gesture-hold-begin" # Fingers were held still on the touchpad.
+---| "gesture-hold-end" # A touchpad hold ended.
 ---| "mode-changed" # A keybinding mode was entered or left.
 ---| "config-reloaded" # The config was reloaded; runs in the newly loaded config.
 ---| "shutdown" # The compositor is about to exit.
@@ -96,6 +106,44 @@
 ---Global 1-based index.
 ---@field idx integer
 ---@field name? string
+
+---What `pointer-button` handlers receive.
+---@class neori.PointerButtonEvent
+---@field button integer The evdev button code, like 272 (`BTN_LEFT`).
+---@field name? "left"|"right"|"middle"|"side"|"extra"|"forward"|"back"
+---@field pressed boolean
+---@field x number Pointer position, in global logical coordinates.
+---@field y number
+
+---What `pointer-axis` handlers receive.
+---@class neori.PointerAxisEvent
+---@field dx number Horizontal scroll amount.
+---@field dy number Vertical scroll amount.
+---@field dx_v120? number Horizontal wheel steps, 120 per notch; nil for touchpads.
+---@field dy_v120? number Vertical wheel steps, 120 per notch; nil for touchpads.
+---@field source "wheel"|"finger"|"continuous"|"wheel-tilt"
+---@field x number Pointer position, in global logical coordinates.
+---@field y number
+
+---What `gesture-*-begin` handlers receive.
+---@class neori.GestureBeginEvent
+---@field fingers integer
+
+---What `gesture-swipe-update` handlers receive.
+---@class neori.GestureSwipeUpdateEvent
+---@field dx number
+---@field dy number
+
+---What `gesture-pinch-update` handlers receive.
+---@class neori.GesturePinchUpdateEvent
+---@field dx number
+---@field dy number
+---@field scale number Relative to the start of the pinch: 1 is unchanged.
+---@field rotation number Degrees since the last update, clockwise.
+
+---What `gesture-*-end` handlers receive.
+---@class neori.GestureEndEvent
+---@field cancelled boolean
 
 ---A signal, as listed by `neori.signals()` and `obj:signals()`.
 ---@class neori.SignalInfo
@@ -240,6 +288,16 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "device-removed", handler: fun(device: neori.Device))
 ---@overload fun(event: "layer-added", handler: fun(layer: neori.LayerSurface))
 ---@overload fun(event: "layer-removed", handler: fun(layer: neori.LayerSurface))
+---@overload fun(event: "pointer-button", handler: fun(event: neori.PointerButtonEvent))
+---@overload fun(event: "pointer-axis", handler: fun(event: neori.PointerAxisEvent))
+---@overload fun(event: "gesture-swipe-begin", handler: fun(event: neori.GestureBeginEvent))
+---@overload fun(event: "gesture-swipe-update", handler: fun(event: neori.GestureSwipeUpdateEvent))
+---@overload fun(event: "gesture-swipe-end", handler: fun(event: neori.GestureEndEvent))
+---@overload fun(event: "gesture-pinch-begin", handler: fun(event: neori.GestureBeginEvent))
+---@overload fun(event: "gesture-pinch-update", handler: fun(event: neori.GesturePinchUpdateEvent))
+---@overload fun(event: "gesture-pinch-end", handler: fun(event: neori.GestureEndEvent))
+---@overload fun(event: "gesture-hold-begin", handler: fun(event: neori.GestureBeginEvent))
+---@overload fun(event: "gesture-hold-end", handler: fun(event: neori.GestureEndEvent))
 ---@overload fun(event: "mode-changed", handler: fun(mode: string?, old_mode: string?))
 ---@overload fun(event: "config-reloaded", handler: fun()|neori.Action)
 ---@overload fun(event: "shutdown", handler: fun()|neori.Action)
@@ -277,6 +335,16 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "device-removed", handler: fun(device: neori.Device)): fun(device: neori.Device)
 ---@overload fun(signal: "layer-added", handler: fun(layer: neori.LayerSurface)): fun(layer: neori.LayerSurface)
 ---@overload fun(signal: "layer-removed", handler: fun(layer: neori.LayerSurface)): fun(layer: neori.LayerSurface)
+---@overload fun(signal: "pointer-button", handler: fun(event: neori.PointerButtonEvent)): fun(event: neori.PointerButtonEvent)
+---@overload fun(signal: "pointer-axis", handler: fun(event: neori.PointerAxisEvent)): fun(event: neori.PointerAxisEvent)
+---@overload fun(signal: "gesture-swipe-begin", handler: fun(event: neori.GestureBeginEvent)): fun(event: neori.GestureBeginEvent)
+---@overload fun(signal: "gesture-swipe-update", handler: fun(event: neori.GestureSwipeUpdateEvent)): fun(event: neori.GestureSwipeUpdateEvent)
+---@overload fun(signal: "gesture-swipe-end", handler: fun(event: neori.GestureEndEvent)): fun(event: neori.GestureEndEvent)
+---@overload fun(signal: "gesture-pinch-begin", handler: fun(event: neori.GestureBeginEvent)): fun(event: neori.GestureBeginEvent)
+---@overload fun(signal: "gesture-pinch-update", handler: fun(event: neori.GesturePinchUpdateEvent)): fun(event: neori.GesturePinchUpdateEvent)
+---@overload fun(signal: "gesture-pinch-end", handler: fun(event: neori.GestureEndEvent)): fun(event: neori.GestureEndEvent)
+---@overload fun(signal: "gesture-hold-begin", handler: fun(event: neori.GestureBeginEvent)): fun(event: neori.GestureBeginEvent)
+---@overload fun(signal: "gesture-hold-end", handler: fun(event: neori.GestureEndEvent)): fun(event: neori.GestureEndEvent)
 ---@overload fun(signal: "mode-changed", handler: fun(mode: string?, old_mode: string?)): fun(mode: string?, old_mode: string?)
 ---@overload fun(signal: "config-reloaded", handler: fun()): fun()
 ---@overload fun(signal: "shutdown", handler: fun()): fun()
@@ -585,6 +653,14 @@ function Window:set_opacity(opacity) end
 ---The window this one is a dialog or child of.
 ---@return neori.Window?
 function Window:parent() end
+---Starts moving the window with the pointer, like Mod+drag, until the mouse button is released.
+---Needs a held button: call it from a mouse bind or a `pointer-button` handler for a press.
+function Window:begin_move() end
+---Starts resizing the window with the pointer from `edges`, or without them from the edges
+---nearest the pointer, until the mouse button is released. Needs a held button, like
+---`begin_move()`.
+---@param edges? "top"|"bottom"|"left"|"right"|"top-left"|"top-right"|"bottom-left"|"bottom-right"
+function Window:begin_resize(edges) end
 ---Moves to the floating (true) or tiling (false) layout, or toggles it (nil).
 ---@param enable? boolean
 function Window:float(enable) end

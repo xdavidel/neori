@@ -23,13 +23,19 @@ use neori_config::{
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
+use smithay::input::pointer::{
+    CursorIcon, CursorImageStatus, Focus, GrabStartData as PointerGrabStartData,
+};
 use smithay::output::Output as SmithayOutput;
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::RegistrationToken;
+use smithay::utils::SERIAL_COUNTER;
 
 use crate::backend::VirtualOutputMarker;
+use crate::input::AnyStartData;
 use crate::layout::{Layout, LayoutElement};
 use crate::neori::{Neori, State};
+use crate::utils::ResizeEdge;
 use crate::window::Mapped;
 
 /// Build a snapshot of one mapped window.
@@ -73,6 +79,76 @@ pub fn window_snapshot(
         workspace_name: placement.and_then(|p| p.name),
         output_name,
         opacity: Some(mapped.effective_opacity()).filter(|&o| o < 1.),
+    }
+}
+
+/// Parses `"top"`, `"bottom-right"` and so on.
+fn parse_resize_edges(edges: &str) -> Result<Option<ResizeEdge>, String> {
+    let edges = match edges {
+        "top" => ResizeEdge::TOP,
+        "bottom" => ResizeEdge::BOTTOM,
+        "left" => ResizeEdge::LEFT,
+        "right" => ResizeEdge::RIGHT,
+        "top-left" => ResizeEdge::TOP_LEFT,
+        "top-right" => ResizeEdge::TOP_RIGHT,
+        "bottom-left" => ResizeEdge::BOTTOM_LEFT,
+        "bottom-right" => ResizeEdge::BOTTOM_RIGHT,
+        _ => {
+            return Err(format!(
+                "unknown edges {edges:?}: use \"top\", \"bottom\", \"left\", \"right\", \
+                 \"top-left\", \"top-right\", \"bottom-left\" or \"bottom-right\""
+            ))
+        }
+    };
+    Ok(Some(edges))
+}
+
+impl State {
+    /// Checks that a move or resize of the window with this id can start from Lua, and returns
+    /// the window, the held mouse button and the pointer location.
+    fn prepare_window_grab(
+        &mut self,
+        id: u64,
+    ) -> Result<
+        (
+            smithay::desktop::Window,
+            u32,
+            smithay::utils::Point<f64, smithay::utils::Logical>,
+        ),
+        String,
+    > {
+        if self.neori.is_locked() {
+            return Err("the screen is locked".to_owned());
+        }
+        let window = self
+            .neori
+            .layout
+            .windows()
+            .find(|(_, m)| m.id().get() == id)
+            .map(|(_, m)| m.window.clone())
+            .ok_or("this window is gone")?;
+        let pointer = self.neori.seat.get_pointer().unwrap();
+        // While a button is held over a client, the click grab sends it the pointer events;
+        // a move or resize may take over from it, but not from a grab of neori's own.
+        let other_grab = pointer
+            .with_grab(|_, grab| {
+                !grab
+                    .as_any()
+                    .is::<crate::input::click_grab::ClickGrab<State>>()
+            })
+            .unwrap_or(false);
+        if other_grab {
+            return Err("the pointer is already moving or resizing something".to_owned());
+        }
+        let button = self.neori.pointer_button_in_flight.ok_or(
+            "needs a held mouse button: call it from a mouse bind or a pointer-button handler",
+        )?;
+        // A bind suppressed this button: let its release through, so it ends the grab. Its release
+        // action, if any, doesn't run then.
+        if self.neori.suppressed_buttons.remove(&button) {
+            self.neori.pending_mouse_release_binds.remove(&button);
+        }
+        Ok((window, button, pointer.current_location()))
     }
 }
 
@@ -481,6 +557,77 @@ impl ScriptContext for State {
         Ok(())
     }
 
+    fn begin_window_move(&mut self, id: u64) -> Result<(), String> {
+        let (window, button, location) = self.prepare_window_grab(id)?;
+        self.neori.layout.activate_window(&window);
+        let start_data = PointerGrabStartData {
+            focus: None,
+            button,
+            location,
+        };
+        let icon = CursorIcon::Grabbing;
+        let grab = crate::input::move_grab::MoveGrab::new(
+            self,
+            AnyStartData::Pointer(start_data),
+            window,
+            false,
+            Some(icon),
+        )
+        .ok_or("the pointer isn't on an output")?;
+        let pointer = self.neori.seat.get_pointer().unwrap();
+        pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
+        self.neori
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::Named(icon));
+        // FIXME: granular.
+        self.neori.queue_redraw_all();
+        Ok(())
+    }
+
+    fn begin_window_resize(&mut self, id: u64, edges: Option<&str>) -> Result<(), String> {
+        let edges = match edges {
+            Some(edges) => parse_resize_edges(edges)?,
+            None => None,
+        };
+        let (window, button, location) = self.prepare_window_grab(id)?;
+        // Without edges, the ones nearest the pointer if it's over the window, like Mod+RMB.
+        let edges = edges
+            .or_else(|| {
+                let (output, pos) = self.neori.output_under(location)?;
+                let under = self.neori.window_under_cursor()?;
+                if under.window != window {
+                    return None;
+                }
+                self.neori.layout.resize_edges_under(output, pos)
+            })
+            .filter(|edges| !edges.is_empty())
+            .unwrap_or(ResizeEdge::BOTTOM_RIGHT);
+
+        self.neori.layout.activate_window(&window);
+        if !self
+            .neori
+            .layout
+            .interactive_resize_begin(window.clone(), edges)
+        {
+            return Err("this window can't be resized now".to_owned());
+        }
+        let start_data = PointerGrabStartData {
+            focus: None,
+            button,
+            location,
+        };
+        let grab =
+            crate::input::resize_grab::ResizeGrab::new(AnyStartData::Pointer(start_data), window);
+        let pointer = self.neori.seat.get_pointer().unwrap();
+        pointer.set_grab(self, grab, SERIAL_COUNTER.next_serial(), Focus::Clear);
+        self.neori
+            .cursor_manager
+            .set_cursor_image(CursorImageStatus::Named(edges.cursor_icon()));
+        // FIXME: granular.
+        self.neori.queue_redraw_all();
+        Ok(())
+    }
+
     fn window_parent(&mut self, id: u64) -> Option<WindowSnapshot> {
         let (_, mapped) = self
             .neori
@@ -752,6 +899,20 @@ impl State {
         self.neori.hotkey_overlay.set_mode(mode.clone());
         self.neori.queue_redraw_all();
         self.run_lua_event("mode-changed", None, |_| (mode, old));
+    }
+
+    /// Fires a pointer or gesture signal with a table of fields, built only when a handler
+    /// exists. Skipped while the screen is locked, so input meant for the lock screen stays
+    /// there.
+    pub fn fire_input_event(
+        &mut self,
+        event: &str,
+        fields: impl FnOnce(&mut Self) -> Vec<(&'static str, neori_config::EventValue)>,
+    ) {
+        if self.neori.is_locked() {
+            return;
+        }
+        self.run_lua_event(event, None, |state| neori_config::EventTable(fields(state)));
     }
 
     /// Fires `layer-added` or `layer-removed` for a layer-shell surface.

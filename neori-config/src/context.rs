@@ -67,6 +67,17 @@ pub trait ScriptContext {
         let _ = (id, opacity);
         Err("setting window opacity isn't supported here".to_owned())
     }
+    /// Starts moving the window with this id with the pointer, while a mouse button is held.
+    fn begin_window_move(&mut self, id: u64) -> Result<(), String> {
+        let _ = id;
+        Err("moving windows isn't supported here".to_owned())
+    }
+    /// Starts resizing the window with this id with the pointer from `edges` (like
+    /// `"bottom-right"`), or from the edges nearest the pointer, while a mouse button is held.
+    fn begin_window_resize(&mut self, id: u64, edges: Option<&str>) -> Result<(), String> {
+        let _ = (id, edges);
+        Err("resizing windows isn't supported here".to_owned())
+    }
     /// The window that the window with this id is a child of (like a dialog's main window).
     fn window_parent(&mut self, id: u64) -> Option<WindowSnapshot> {
         let _ = id;

@@ -3375,6 +3375,39 @@ impl State {
     }
 
     fn on_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
+        let button_code = event.button_code();
+        let pressed = event.state() == ButtonState::Pressed;
+
+        self.neori.pointer_button_in_flight = pressed.then_some(button_code);
+        self.handle_pointer_button::<I>(event);
+
+        // After neori handled it, and with the press still in flight, so that a handler can start
+        // a move with the held button.
+        self.fire_input_event("pointer-button", |state| {
+            use neori_config::EventValue as V;
+            let pos = state.neori.seat.get_pointer().unwrap().current_location();
+            let name = match button_code {
+                0x110 => V::Str("left"),
+                0x111 => V::Str("right"),
+                0x112 => V::Str("middle"),
+                0x113 => V::Str("side"),
+                0x114 => V::Str("extra"),
+                0x115 => V::Str("forward"),
+                0x116 => V::Str("back"),
+                _ => V::Nil,
+            };
+            vec![
+                ("button", V::Int(button_code.into())),
+                ("name", name),
+                ("pressed", V::Bool(pressed)),
+                ("x", V::Num(pos.x)),
+                ("y", V::Num(pos.y)),
+            ]
+        });
+        self.neori.pointer_button_in_flight = None;
+    }
+
+    fn handle_pointer_button<I: InputBackend>(&mut self, event: I::PointerButtonEvent) {
         let pointer = self.neori.seat.get_pointer().unwrap();
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -3747,6 +3780,27 @@ impl State {
         let mut vertical_amount = event.amount(Axis::Vertical).unwrap_or_else(|| {
             // Winit backend, discrete scrolling.
             vertical_amount_v120.unwrap_or(0.0) / 120. * 15.
+        });
+
+        self.fire_input_event("pointer-axis", |state| {
+            use neori_config::EventValue as V;
+            let pos = state.neori.seat.get_pointer().unwrap().current_location();
+            let v120 = |x: Option<f64>| x.map_or(V::Nil, V::Num);
+            let source = match source {
+                AxisSource::Wheel => "wheel",
+                AxisSource::Finger => "finger",
+                AxisSource::Continuous => "continuous",
+                AxisSource::WheelTilt => "wheel-tilt",
+            };
+            vec![
+                ("dx", V::Num(horizontal_amount)),
+                ("dy", V::Num(vertical_amount)),
+                ("dx_v120", v120(horizontal_amount_v120)),
+                ("dy_v120", v120(vertical_amount_v120)),
+                ("source", V::Str(source)),
+                ("x", V::Num(pos.x)),
+                ("y", V::Num(pos.y)),
+            ]
         });
 
         // Check the contents before updating them as pointer binds are supposed to act on the
@@ -4563,6 +4617,11 @@ impl State {
     }
 
     fn on_gesture_swipe_begin<I: InputBackend>(&mut self, event: I::GestureSwipeBeginEvent) {
+        let fingers = event.fingers();
+        self.fire_input_event("gesture-swipe-begin", |_| {
+            vec![("fingers", neori_config::EventValue::Int(fingers.into()))]
+        });
+
         self.neori.cancel_interrupted_release_binds();
 
         if self.neori.window_mru_ui.is_open() || self.neori.screenshot_ui.is_open() {
@@ -4610,6 +4669,12 @@ impl State {
     {
         let mut delta_x = event.delta_x();
         let mut delta_y = event.delta_y();
+
+        let (dx, dy) = (delta_x, delta_y);
+        self.fire_input_event("gesture-swipe-update", |_| {
+            use neori_config::EventValue as V;
+            vec![("dx", V::Num(dx)), ("dy", V::Num(dy))]
+        });
 
         if let Some(libinput_event) =
             (&event as &dyn Any).downcast_ref::<input::event::gesture::GestureSwipeUpdateEvent>()
@@ -4726,6 +4791,11 @@ impl State {
     }
 
     fn on_gesture_swipe_end<I: InputBackend>(&mut self, event: I::GestureSwipeEndEvent) {
+        let cancelled = event.cancelled();
+        self.fire_input_event("gesture-swipe-end", |_| {
+            vec![("cancelled", neori_config::EventValue::Bool(cancelled))]
+        });
+
         self.neori.gesture_swipe_3f_cumulative = None;
 
         let mut handled = false;
@@ -4770,6 +4840,11 @@ impl State {
     }
 
     fn on_gesture_pinch_begin<I: InputBackend>(&mut self, event: I::GesturePinchBeginEvent) {
+        let fingers = event.fingers();
+        self.fire_input_event("gesture-pinch-begin", |_| {
+            vec![("fingers", neori_config::EventValue::Int(fingers.into()))]
+        });
+
         self.neori.cancel_interrupted_release_binds();
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -4790,6 +4865,17 @@ impl State {
     }
 
     fn on_gesture_pinch_update<I: InputBackend>(&mut self, event: I::GesturePinchUpdateEvent) {
+        let (delta, scale, rotation) = (event.delta(), event.scale(), event.rotation());
+        self.fire_input_event("gesture-pinch-update", |_| {
+            use neori_config::EventValue as V;
+            vec![
+                ("dx", V::Num(delta.x)),
+                ("dy", V::Num(delta.y)),
+                ("scale", V::Num(scale)),
+                ("rotation", V::Num(rotation)),
+            ]
+        });
+
         let pointer = self.neori.seat.get_pointer().unwrap();
 
         if self.update_pointer_contents() {
@@ -4825,6 +4911,11 @@ impl State {
     }
 
     fn on_gesture_pinch_end<I: InputBackend>(&mut self, event: I::GesturePinchEndEvent) {
+        let cancelled = event.cancelled();
+        self.fire_input_event("gesture-pinch-end", |_| {
+            vec![("cancelled", neori_config::EventValue::Bool(cancelled))]
+        });
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.neori.seat.get_pointer().unwrap();
 
@@ -4843,6 +4934,11 @@ impl State {
     }
 
     fn on_gesture_hold_begin<I: InputBackend>(&mut self, event: I::GestureHoldBeginEvent) {
+        let fingers = event.fingers();
+        self.fire_input_event("gesture-hold-begin", |_| {
+            vec![("fingers", neori_config::EventValue::Int(fingers.into()))]
+        });
+
         self.neori.cancel_interrupted_release_binds();
 
         let serial = SERIAL_COUNTER.next_serial();
@@ -4863,6 +4959,11 @@ impl State {
     }
 
     fn on_gesture_hold_end<I: InputBackend>(&mut self, event: I::GestureHoldEndEvent) {
+        let cancelled = event.cancelled();
+        self.fire_input_event("gesture-hold-end", |_| {
+            vec![("cancelled", neori_config::EventValue::Bool(cancelled))]
+        });
+
         let serial = SERIAL_COUNTER.next_serial();
         let pointer = self.neori.seat.get_pointer().unwrap();
 

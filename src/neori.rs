@@ -381,6 +381,9 @@ pub struct Neori {
     pub suppressed_keys: HashSet<Keycode>,
     /// Button codes of the mouse buttons to suppress.
     pub suppressed_buttons: HashSet<u32>,
+    /// The mouse button whose press is being processed, so that Lua can start a move or resize
+    /// with it even when a bind suppressed it.
+    pub pointer_button_in_flight: Option<u32>,
     /// Binds whose release action is pending, keyed by the key code.
     pub pending_release_binds: HashMap<Keycode, Bind>,
     /// Same as `pending_release_binds`, but for mouse buttons, keyed by the button code.
@@ -3271,6 +3274,7 @@ impl Neori {
             popup_grab: None,
             suppressed_keys: HashSet::new(),
             suppressed_buttons: HashSet::new(),
+            pointer_button_in_flight: None,
             pending_release_binds: HashMap::new(),
             pending_mouse_release_binds: HashMap::new(),
             pending_tablet_release_binds: HashMap::new(),
