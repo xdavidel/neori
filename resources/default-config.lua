@@ -1104,6 +1104,25 @@ end
 --   end
 -- end)
 
+-- Layer surfaces (panels, bars, launchers, notifications, wallpapers):
+-- neori.layers() lists them as LayerSurface objects with id(), namespace(),
+-- layer(), output(), pid(), keyboard_interactivity(), close() and kill().
+-- layer-added and layer-removed fire when one appears or goes away.
+
+-- Restart the bar if it crashes.
+-- neori.on("layer-removed", function(ls)
+--   if ls:namespace() == "waybar" then
+--     neori.after(1, function() neori.spawn({ "waybar" }) end)
+--   end
+-- end)
+
+-- Close every launcher and notification popup on the overlay layer.
+-- neori.bind("Mod+Alt+Escape", function()
+--   for _, ls in ipairs(neori.layers()) do
+--     if ls:layer() == "overlay" then ls:close() end
+--   end
+-- end, { hotkey_overlay_title = "Close overlay surfaces" })
+
 -- Includes (load extra Lua files from the same directory):
 -- neori.include("extra-binds.lua")
 -- neori.include("plugins/*.lua")

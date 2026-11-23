@@ -59,8 +59,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   than in libinput, so it needs its own work.
 - **Pointer:** button, axis and gesture (swipe, pinch, hold) signals, opt-in and rate aware, and
   starting an interactive move or resize from Lua.
-- **Layer surfaces:** a `LayerSurface` object (`namespace`, `pid`, `output`, `kill()`) with add and
-  remove signals.
+- **Layer surfaces (done):** `neori.layers()` and a `LayerSurface` object (`namespace`, `layer`,
+  `output`, `pid`, `keyboard_interactivity`, `close()`, `kill()`) with `layer-added` and
+  `layer-removed` signals and a per-surface `removed` signal.
 - **Environment (done):** `neori.setenv`, `neori.unsetenv` and `neori.getenv` at runtime.
 
 ### Phase 3: libraries and developer experience

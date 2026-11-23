@@ -22,6 +22,9 @@ use crate::utils::{baba_is_float_offset, round_logical_in_physical};
 
 #[derive(Debug)]
 pub struct MappedLayer {
+    /// Unique id, for Lua.
+    id: u64,
+
     /// The surface itself.
     surface: LayerSurface,
 
@@ -79,7 +82,9 @@ impl MappedLayer {
         shadow_config.on = false;
         shadow_config.merge_with(&rules.shadow);
 
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
+            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             surface,
             pre_commit_hook,
             rules,
@@ -91,6 +96,11 @@ impl MappedLayer {
             blur_config: config.blur,
             clock,
         }
+    }
+
+    /// Unique id, for Lua.
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn update_config(&mut self, config: &Config) {

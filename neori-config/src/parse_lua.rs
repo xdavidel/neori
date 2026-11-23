@@ -206,6 +206,70 @@ pub struct DeviceSnapshot {
     pub is_touchpad: bool,
 }
 
+/// State of a layer-shell surface (a panel, bar, launcher, notification, …), exposed to Lua as
+/// the `LayerSurface` userdata.
+#[derive(Debug, Default, Clone)]
+pub struct LayerSnapshot {
+    pub id: u64,
+    /// The namespace the app gave the surface, like `"waybar"`.
+    pub namespace: String,
+    /// `"background"`, `"bottom"`, `"top"` or `"overlay"`.
+    pub layer: String,
+    /// Connector name of its output.
+    pub output_name: Option<String>,
+    /// Process id of the app, if known.
+    pub pid: Option<i32>,
+    /// `"none"`, `"exclusive"` or `"on-demand"`.
+    pub keyboard_interactivity: String,
+}
+
+/// Lua `LayerSurface` userdata. Reads return the surface's current state, or its last known one
+/// once it's gone.
+#[derive(Debug, Clone)]
+pub struct LuaLayer(pub LayerSnapshot);
+
+impl LuaLayer {
+    fn current(&self) -> LayerSnapshot {
+        with_context(|ctx| ctx.layer(self.0.id))
+            .flatten()
+            .unwrap_or_else(|| self.0.clone())
+    }
+}
+
+impl mlua::UserData for LuaLayer {
+    fn add_methods<M: mlua::UserDataMethods<Self>>(methods: &mut M) {
+        add_signal_methods(methods, |this: &Self| Ok(SignalTarget::Layer(this.0.id)));
+
+        methods.add_method("id", |_, this, ()| Ok(this.0.id));
+        methods.add_method("namespace", |_, this, ()| Ok(this.current().namespace));
+        methods.add_method("layer", |_, this, ()| Ok(this.current().layer));
+        methods.add_method("output", |_, this, ()| Ok(this.current().output_name));
+        methods.add_method("pid", |_, this, ()| Ok(this.current().pid));
+        methods.add_method("keyboard_interactivity", |_, this, ()| {
+            Ok(this.current().keyboard_interactivity)
+        });
+        // ls:close() asks the app to close the surface.
+        methods.add_method("close", |_, this, ()| {
+            with_context(|ctx| ctx.close_layer(this.0.id))
+                .ok_or_else(|| outside_callback("LayerSurface"))?
+                .map_err(LuaError::runtime)
+        });
+        // ls:kill() ends the app's process with SIGKILL.
+        methods.add_method("kill", |_, this, ()| {
+            with_context(|ctx| ctx.kill_layer(this.0.id))
+                .ok_or_else(|| outside_callback("LayerSurface"))?
+                .map_err(LuaError::runtime)
+        });
+        methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {
+            let layer = this.current();
+            Ok(format!(
+                "LayerSurface(#{}, namespace={:?}, layer={})",
+                layer.id, layer.namespace, layer.layer
+            ))
+        });
+    }
+}
+
 /// A runtime change to an input device, requested from Lua. Each op maps onto a
 /// `device.config_*_set_*` libinput call.
 ///
@@ -2538,6 +2602,21 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set(name, func).map_err(err)?;
+    }
+
+    // neori.layers() returns every mapped layer-shell surface: panels, bars, launchers, …
+    {
+        let func = lua
+            .create_function(|lua, ()| {
+                let layers = with_context(|ctx| ctx.layers()).unwrap_or_default();
+                let arr = lua.create_table()?;
+                for (i, layer) in layers.into_iter().enumerate() {
+                    arr.set(i + 1, LuaLayer(layer))?;
+                }
+                Ok(arr)
+            })
+            .map_err(err)?;
+        neori.set("layers", func).map_err(err)?;
     }
 
     // neori.output_at(x, y) returns the output at those global coordinates, or nil.

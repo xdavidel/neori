@@ -58,13 +58,33 @@ impl WlrLayerShellHandler for State {
                 layer.map(|layer| (o.clone(), map, layer))
             }) {
             map.unmap_layer(&layer);
-            self.neori.mapped_layer_surfaces.remove(&layer);
-            Some(output)
+            let removed = self
+                .neori
+                .mapped_layer_surfaces
+                .remove(&layer)
+                .map(|mapped| crate::script::layer_snapshot(&mapped, Some(&output)));
+            Some((output, removed))
         } else {
             None
         };
-        if let Some(output) = output {
+        let removed = if let Some((output, removed)) = output {
             self.neori.output_resized(&output);
+            removed
+        } else {
+            // Its output is gone (removing an output asks its layer surfaces to close), so the
+            // layer maps don't have it anymore; drop it here rather than leaking it.
+            let layer = self
+                .neori
+                .mapped_layer_surfaces
+                .keys()
+                .find(|layer| layer.layer_surface() == &surface)
+                .cloned();
+            layer
+                .and_then(|layer| self.neori.mapped_layer_surfaces.remove(&layer))
+                .map(|mapped| crate::script::layer_snapshot(&mapped, None))
+        };
+        if let Some(snapshot) = removed {
+            self.fire_layer_event("layer-removed", snapshot);
         }
     }
 
@@ -100,6 +120,10 @@ impl State {
             return true;
         }
 
+        // Fired at the end, with the layer map unlocked: handlers can list the layers.
+        let mut added = None;
+        let mut removed = None;
+
         let mut map = layer_map_for_output(&output);
 
         // Arrange the layers before sending the initial configure to respect any size the
@@ -134,6 +158,7 @@ impl State {
                     &config,
                 );
 
+                added = Some(crate::script::layer_snapshot(&mapped, Some(&output)));
                 let prev = self
                     .neori
                     .mapped_layer_surfaces
@@ -189,7 +214,8 @@ impl State {
             }
         } else {
             // The surface is unmapped.
-            if self.neori.mapped_layer_surfaces.remove(layer).is_some() {
+            if let Some(mapped) = self.neori.mapped_layer_surfaces.remove(layer) {
+                removed = Some(crate::script::layer_snapshot(&mapped, Some(&output)));
                 // A mapped surface got unmapped via a null commit. Now it needs to do a new
                 // initial commit again.
                 self.neori.unmapped_layer_surfaces.insert(surface.clone());
@@ -223,6 +249,13 @@ impl State {
 
         // This will call queue_redraw() inside.
         self.neori.output_resized(&output);
+
+        if let Some(snapshot) = removed {
+            self.fire_layer_event("layer-removed", snapshot);
+        }
+        if let Some(snapshot) = added {
+            self.fire_layer_event("layer-added", snapshot);
+        }
 
         true
     }

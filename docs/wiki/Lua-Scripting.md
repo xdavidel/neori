@@ -145,6 +145,8 @@ Supported event names and their handler arg:
 | `layout-changed`     | string — the new active keyboard layout's name      |
 | `device-added`       | `Device` — an input device was connected (after the config's input settings were applied to it) |
 | `device-removed`     | `Device` — its last known state                     |
+| `layer-added`        | `LayerSurface` — a layer-shell surface (panel, bar, launcher, …) was mapped |
+| `layer-removed`      | `LayerSurface` — its last known state; also fires when the app unmaps it with a null buffer |
 | `mode-changed`       | the new mode's name or `nil`, the old mode's name or `nil` — see [keybinding modes](Configuration:-Key-Bindings.md#keybinding-modes); `neori.current_mode()` returns the active one |
 | `config-reloaded`    | — (no arg); runs in the newly loaded config, after a successful reload |
 | `shutdown`           | — (no arg); the compositor is about to exit         |
@@ -691,6 +693,45 @@ Mutations go directly to libinput; they persist on the device until the next
 config reload re-applies the static `input { … }` block, at which point the
 config value takes over again. Not every setting is supported by every
 device — libinput silently ignores unsupported calls.
+
+## Layer surfaces
+
+`neori.layers()` returns an array of `LayerSurface` userdata — one per mapped layer-shell
+surface: panels, bars, launchers, notification popups, wallpapers, lock screens and so on.
+`layer-added` and `layer-removed` fire when one is mapped or goes away.
+
+```lua
+-- Restart the bar if it crashes.
+neori.on("layer-removed", function(ls)
+    if ls:namespace() == "waybar" then
+        neori.after(1, function() neori.spawn({ "waybar" }) end)
+    end
+end)
+
+-- Close every overlay-layer surface.
+neori.bind("Mod+Alt+Escape", function()
+    for _, ls in ipairs(neori.layers()) do
+        if ls:layer() == "overlay" then ls:close() end
+    end
+end)
+```
+
+### `LayerSurface` methods
+
+| Method | Returns |
+|---|---|
+| `id()` | integer; a surface that's unmapped and mapped again gets a new id |
+| `namespace()` | string the app gave it, like `"waybar"`; layer rules match on it |
+| `layer()` | `"background"`, `"bottom"`, `"top"` or `"overlay"` |
+| `output()` | connector name of its output, or `nil` once that output is gone |
+| `pid()` | integer process id, or `nil` |
+| `keyboard_interactivity()` | `"none"`, `"exclusive"` or `"on-demand"` |
+| `close()` | asks the app to close the surface |
+| `kill()` | ends the app's process with SIGKILL (refused for pid 1 and neori itself) |
+
+Reads return the surface's current state, or its last known one once it's gone.
+`LayerSurface` is a signal object: `ls:connect("removed", fn)` runs `fn` when it goes away,
+and its handlers are dropped then.
 
 ## Reload semantics
 

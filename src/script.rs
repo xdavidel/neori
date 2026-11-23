@@ -75,6 +75,70 @@ pub fn window_snapshot(
     }
 }
 
+/// Ends process `pid` with SIGKILL, refusing pid 1 and neori itself.
+fn kill_process(pid: i32) -> Result<(), String> {
+    if pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
+        return Err(format!("refusing to kill process {pid}"));
+    }
+    // SAFETY: kill() has no memory safety requirements.
+    if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
+        let err = std::io::Error::last_os_error();
+        return Err(format!("error killing process {pid}: {err}"));
+    }
+    Ok(())
+}
+
+/// Snapshots a mapped layer-shell surface on `output`.
+pub fn layer_snapshot(
+    mapped: &crate::layer::MappedLayer,
+    output: Option<&SmithayOutput>,
+) -> neori_config::LayerSnapshot {
+    use smithay::wayland::shell::wlr_layer::{KeyboardInteractivity, Layer};
+    let layer = mapped.surface();
+    let kind = match layer.layer() {
+        Layer::Background => "background",
+        Layer::Bottom => "bottom",
+        Layer::Top => "top",
+        Layer::Overlay => "overlay",
+    };
+    let keyboard_interactivity = match layer.cached_state().keyboard_interactivity {
+        KeyboardInteractivity::None => "none",
+        KeyboardInteractivity::Exclusive => "exclusive",
+        KeyboardInteractivity::OnDemand => "on-demand",
+    };
+    neori_config::LayerSnapshot {
+        id: mapped.id(),
+        namespace: layer.namespace().to_owned(),
+        layer: kind.to_owned(),
+        output_name: output.map(|o| o.name()),
+        pid: crate::utils::get_credentials_for_surface(layer.wl_surface()).map(|c| c.pid),
+        keyboard_interactivity: keyboard_interactivity.to_owned(),
+    }
+}
+
+/// Snapshots every mapped layer-shell surface, output by output.
+fn layer_snapshots(neori: &Neori) -> Vec<neori_config::LayerSnapshot> {
+    let mut layers = Vec::new();
+    for output in neori.layout.outputs() {
+        let map = smithay::desktop::layer_map_for_output(output);
+        for layer in map.layers() {
+            if let Some(mapped) = neori.mapped_layer_surfaces.get(layer) {
+                layers.push(layer_snapshot(mapped, Some(output)));
+            }
+        }
+    }
+    layers
+}
+
+/// The mapped layer-shell surface with this id.
+fn find_layer(neori: &Neori, id: u64) -> Option<smithay::desktop::LayerSurface> {
+    neori
+        .mapped_layer_surfaces
+        .iter()
+        .find(|(_, mapped)| mapped.id() == id)
+        .map(|(layer, _)| layer.clone())
+}
+
 /// The pid of xwayland-satellite, which all X11 windows belong to, if it runs.
 fn xwayland_pid(neori: &Neori) -> Option<i32> {
     neori.satellite.as_ref().and_then(|s| s.pid())
@@ -397,15 +461,25 @@ impl ScriptContext for State {
                     .to_owned(),
             );
         }
-        if pid <= 1 || u32::try_from(pid).ok() == Some(std::process::id()) {
-            return Err(format!("refusing to kill process {pid}"));
-        }
-        // SAFETY: kill() has no memory safety requirements.
-        if unsafe { libc::kill(pid, libc::SIGKILL) } != 0 {
-            let err = std::io::Error::last_os_error();
-            return Err(format!("error killing process {pid}: {err}"));
-        }
+        kill_process(pid)
+    }
+
+    fn layers(&mut self) -> Vec<neori_config::LayerSnapshot> {
+        layer_snapshots(&self.neori)
+    }
+
+    fn close_layer(&mut self, id: u64) -> Result<(), String> {
+        let layer = find_layer(&self.neori, id).ok_or("this layer surface is gone")?;
+        layer.layer_surface().send_close();
         Ok(())
+    }
+
+    fn kill_layer(&mut self, id: u64) -> Result<(), String> {
+        let layer = find_layer(&self.neori, id).ok_or("this layer surface is gone")?;
+        let pid = crate::utils::get_credentials_for_surface(layer.wl_surface())
+            .map(|c| c.pid)
+            .ok_or("this layer surface's process is unknown")?;
+        kill_process(pid)
     }
 
     fn outputs(&mut self) -> Vec<OutputSnapshot> {
@@ -642,6 +716,14 @@ impl State {
         self.neori.hotkey_overlay.set_mode(mode.clone());
         self.neori.queue_redraw_all();
         self.run_lua_event("mode-changed", None, |_| (mode, old));
+    }
+
+    /// Fires `layer-added` or `layer-removed` for a layer-shell surface.
+    ///
+    /// Call it with no layer map locked: handlers can list the layers.
+    pub fn fire_layer_event(&mut self, event: &str, snapshot: neori_config::LayerSnapshot) {
+        let target = SignalTarget::Layer(snapshot.id);
+        self.run_lua_event(event, Some(target), |_| neori_config::LuaLayer(snapshot));
     }
 
     /// Fires `device-added` or `device-removed` for a libinput device.

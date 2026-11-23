@@ -19,6 +19,7 @@ pub enum ObjectKind {
     Workspace,
     Output,
     Device,
+    Layer,
 }
 
 /// The object a signal is attached to.
@@ -34,6 +35,8 @@ pub enum SignalTarget {
     /// An input device, by its sysname. Its handlers are dropped when it's removed: another
     /// device may get the same sysname later.
     Device(String),
+    /// A layer-shell surface, by its id.
+    Layer(u64),
 }
 
 impl SignalTarget {
@@ -43,6 +46,7 @@ impl SignalTarget {
             SignalTarget::Workspace(_) => ObjectKind::Workspace,
             SignalTarget::Output(_) => ObjectKind::Output,
             SignalTarget::Device(_) => ObjectKind::Device,
+            SignalTarget::Layer(_) => ObjectKind::Layer,
         }
     }
 }
@@ -304,6 +308,18 @@ pub const BUILTIN_SIGNALS: &[BuiltinSignal] = &[
         Some(ObjectKind::Device),
     ),
     builtin(
+        "layer-added",
+        "a layer-shell surface (a panel, bar, launcher, …) appeared",
+        "LayerSurface",
+        None,
+    ),
+    builtin(
+        "layer-removed",
+        "a layer-shell surface went away",
+        "LayerSurface (its last known state)",
+        Some(ObjectKind::Layer),
+    ),
+    builtin(
         "mode-changed",
         "a keybinding mode was entered or left",
         "new mode name or nil, old mode name or nil",
@@ -406,7 +422,7 @@ pub fn object_signal(event: &str) -> &str {
 pub fn ends_target(event: &str) -> bool {
     matches!(
         event,
-        "window-closed" | "workspace-removed" | "device-removed"
+        "window-closed" | "workspace-removed" | "device-removed" | "layer-removed"
     )
 }
 

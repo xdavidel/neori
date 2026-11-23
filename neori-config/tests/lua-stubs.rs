@@ -102,6 +102,7 @@ fn stubs_declare_every_method() {
         ("LuaWorkspace", "Workspace"),
         ("LuaDevice", "Device"),
         ("LuaTimer", "Timer"),
+        ("LuaLayer", "LayerSurface"),
     ];
     let method = Regex::new(r#"add_(?:method|function)\(\s*"(\w+)""#).unwrap();
 

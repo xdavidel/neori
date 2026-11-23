@@ -61,9 +61,9 @@ pub use crate::layout::*;
 pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
-    while_reloading, DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace,
-    OpenOverrides, OutputSnapshot, PointerSnapshot, PrintSink, PropertyValue, ScriptHost, Window,
-    WindowGeometry, WindowSnapshot, WorkspaceSnapshot,
+    while_reloading, DeviceOp, DeviceSnapshot, LayerSnapshot, LuaDevice, LuaLayer, LuaOutput,
+    LuaTimer, LuaWorkspace, OpenOverrides, OutputSnapshot, PointerSnapshot, PrintSink,
+    PropertyValue, ScriptHost, Window, WindowGeometry, WindowSnapshot, WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
 pub use crate::scratchpad::Scratchpad;

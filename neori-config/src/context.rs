@@ -24,8 +24,8 @@ use std::time::Duration;
 use neori_ipc::{Action, OutputAction};
 
 use crate::parse_lua::{
-    DeviceOp, DeviceSnapshot, OutputSnapshot, PointerSnapshot, WindowGeometry, WindowSnapshot,
-    WorkspaceSnapshot,
+    DeviceOp, DeviceSnapshot, LayerSnapshot, OutputSnapshot, PointerSnapshot, WindowGeometry,
+    WindowSnapshot, WorkspaceSnapshot,
 };
 
 /// Compositor state that Lua callbacks can query.
@@ -101,6 +101,25 @@ pub trait ScriptContext {
     /// The pointer position, if there is a pointer.
     fn pointer(&mut self) -> Option<PointerSnapshot> {
         None
+    }
+
+    /// Every mapped layer-shell surface.
+    fn layers(&mut self) -> Vec<LayerSnapshot> {
+        Vec::new()
+    }
+    /// The mapped layer-shell surface with this id, if it still exists.
+    fn layer(&mut self, id: u64) -> Option<LayerSnapshot> {
+        self.layers().into_iter().find(|l| l.id == id)
+    }
+    /// Asks the layer-shell surface with this id to close.
+    fn close_layer(&mut self, id: u64) -> Result<(), String> {
+        let _ = id;
+        Err("closing layer surfaces isn't supported here".to_owned())
+    }
+    /// Ends the process of the layer-shell surface with this id with SIGKILL.
+    fn kill_layer(&mut self, id: u64) -> Result<(), String> {
+        let _ = id;
+        Err("killing layer surfaces isn't supported here".to_owned())
     }
 
     /// Every input device.

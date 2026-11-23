@@ -33,6 +33,8 @@
 ---| "layout-changed" # The keyboard layout changed.
 ---| "device-added" # An input device was connected.
 ---| "device-removed" # An input device was disconnected.
+---| "layer-added" # A layer-shell surface (a panel, bar, launcher, …) appeared.
+---| "layer-removed" # A layer-shell surface went away.
 ---| "mode-changed" # A keybinding mode was entered or left.
 ---| "config-reloaded" # The config was reloaded; runs in the newly loaded config.
 ---| "shutdown" # The compositor is about to exit.
@@ -236,6 +238,8 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "layout-changed", handler: fun(layout: string))
 ---@overload fun(event: "device-added", handler: fun(device: neori.Device))
 ---@overload fun(event: "device-removed", handler: fun(device: neori.Device))
+---@overload fun(event: "layer-added", handler: fun(layer: neori.LayerSurface))
+---@overload fun(event: "layer-removed", handler: fun(layer: neori.LayerSurface))
 ---@overload fun(event: "mode-changed", handler: fun(mode: string?, old_mode: string?))
 ---@overload fun(event: "config-reloaded", handler: fun()|neori.Action)
 ---@overload fun(event: "shutdown", handler: fun()|neori.Action)
@@ -271,6 +275,8 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
 ---@overload fun(signal: "device-added", handler: fun(device: neori.Device)): fun(device: neori.Device)
 ---@overload fun(signal: "device-removed", handler: fun(device: neori.Device)): fun(device: neori.Device)
+---@overload fun(signal: "layer-added", handler: fun(layer: neori.LayerSurface)): fun(layer: neori.LayerSurface)
+---@overload fun(signal: "layer-removed", handler: fun(layer: neori.LayerSurface)): fun(layer: neori.LayerSurface)
 ---@overload fun(signal: "mode-changed", handler: fun(mode: string?, old_mode: string?)): fun(mode: string?, old_mode: string?)
 ---@overload fun(signal: "config-reloaded", handler: fun()): fun()
 ---@overload fun(signal: "shutdown", handler: fun()): fun()
@@ -344,6 +350,10 @@ function neori.focused_workspace() end
 ---Every input device.
 ---@return neori.Device[]
 function neori.devices() end
+
+---Every layer-shell surface: panels, bars, launchers, notifications, …
+---@return neori.LayerSurface[]
+function neori.layers() end
 
 ---The pointer position.
 ---@return neori.Pointer?
@@ -766,6 +776,51 @@ function Timer:timeout() end
 ---Changes the timeout, from the next `start` or `again`.
 ---@param ms integer
 function Timer:set_timeout(ms) end
+
+--------------------------------------------------------------------------------
+-- LayerSurface
+--------------------------------------------------------------------------------
+
+---A layer-shell surface: a panel, bar, launcher, notification, wallpaper, …
+---Reads return its current state, or its last known one once it's gone.
+---@class neori.LayerSurface
+local LayerSurface = {}
+
+---@return integer
+function LayerSurface:id() end
+---The namespace the app gave it, like `"waybar"`; layer rules match on it.
+---@return string
+function LayerSurface:namespace() end
+---@return "background"|"bottom"|"top"|"overlay"
+function LayerSurface:layer() end
+---Connector name of its output.
+---@return string?
+function LayerSurface:output() end
+---@return integer?
+function LayerSurface:pid() end
+---@return "none"|"exclusive"|"on-demand"
+function LayerSurface:keyboard_interactivity() end
+---Asks the app to close the surface.
+function LayerSurface:close() end
+---Ends the app's process with SIGKILL.
+function LayerSurface:kill() end
+
+---Connects a function to a signal of this surface: `"removed"`, or one of your own. Its
+---functions are dropped when it's removed.
+---@generic F: function
+---@param signal "removed"|string
+---@param handler F
+---@return F
+function LayerSurface:connect(signal, handler) end
+---@param signal "removed"|string
+---@param handler? function
+---@return boolean
+function LayerSurface:disconnect(signal, handler) end
+---@param signal string
+---@param ... any
+function LayerSurface:emit(signal, ...) end
+---@return neori.SignalInfo[]
+function LayerSurface:signals() end
 
 --------------------------------------------------------------------------------
 -- Device

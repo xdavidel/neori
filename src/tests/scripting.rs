@@ -3336,3 +3336,150 @@ fn setenv_changes_the_spawn_environment_until_reload() {
     f.neori_state().reload_config(Ok(reloaded));
     assert_eq!(child_value(&name), None);
 }
+
+#[test]
+fn layer_surface_signals_and_object() {
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+
+    use crate::tests::client::LayerConfigureProps;
+
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("layer-added", function(ls)
+            -- Listing layers from a handler must not deadlock on the layer map.
+            log = log .. "added:" .. ls:namespace() .. " count=" .. #neori.layers() .. ";"
+            info = string.format("%s %s %s pid=%s", ls:layer(), tostring(ls:output()),
+                ls:keyboard_interactivity(), tostring(ls:pid() ~= nil))
+            ls:connect("removed", function(l) log = log .. "own-removed:" .. l:namespace() .. ";" end)
+            ok, err = pcall(function() ls:kill() end)
+            err = tostring(err)
+        end)
+        neori.on("layer-removed", function(ls) log = log .. "removed:" .. ls:namespace() .. ";" end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let layer = f.client(id).create_layer(None, Layer::Top, "bar");
+    let surface = layer.surface.clone();
+    layer.set_configure_props(LayerConfigureProps {
+        anchor: Some(Anchor::Left | Anchor::Right | Anchor::Top),
+        size: Some((0, 50)),
+        ..Default::default()
+    });
+    layer.commit();
+    f.roundtrip(id);
+    let layer = f.client(id).layer(&surface);
+    layer.attach_new_buffer();
+    layer.set_size(1920, 50);
+    layer.ack_last_and_commit();
+    f.double_roundtrip(id);
+
+    assert_eq!(read_global_string(&f, "log"), "added:bar count=1;");
+    assert_eq!(
+        read_global_string(&f, "info"),
+        "top headless-1 none pid=true"
+    );
+    // The test client runs in the test process: kill() refuses to kill neori itself.
+    assert!(read_global_string(&f, "err").contains("refusing to kill process"));
+
+    // Unmapping with a null buffer removes it; its own handler runs and is dropped.
+    let layer = f.client(id).layer(&surface);
+    layer.attach_null();
+    layer.commit();
+    f.double_roundtrip(id);
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "added:bar count=1;removed:bar;own-removed:bar;"
+    );
+    assert!(!f.state.server.state.scripting.has_object_signals());
+}
+
+#[test]
+fn layer_surface_close() {
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
+
+    use crate::tests::client::LayerConfigureProps;
+
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            for _, ls in ipairs(neori.layers()) do ls:close() end
+            closed = "yes"
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let layer = f.client(id).create_layer(None, Layer::Top, "launcher");
+    let surface = layer.surface.clone();
+    layer.set_configure_props(LayerConfigureProps {
+        size: Some((100, 100)),
+        ..Default::default()
+    });
+    layer.commit();
+    f.roundtrip(id);
+    let layer = f.client(id).layer(&surface);
+    layer.attach_new_buffer();
+    layer.set_size(100, 100);
+    layer.ack_last_and_commit();
+    f.double_roundtrip(id);
+
+    press_first_function_bind(&mut f);
+    f.double_roundtrip(id);
+    assert_eq!(read_global_string(&f, "closed"), "yes");
+    assert!(
+        f.client(id).layer(&surface).close_requested,
+        "the client should be asked to close"
+    );
+}
+
+#[test]
+fn layer_surface_removed_after_its_output() {
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
+
+    use crate::tests::client::LayerConfigureProps;
+
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("layer-removed", function(ls)
+            log = log .. "removed:" .. ls:namespace() .. " output=" .. tostring(ls:output()) .. ";"
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1280, 720));
+    let id = f.add_client();
+    f.double_roundtrip(id);
+    let wl_output = f.client(id).output("headless-2");
+    let layer = f
+        .client(id)
+        .create_layer(Some(&wl_output), Layer::Top, "bar");
+    let surface = layer.surface.clone();
+    layer.set_configure_props(LayerConfigureProps {
+        size: Some((100, 100)),
+        ..Default::default()
+    });
+    layer.commit();
+    f.roundtrip(id);
+    let layer = f.client(id).layer(&surface);
+    layer.attach_new_buffer();
+    layer.set_size(100, 100);
+    layer.ack_last_and_commit();
+    f.double_roundtrip(id);
+    assert_eq!(f.neori().mapped_layer_surfaces.len(), 1);
+
+    // Removing the output asks the surface to close; the app then destroys it.
+    let output = f.neori_output(2);
+    f.neori().remove_output(&output);
+    f.double_roundtrip(id);
+    let layer = f.client(id).layer(&surface);
+    assert!(layer.close_requested);
+    layer.layer_surface.destroy();
+    f.double_roundtrip(id);
+
+    assert_eq!(read_global_string(&f, "log"), "removed:bar output=nil;");
+    assert!(f.neori().mapped_layer_surfaces.is_empty());
+}
