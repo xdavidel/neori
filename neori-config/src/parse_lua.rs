@@ -110,6 +110,8 @@ pub struct WindowSnapshot {
     pub workspace_name: Option<String>,
     /// Connector-style output name the window currently lives on.
     pub output_name: Option<String>,
+    /// The opacity it's drawn with, or `None` when fully opaque.
+    pub opacity: Option<f32>,
 }
 
 /// Snapshot of an output's state, exposed to Lua as the `Output` userdata.
@@ -1024,6 +1026,30 @@ impl mlua::UserData for Window {
             apply_action(Action::CenterWindow {
                 id: Some(this.0.id),
             })
+        });
+
+        // w:opacity() is the opacity the window is drawn with, between 0 and 1.
+        methods.add_method("opacity", |_, this, ()| {
+            Ok(this.current().opacity.unwrap_or(1.))
+        });
+        // w:set_opacity(x) sets it; w:set_opacity(nil) goes back to the window rules'.
+        methods.add_method("set_opacity", |_, this, opacity: Option<f32>| {
+            if let Some(o) = opacity {
+                if !(0. ..=1.).contains(&o) {
+                    return Err(LuaError::runtime(format!(
+                        "opacity must be between 0 and 1, got {o}"
+                    )));
+                }
+            }
+            with_context(|ctx| ctx.set_window_opacity(this.0.id, opacity))
+                .ok_or_else(|| outside_callback("Window"))?
+                .map_err(LuaError::runtime)
+        });
+        // w:parent() is the window this one is a dialog or child of, or nil.
+        methods.add_method("parent", |_, this, ()| {
+            Ok(with_context(|ctx| ctx.window_parent(this.0.id))
+                .flatten()
+                .map(Window))
         });
 
         // w:kill() ends the app's process with SIGKILL, for an app that doesn't react to

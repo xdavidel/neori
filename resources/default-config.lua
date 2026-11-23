@@ -794,6 +794,12 @@ end
 --   if w and not pcall(function() w:kill() end) then w:close() end
 -- end, { hotkey_overlay_title = "Force Quit" })
 
+-- Make the focused window see-through, or opaque again.
+-- neori.bind("Mod+Alt+Y", function()
+--   local w = neori.focused_window()
+--   if w then w:set_opacity(w:opacity() < 1 and 1 or 0.85) end
+-- end, { hotkey_overlay_title = "Toggle window transparency" })
+
 -- Focus the window under the pointer.
 -- neori.bind("Mod+Alt+Space", function()
 --   local p = neori.pointer()

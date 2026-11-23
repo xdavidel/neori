@@ -48,8 +48,8 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 ### Phase 2: wider object coverage
 
-- **Window (done, except `opacity` and `parent`):** `pid`, `geometry`, `is_urgent`, `is_maximized`,
-  `maximize()`, `kill()`, `center()`, and `neori.window_at(x, y)`.
+- **Window (done):** `pid`, `geometry`, `is_urgent`, `is_maximized`, `opacity`, `parent`,
+  `maximize()`, `kill()`, `center()`, `set_opacity()`, and `neori.window_at(x, y)`.
 - **Output (done):** `geometry`, `workarea`, `physical_size`, `windows()`, and
   `neori.output_at(x, y)`; `is_off` covers enabled. Monitors are powered on and off together, by
   the `power-off-monitors` / `power-on-monitors` actions, so there's no per-output DPMS.

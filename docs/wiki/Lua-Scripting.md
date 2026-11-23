@@ -524,6 +524,8 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:geometry()`      | `{ x, y, width, height }` in global logical coordinates; `x` and `y` are `nil` while the window isn't on screen |
 | `w:workspace()`     | `{ idx = <number>, name = <string?> }` or `nil`            |
 | `w:output()`        | connector-name string or `nil`                             |
+| `w:opacity()`       | number between 0 and 1 — the opacity it's drawn with       |
+| `w:parent()`        | the `Window` this one is a dialog or child of, or `nil`    |
 
 **Mutation:**
 
@@ -540,6 +542,7 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:maximize(true/false/())`   | Maximize to the output's edges, restore, or toggle (`maximize-window-to-edges`). |
 | `w:center()`                  | Center the window on its output.                          |
 | `w:kill()`                    | End the app's process with SIGKILL, for an app that ignores `w:close()`. Errors for X11 windows, whose process serves every X11 app. |
+| `w:set_opacity(x)`            | Draw the window with opacity `x` (0 to 1), over any window rule's; `w:set_opacity(nil)` goes back to the rule. Kept until the window closes. |
 | `w:send_to_workspace(n)`      | Move to workspace index `n` (1-based).                   |
 | `w:send_to_workspace("name")` | Move to the named workspace.                             |
 | `w:send_to_output("eDP-1")`   | Move to the named output.                                |

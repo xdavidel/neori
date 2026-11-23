@@ -72,6 +72,7 @@ pub fn window_snapshot(
         workspace_idx: placement.as_ref().map(|p| p.idx),
         workspace_name: placement.and_then(|p| p.name),
         output_name,
+        opacity: Some(mapped.effective_opacity()).filter(|&o| o < 1.),
     }
 }
 
@@ -462,6 +463,37 @@ impl ScriptContext for State {
             );
         }
         kill_process(pid)
+    }
+
+    fn set_window_opacity(&mut self, id: u64, opacity: Option<f32>) -> Result<(), String> {
+        let window = self
+            .neori
+            .layout
+            .workspaces_mut()
+            .find_map(|ws| ws.windows_mut().find(|w| w.id().get() == id))
+            .ok_or("this window is gone")?;
+        window.set_opacity_override(opacity);
+        let config = self.neori.config.borrow();
+        window.recompute_window_rules(&config.window_rules, self.neori.is_at_startup);
+        drop(config);
+        // FIXME: granular
+        self.neori.queue_redraw_all();
+        Ok(())
+    }
+
+    fn window_parent(&mut self, id: u64) -> Option<WindowSnapshot> {
+        let (_, mapped) = self
+            .neori
+            .layout
+            .windows()
+            .find(|(_, m)| m.id().get() == id)?;
+        let parent = mapped.toplevel().parent()?;
+        let (_, parent) = self
+            .neori
+            .layout
+            .windows()
+            .find(|(_, m)| m.toplevel().wl_surface() == &parent)?;
+        Some(snapshot_mapped(&self.neori, parent))
     }
 
     fn layers(&mut self) -> Vec<neori_config::LayerSnapshot> {

@@ -114,6 +114,9 @@ pub struct Mapped {
     /// Whether this window should ignore opacity set through window rules.
     ignore_opacity_window_rule: bool,
 
+    /// Opacity set from Lua, which takes over the window rules' one.
+    opacity_override: Option<f32>,
+
     /// Buffer to draw instead of the window when it should be blocked out.
     block_out_buffer: RefCell<SolidColorBuffer>,
 
@@ -318,6 +321,7 @@ impl Mapped {
             is_floating: false,
             is_window_cast_target: false,
             ignore_opacity_window_rule: false,
+            opacity_override: None,
             block_out_buffer: RefCell::new(SolidColorBuffer::new((0., 0.), [0., 0., 0., 1.])),
             blur_config: config.blur,
             animate_next_configure: false,
@@ -377,7 +381,11 @@ impl Mapped {
     pub fn recompute_window_rules(&mut self, rules: &[WindowRule], is_at_startup: bool) -> bool {
         self.need_to_recompute_rules = false;
 
-        let new_rules = ResolvedWindowRules::compute(rules, WindowRef::Mapped(self), is_at_startup);
+        let mut new_rules =
+            ResolvedWindowRules::compute(rules, WindowRef::Mapped(self), is_at_startup);
+        if let Some(opacity) = self.opacity_override {
+            new_rules.opacity = Some(opacity);
+        }
         if new_rules == self.rules {
             return false;
         }
@@ -442,6 +450,25 @@ impl Mapped {
     /// [`Self::is_windowed_fullscreen()`].
     pub fn is_fullscreen(&self) -> bool {
         self.sizing_mode().is_fullscreen()
+    }
+
+    /// The opacity the window is drawn with, between 0 and 1.
+    pub fn effective_opacity(&self) -> f32 {
+        if self.ignore_opacity_window_rule {
+            1.
+        } else {
+            self.rules.opacity.unwrap_or(1.).clamp(0., 1.)
+        }
+    }
+
+    /// Sets the opacity from Lua, or with `None` goes back to the window rules' one.
+    ///
+    /// Takes effect on the next rule recompute, which this requests.
+    pub fn set_opacity_override(&mut self, opacity: Option<f32>) {
+        self.opacity_override = opacity;
+        // Toggling the window rule opacity off shouldn't hide what Lua just set.
+        self.ignore_opacity_window_rule = false;
+        self.need_to_recompute_rules = true;
     }
 
     pub fn toggle_ignore_opacity_window_rule(&mut self) {

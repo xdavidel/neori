@@ -576,6 +576,15 @@ function Window:center() end
 ---Ends the app's process with SIGKILL, for an app that doesn't react to `close()`. Raises an
 ---error for X11 windows, whose process serves every X11 app.
 function Window:kill() end
+---The opacity the window is drawn with, between 0 and 1.
+---@return number
+function Window:opacity() end
+---Sets the opacity, between 0 and 1; `nil` goes back to the window rules' one.
+---@param opacity number?
+function Window:set_opacity(opacity) end
+---The window this one is a dialog or child of.
+---@return neori.Window?
+function Window:parent() end
 ---Moves to the floating (true) or tiling (false) layout, or toggles it (nil).
 ---@param enable? boolean
 function Window:float(enable) end

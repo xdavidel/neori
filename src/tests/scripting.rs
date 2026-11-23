@@ -3483,3 +3483,82 @@ fn layer_surface_removed_after_its_output() {
     assert_eq!(read_global_string(&f, "log"), "removed:bar output=nil;");
     assert!(f.neori().mapped_layer_surfaces.is_empty());
 }
+
+#[test]
+fn window_opacity_overrides_and_resets_to_the_window_rule() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.window_rule { matches = { { title = "^dim$" } }, opacity = 0.8 }
+        log = ""
+        step = 0
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            step = step + 1
+            if step == 1 then
+                log = log .. string.format("%.2f;", w:opacity())
+                w:set_opacity(0.5)
+                log = log .. string.format("%.2f;", w:opacity())
+                ok, err = pcall(function() w:set_opacity(2) end)
+                err = tostring(err)
+            else
+                w:set_opacity(nil)
+                log = log .. string.format("%.2f;", w:opacity())
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let surface = map_window(&mut f, id, "dim");
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "log"), "0.80;0.50;");
+    assert!(read_global_string(&f, "err").contains("between 0 and 1"));
+
+    // The override survives a rule recompute: the new title no longer matches the rule.
+    let window = f.client(id).window(&surface);
+    window.set_title("bright");
+    window.commit();
+    f.double_roundtrip(id);
+    use crate::layout::LayoutElement as _;
+    let state = &mut f.state.server.state;
+    let window = state.neori.layout.windows().next().unwrap().1;
+    assert_eq!(window.rules().opacity, Some(0.5));
+
+    // Resetting goes back to the rules, which no longer match.
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "log"), "0.80;0.50;1.00;");
+}
+
+#[test]
+fn window_parent_returns_the_parent_window() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            local p = w:parent()
+            result = w:title() .. " -> " .. (p and p:title() or "nil")
+                .. "; " .. tostring(p and p:parent())
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let parent = map_window(&mut f, id, "main");
+    let child = f.client(id).create_window();
+    child.set_title("dialog");
+    let child_surface = child.surface.clone();
+    let parent_toplevel = f.client(id).window(&parent).xdg_toplevel.clone();
+    let child = f.client(id).window(&child_surface);
+    child.set_parent(Some(&parent_toplevel));
+    child.commit();
+    f.roundtrip(id);
+    let child = f.client(id).window(&child_surface);
+    child.attach_new_buffer();
+    child.set_size(100, 100);
+    child.ack_last_and_commit();
+    f.double_roundtrip(id);
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "result"), "dialog -> main; nil");
+}

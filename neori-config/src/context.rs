@@ -61,6 +61,17 @@ pub trait ScriptContext {
         let _ = id;
         Err("killing windows isn't supported here".to_owned())
     }
+    /// Sets the opacity of the window with this id, or with `None` goes back to its window
+    /// rules' one.
+    fn set_window_opacity(&mut self, id: u64, opacity: Option<f32>) -> Result<(), String> {
+        let _ = (id, opacity);
+        Err("setting window opacity isn't supported here".to_owned())
+    }
+    /// The window that the window with this id is a child of (like a dialog's main window).
+    fn window_parent(&mut self, id: u64) -> Option<WindowSnapshot> {
+        let _ = id;
+        None
+    }
 
     /// Every connected output.
     fn outputs(&mut self) -> Vec<OutputSnapshot> {

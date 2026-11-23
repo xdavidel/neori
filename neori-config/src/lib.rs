@@ -1723,6 +1723,7 @@ mod tests {
             workspace_idx: Some(3),
             workspace_name: Some("browser".to_string()),
             output_name: Some("eDP-1".to_string()),
+            opacity: None,
         };
         host.call_event_with("window-focused", Window(snap))
             .unwrap();
