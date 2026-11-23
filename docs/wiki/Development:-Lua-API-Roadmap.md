@@ -61,7 +61,7 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   starting an interactive move or resize from Lua.
 - **Layer surfaces:** a `LayerSurface` object (`namespace`, `pid`, `output`, `kill()`) with add and
   remove signals.
-- **Environment:** `neori.setenv` and `neori.unsetenv` at runtime.
+- **Environment (done):** `neori.setenv`, `neori.unsetenv` and `neori.getenv` at runtime.
 
 ### Phase 3: libraries and developer experience
 

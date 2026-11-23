@@ -488,6 +488,26 @@ impl ScriptContext for State {
         apply_device_op(&mut self.neori, sysname, op);
     }
 
+    fn set_env(&mut self, name: &str, value: Option<&str>) {
+        let mut env = crate::utils::spawning::CHILD_ENV.write().unwrap();
+        let value = value.map(str::to_owned);
+        match env.0.iter_mut().find(|var| var.name == name) {
+            Some(var) => var.value = value,
+            None => env.0.push(neori_config::EnvironmentVariable {
+                name: name.to_owned(),
+                value,
+            }),
+        }
+    }
+
+    fn get_env(&mut self, name: &str) -> Option<String> {
+        let env = crate::utils::spawning::CHILD_ENV.read().unwrap();
+        match env.0.iter().find(|var| var.name == name) {
+            Some(var) => var.value.clone(),
+            None => std::env::var(name).ok(),
+        }
+    }
+
     fn current_mode(&mut self) -> Option<String> {
         self.neori.active_mode.clone()
     }

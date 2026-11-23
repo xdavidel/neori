@@ -174,6 +174,22 @@ change (per refresh tick), so a bind that focuses a different workspace,
 plugging in a monitor, or opening a window on a not-yet-materialized workspace
 all generate the matching events.
 
+## Environment
+
+`neori.setenv(name, value)` and `neori.unsetenv(name)` change the environment of the programs
+neori spawns from then on, like `neori.environment { … }` does in the config. They only work
+inside callbacks, and last until the config is reloaded, which puts back the config's
+environment. `neori.getenv(name)` returns a variable as those programs would see it (Lua's own
+`os.getenv` shows neori's environment, without these changes).
+
+```lua
+-- Toggle between a light and a dark GTK theme for apps started from now on.
+neori.bind("Mod+Alt+D", function()
+    local dark = neori.getenv("GTK_THEME") == "Adwaita:dark"
+    neori.setenv("GTK_THEME", dark and "Adwaita" or "Adwaita:dark")
+end)
+```
+
 ## Timers
 
 `neori.after(ms, fn)` calls `fn` once, after `ms` milliseconds. `neori.every(ms, fn)` calls it

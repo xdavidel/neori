@@ -145,6 +145,9 @@ neori.environment {
 }
 ```
 
+Lua callbacks can also change the environment at runtime with `neori.setenv(name, value)` and
+`neori.unsetenv(name)`; see [Lua Scripting](./Lua-Scripting.md#environment).
+
 Note that these variables do not propagate to the systemd global environment, so tools and applications started by systemd do not see them.
 In particular, if you start a desktop shell like Dux Modular Shell through systemd, then use its built-in application launcher, the apps won't see these environment variables.
 

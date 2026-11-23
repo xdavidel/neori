@@ -126,6 +126,15 @@ pub trait ScriptContext {
     /// Changes a setting of the input device with this sysname right away.
     fn device_op(&mut self, sysname: &str, op: DeviceOp);
 
+    /// Sets (`Some`) or unsets (`None`) an environment variable for programs spawned from now on.
+    fn set_env(&mut self, name: &str, value: Option<&str>) {
+        let _ = (name, value);
+    }
+    /// The value of an environment variable as programs spawned now would see it.
+    fn get_env(&mut self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+
     /// The name of the active keybinding mode, if any.
     fn current_mode(&mut self) -> Option<String> {
         None

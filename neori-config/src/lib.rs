@@ -3104,6 +3104,37 @@ mod tests {
     }
 
     #[test]
+    fn setenv_needs_a_callback_and_a_valid_name() {
+        let err = |lua: &str| format!("{:?}", Config::parse_mem(lua).unwrap_err());
+        assert!(err(r#"neori.setenv("A", "1")"#).contains("only work inside a callback"));
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            path_at_load = neori.getenv("PATH")
+            neori.bind("Mod+T", function()
+                ok, err = pcall(neori.setenv, "A=B", "1")
+                err = tostring(err)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        // Outside a callback, getenv reads neori's own environment.
+        assert!(matches!(
+            host.read_global("path_at_load").unwrap(),
+            mlua::Value::String(_)
+        ));
+        run_bind(&host, &mut FakeContext::default());
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(err
+            .to_str()
+            .unwrap()
+            .contains("invalid environment variable name"));
+    }
+
+    #[test]
     fn timers() {
         let (_config, host) = Config::parse_with_host(
             std::path::Path::new("test.lua"),

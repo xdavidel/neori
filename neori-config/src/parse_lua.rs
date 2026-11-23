@@ -2275,6 +2275,48 @@ fn setup_neori_api(
         neori.set("action", func).map_err(err)?;
     }
 
+    // neori.setenv(name, value) / neori.unsetenv(name) change the environment of programs
+    // neori spawns from now on, until the config is reloaded. neori.getenv(name) returns a
+    // variable as those programs would see it.
+    {
+        fn check_name(name: &str) -> LuaResult<()> {
+            if name.is_empty() || name.contains(['=', '\0']) {
+                return Err(LuaError::runtime(format!(
+                    "invalid environment variable name {name:?}"
+                )));
+            }
+            Ok(())
+        }
+        let func = lua
+            .create_function(|_, (name, value): (String, String)| {
+                check_name(&name)?;
+                if value.contains('\0') {
+                    return Err(LuaError::runtime(
+                        "environment variable values can't contain NUL",
+                    ));
+                }
+                with_context(|ctx| ctx.set_env(&name, Some(&value)))
+                    .ok_or_else(|| outside_callback("neori.setenv"))
+            })
+            .map_err(err)?;
+        neori.set("setenv", func).map_err(err)?;
+        let func = lua
+            .create_function(|_, name: String| {
+                check_name(&name)?;
+                with_context(|ctx| ctx.set_env(&name, None))
+                    .ok_or_else(|| outside_callback("neori.unsetenv"))
+            })
+            .map_err(err)?;
+        neori.set("unsetenv", func).map_err(err)?;
+        let func = lua
+            .create_function(|_, name: String| {
+                Ok(with_context(|ctx| ctx.get_env(&name))
+                    .unwrap_or_else(|| std::env::var(&name).ok()))
+            })
+            .map_err(err)?;
+        neori.set("getenv", func).map_err(err)?;
+    }
+
     // neori.window_at(x, y) returns the window at those global coordinates, or nil.
     {
         let func = lua

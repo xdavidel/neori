@@ -3298,3 +3298,41 @@ fn device_added_and_removed_signals() {
     );
     assert!(has_output(&mut f, "for-event9"));
 }
+
+#[test]
+fn setenv_changes_the_spawn_environment_until_reload() {
+    // CHILD_ENV is shared by every test: use a name no other test uses.
+    let name = format!("NEORI_TEST_SETENV_{}", std::process::id());
+    let mut f = fixture_from_lua(&format!(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            neori.setenv("{name}", "one")
+            after_set = neori.getenv("{name}")
+            neori.unsetenv("{name}")
+            after_unset = tostring(neori.getenv("{name}"))
+            neori.setenv("{name}", "two")
+        end)
+        "#
+    ));
+    f.add_output(1, (1920, 1080));
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "after_set"), "one");
+    assert_eq!(read_global_string(&f, "after_unset"), "nil");
+
+    let child_value = |name: &str| {
+        let env = crate::utils::spawning::CHILD_ENV.read().unwrap();
+        env.0
+            .iter()
+            .find(|v| v.name == name)
+            .and_then(|v| v.value.clone())
+    };
+
+    // A reload puts back the config's environment. (Other tests reload in parallel, which also
+    // resets CHILD_ENV, so the checks stay inside one callback or after a reset.)
+    let reloaded = neori_config::while_reloading(|| {
+        Config::parse_with_host(std::path::Path::new("test.lua"), "-- nothing\n").config
+    })
+    .unwrap();
+    f.neori_state().reload_config(Ok(reloaded));
+    assert_eq!(child_value(&name), None);
+}

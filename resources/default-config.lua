@@ -276,6 +276,9 @@ neori.layout {
 --   SDL_VIDEODRIVER = "wayland",
 -- }
 
+-- Lua callbacks can change it at runtime with neori.setenv(name, value) and
+-- neori.unsetenv(name), until the config is reloaded; neori.getenv(name) reads it.
+
 -- neori.prefer_no_csd(true)                 -- ask toplevels to hide their own title bars
 --
 -- These two options are also readable and assignable as neori.misc.prefer_no_csd and

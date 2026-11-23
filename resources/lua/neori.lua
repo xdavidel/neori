@@ -473,6 +473,24 @@ function neori.workspace(name, config) end
 ---@param config table
 function neori.scratchpad(name, config) end
 
+-- Environment
+
+---Sets an environment variable for the programs neori spawns from now on, until the config is
+---reloaded. Only works inside a callback; `neori.environment { … }` sets them in the config.
+---@param name string
+---@param value string
+function neori.setenv(name, value) end
+
+---Unsets an environment variable for the programs neori spawns from now on, until the config is
+---reloaded.
+---@param name string
+function neori.unsetenv(name) end
+
+---An environment variable as the programs neori spawns would see it.
+---@param name string
+---@return string?
+function neori.getenv(name) end
+
 -- Utilities (while the config loads)
 
 ---Whether this is the compositor's first config, still starting up: true while it loads and
