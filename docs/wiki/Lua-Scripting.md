@@ -691,11 +691,16 @@ Mutation:
 | `d:set_click_method(s)`          | `"clickfinger"` or `"button-areas"`.                             |
 | `d:set_dwt(bool)`                | Disable-while-typing, for touchpads.                             |
 | `d:set_middle_emulation(bool)`   | Middle click by pressing the left and right buttons together.    |
+| `d:map_to_output(name)`          | Map a tablet or touch screen to that output, over the config's `map_to_output`; `nil` goes back to the config's. |
+| `d:mapped_output()`              | The output set with `d:map_to_output()`, or `nil`.               |
 
 Mutations go directly to libinput; they persist on the device until the next
 config reload re-applies the static `input { … }` block, at which point the
 config value takes over again. Not every setting is supported by every
 device — libinput silently ignores unsupported calls.
+
+`d:map_to_output()` is the exception: it's a compositor setting, kept until the device is
+removed or the config is reloaded (any reload, since it belongs to the old Lua state).
 
 ## Layer surfaces
 

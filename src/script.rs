@@ -594,6 +594,10 @@ impl ScriptContext for State {
         apply_device_op(&mut self.neori, sysname, op);
     }
 
+    fn device_mapped_output(&mut self, sysname: &str) -> Option<String> {
+        self.neori.device_output_maps.get(sysname).cloned()
+    }
+
     fn set_env(&mut self, name: &str, value: Option<&str>) {
         let mut env = crate::utils::spawning::CHILD_ENV.write().unwrap();
         let value = value.map(str::to_owned);
@@ -1159,6 +1163,14 @@ pub(crate) fn device_snapshot(device: &smithay::reexports::input::Device) -> Dev
 /// `apply_libinput_settings` (config reload) overwrites them.
 pub fn apply_device_op(neori: &mut Neori, sysname: &str, op: DeviceOp) {
     use smithay::reexports::input::SendEventsMode;
+    // A compositor setting rather than a libinput one, kept by sysname like the config's.
+    if let DeviceOp::MapToOutput(output) = op {
+        match output {
+            Some(output) => neori.device_output_maps.insert(sysname.to_owned(), output),
+            None => neori.device_output_maps.remove(sysname),
+        };
+        return;
+    }
     let mut target: Option<smithay::reexports::input::Device> = None;
     for device in &neori.devices {
         if device.sysname() == sysname {
@@ -1170,6 +1182,8 @@ pub fn apply_device_op(neori: &mut Neori, sysname: &str, op: DeviceOp) {
         return;
     };
     match op {
+        // Handled above.
+        DeviceOp::MapToOutput(_) => (),
         DeviceOp::SetTap(enable) => {
             let _ = device.config_tap_set_enabled(enable);
         }

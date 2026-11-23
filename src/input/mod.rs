@@ -305,6 +305,7 @@ impl State {
                 self.neori.touch.remove(device);
                 self.neori.tablets.remove(device);
                 self.neori.devices.remove(device);
+                self.neori.device_output_maps.remove(device.sysname());
                 self.fire_device_event("device-removed", snapshot);
             }
             _ => (),
@@ -4903,7 +4904,12 @@ impl State {
         &self,
         evt: &impl AbsolutePositionEvent<I>,
     ) -> Option<Point<f64, Logical>> {
-        self.compute_absolute_location(evt, self.neori.output_for_touch())
+        let device_output = evt.device().output(self);
+        let device_output = device_output.filter(|output| self.neori.output_exists(output));
+        let output = device_output
+            .as_ref()
+            .or_else(|| self.neori.output_for_touch());
+        self.compute_absolute_location(evt, output)
     }
 
     fn on_touch_down<I: InputBackend>(&mut self, evt: I::TouchDownEvent) {

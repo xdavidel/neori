@@ -3562,3 +3562,59 @@ fn window_parent_returns_the_parent_window() {
     press_first_function_bind(&mut f);
     assert_eq!(read_global_string(&f, "result"), "dialog -> main; nil");
 }
+
+#[test]
+fn device_map_to_output_until_reset_or_reload() {
+    // Real libinput devices can't be made in tests: map a synthetic one and check the stored
+    // mapping, which the tablet and touch code reads by sysname.
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("device-added", function(d)
+            log = log .. tostring(d:mapped_output()) .. ";"
+            d:map_to_output("headless-2")
+            log = log .. tostring(d:mapped_output()) .. ";"
+            saved = d
+        end)
+        neori.bind("Mod+Alt+T", function()
+            saved:map_to_output(nil)
+            log = log .. tostring(saved:mapped_output()) .. ";"
+            saved:map_to_output("headless-1")
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1280, 720));
+    let device = neori_config::DeviceSnapshot {
+        name: "Test Tablet".into(),
+        sysname: "event7".into(),
+        ..Default::default()
+    };
+    f.neori_state().fire_device_event("device-added", device);
+    assert_eq!(read_global_string(&f, "log"), "nil;headless-2;");
+    assert_eq!(
+        f.neori()
+            .device_output_maps
+            .get("event7")
+            .map(String::as_str),
+        Some("headless-2")
+    );
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "log"), "nil;headless-2;nil;");
+    assert_eq!(
+        f.neori()
+            .device_output_maps
+            .get("event7")
+            .map(String::as_str),
+        Some("headless-1")
+    );
+
+    // The mapping belongs to the Lua state, which a reload replaces.
+    let reloaded = neori_config::while_reloading(|| {
+        Config::parse_with_host(std::path::Path::new("test.lua"), "-- nothing\n").config
+    })
+    .unwrap();
+    f.neori_state().reload_config(Ok(reloaded));
+    assert!(f.neori().device_output_maps.is_empty());
+}

@@ -1075,8 +1075,14 @@ end
 -- set_scroll_method("two-finger"|...), set_click_method("clickfinger"|...),
 -- set_dwt(bool), set_middle_emulation(bool). Mutations go directly to
 -- libinput and persist until the next config reload wipes them.
+-- map_to_output(name|nil) maps a tablet or touch screen to one output.
 --
 -- device-added and device-removed fire when a device is plugged in or out.
+
+-- Map any drawing tablet to the external monitor.
+-- neori.on("device-added", function(d)
+--   if d:name():match("Wacom") then d:map_to_output("DP-1") end
+-- end)
 
 -- Give any mouse plugged in later a flat acceleration profile.
 -- neori.on("device-added", function(d)

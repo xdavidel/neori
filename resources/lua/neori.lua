@@ -879,6 +879,14 @@ function Device:set_dwt(enable) end
 ---Emulate a middle click by pressing the left and right buttons together.
 ---@param enable boolean
 function Device:set_middle_emulation(enable) end
+---Maps a tablet or touch screen to the output with this name, over the config's
+---`map_to_output`; `nil` goes back to the config's. Kept until the device is removed or the
+---config is reloaded.
+---@param output string?
+function Device:map_to_output(output) end
+---The output set with `map_to_output()`, or `nil`.
+---@return string?
+function Device:mapped_output() end
 
 ---Connects a function to a signal of this device: `"removed"`, or one of your own. Its
 ---functions are dropped when the device is removed.

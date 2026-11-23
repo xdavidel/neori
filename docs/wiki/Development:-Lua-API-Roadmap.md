@@ -53,10 +53,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **Output (done):** `geometry`, `workarea`, `physical_size`, `windows()`, and
   `neori.output_at(x, y)`; `is_off` covers enabled. Monitors are powered on and off together, by
   the `power-off-monitors` / `power-on-monitors` actions, so there's no per-output DPMS.
-- **Input devices (done, except `map_to_output`):** `device-added` and `device-removed` signals, a
-  per-device `removed` signal, and settable `accel_profile`, `scroll_method`, `click_method`, `dwt`
-  and `middle_emulation`. `map_to_output` maps tablets and touch screens in the compositor rather
-  than in libinput, so it needs its own work.
+- **Input devices (done):** `device-added` and `device-removed` signals, a per-device `removed`
+  signal, settable `accel_profile`, `scroll_method`, `click_method`, `dwt` and `middle_emulation`,
+  and `map_to_output()` for tablets and touch screens.
 - **Pointer:** button, axis and gesture (swipe, pinch, hold) signals, opt-in and rate aware, and
   starting an interactive move or resize from Lua.
 - **Layer surfaces (done):** `neori.layers()` and a `LayerSurface` object (`namespace`, `layer`,

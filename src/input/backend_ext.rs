@@ -25,9 +25,10 @@ pub trait NeoriInputDevice: input::Device {
 }
 
 impl NeoriInputDevice for libinput::Device {
-    fn output(&self, _state: &State) -> Option<Output> {
-        // FIXME: Allow specifying the output per-device?
-        None
+    fn output(&self, state: &State) -> Option<Output> {
+        // Set from Lua with d:map_to_output().
+        let name = state.neori.device_output_maps.get(self.sysname())?;
+        state.neori.output_by_name_match(name).cloned()
     }
 }
 

@@ -289,6 +289,9 @@ pub enum DeviceOp {
     SetClickMethod(ClickMethod),
     SetDwt(bool),
     SetMiddleEmulation(bool),
+    /// Maps a tablet or touch device to the output with this name, or with `None` goes back to
+    /// the config's mapping.
+    MapToOutput(Option<String>),
 }
 
 /// Pre-placement overrides a Lua `window-opening` handler can set on the window
@@ -890,6 +893,15 @@ impl mlua::UserData for LuaDevice {
         });
         methods.add_method("set_middle_emulation", |_, this, enable: bool| {
             apply_device_op(&this.0.sysname, DeviceOp::SetMiddleEmulation(enable))
+        });
+        // d:map_to_output("DP-1") maps a tablet or touch screen to that output;
+        // d:map_to_output(nil) goes back to the config's mapping.
+        methods.add_method("map_to_output", |_, this, output: Option<String>| {
+            apply_device_op(&this.0.sysname, DeviceOp::MapToOutput(output))
+        });
+        // d:mapped_output() is the output name set with d:map_to_output(), or nil.
+        methods.add_method("mapped_output", |_, this, ()| {
+            Ok(with_context(|ctx| ctx.device_mapped_output(&this.0.sysname)).flatten())
         });
 
         methods.add_meta_method(mlua::MetaMethod::ToString, |_, this, ()| {

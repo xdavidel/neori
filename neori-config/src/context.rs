@@ -155,6 +155,11 @@ pub trait ScriptContext {
     fn warp(&mut self, x: f64, y: f64);
     /// Changes a setting of the input device with this sysname right away.
     fn device_op(&mut self, sysname: &str, op: DeviceOp);
+    /// The output a device was mapped to with `d:map_to_output()`.
+    fn device_mapped_output(&mut self, sysname: &str) -> Option<String> {
+        let _ = sysname;
+        None
+    }
 
     /// Sets (`Some`) or unsets (`None`) an environment variable for programs spawned from now on.
     fn set_env(&mut self, name: &str, value: Option<&str>) {

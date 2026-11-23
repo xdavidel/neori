@@ -309,6 +309,9 @@ pub struct Neori {
     pub touchpad_disabled_by_toggle: bool,
 
     pub devices: HashSet<input::Device>,
+    /// Output each tablet or touch device is mapped to from Lua, by device sysname. Takes
+    /// precedence over the config's `map-to-output`.
+    pub device_output_maps: HashMap<String, String>,
     pub tablets: HashMap<input::Device, TabletData>,
     pub touch: HashSet<input::Device>,
 
@@ -2216,6 +2219,9 @@ impl State {
             self.load_configured_keymap();
         }
 
+        // Mappings set from Lua belong to the old Lua state.
+        self.neori.device_output_maps.clear();
+
         if libinput_config_changed {
             let config = self.neori.config.borrow();
             for mut device in self.neori.devices.iter().cloned() {
@@ -3219,6 +3225,7 @@ impl Neori {
             touchpad_disabled_by_toggle: false,
 
             devices: HashSet::new(),
+            device_output_maps: HashMap::new(),
             tablets: HashMap::new(),
             touch: HashSet::new(),
 
