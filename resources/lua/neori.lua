@@ -31,6 +31,7 @@
 ---| "workspace-removed" # A workspace was removed.
 ---| "output-focused" # An output became the active one.
 ---| "layout-changed" # The keyboard layout changed.
+---| "mode-changed" # A keybinding mode was entered or left.
 ---| "config-reloaded" # The config was reloaded; runs in the newly loaded config.
 ---| "shutdown" # The compositor is about to exit.
 ---| "window-title-changed" # A window's title changed.
@@ -61,8 +62,8 @@
 ---@field pass_through? boolean
 ---Match the physical key (keycode) instead of the symbol of the current layout.
 ---@field keycode? boolean
----Title in the hotkey overlay. `nil` hides the bind from it.
----@field hotkey_overlay_title? string
+---Title in the hotkey overlay, or `false` to hide the bind from it.
+---@field hotkey_overlay_title? string|false
 
 ---A bind whose actions run on press and on release.
 ---@class neori.PressRelease
@@ -160,6 +161,33 @@ function neori.remove_virtual_output(name) end
 ---@param y number
 function neori.warp(x, y) end
 
+-- Keybinding modes
+
+---Declares a keybinding mode: the binds made with `neori.bind` while `declare` runs belong to the
+---mode. While the mode is active, they replace the normal binds; give it a bind that leaves it.
+---
+---```lua
+---neori.mode("resize", function()
+---    neori.bind("Left", "set-column-width -10%")
+---    neori.bind("Escape", "exit-mode")
+---end)
+---neori.bind("Mod+R", "enter-mode resize")
+---```
+---@param name string
+---@param declare fun()
+function neori.mode(name, declare) end
+
+---Enters a keybinding mode, like the `enter-mode` action.
+---@param name string
+function neori.enter_mode(name) end
+
+---Leaves the active keybinding mode, like the `exit-mode` action.
+function neori.exit_mode() end
+
+---The name of the active keybinding mode, or nil.
+---@return string?
+function neori.current_mode() end
+
 -- Timers
 
 ---Calls `callback` once, after `ms` milliseconds. Returns the timer, which the callback also
@@ -196,6 +224,7 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "workspace-removed", handler: fun(workspace: neori.Workspace))
 ---@overload fun(event: "output-focused", handler: fun(output: neori.Output))
 ---@overload fun(event: "layout-changed", handler: fun(layout: string))
+---@overload fun(event: "mode-changed", handler: fun(mode: string?, old_mode: string?))
 ---@overload fun(event: "config-reloaded", handler: fun()|neori.Action)
 ---@overload fun(event: "shutdown", handler: fun()|neori.Action)
 ---@overload fun(event: "window-title-changed", handler: fun(window: neori.Window, old_title: string?))
@@ -228,6 +257,7 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "workspace-removed", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
 ---@overload fun(signal: "output-focused", handler: fun(output: neori.Output)): fun(output: neori.Output)
 ---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
+---@overload fun(signal: "mode-changed", handler: fun(mode: string?, old_mode: string?)): fun(mode: string?, old_mode: string?)
 ---@overload fun(signal: "config-reloaded", handler: fun()): fun()
 ---@overload fun(signal: "shutdown", handler: fun()): fun()
 ---@overload fun(signal: "window-title-changed", handler: fun(window: neori.Window, old_title: string?)): fun(window: neori.Window, old_title: string?)

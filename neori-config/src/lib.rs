@@ -105,6 +105,8 @@ pub struct Config {
     pub debug: Debug,
     pub workspaces: Vec<Workspace>,
     pub scratchpads: Vec<Scratchpad>,
+    /// Keybinding modes, declared with `neori.mode`, sorted by name.
+    pub modes: Vec<BindMode>,
     pub recent_windows: RecentWindows,
 }
 
@@ -2851,6 +2853,121 @@ mod tests {
             .config
             .unwrap();
         assert!(read(&host, "while_loading"));
+    }
+
+    #[test]
+    fn keybinding_modes() {
+        let config = Config::parse_mem(
+            r#"
+            neori.mode("resize", function()
+                neori.bind("Left", "set-column-width -10%")
+                neori.bind("Mod+Q", "exit-mode", { hotkey_overlay_title = "Done" })
+            end)
+            neori.mode("move", function()
+                neori.bind("Left", "move-column-left")   -- same key as in resize: fine
+            end)
+            neori.bind("Mod+Q", "close-window")          -- same key as in resize: fine
+            neori.bind("Mod+R", "enter-mode resize")
+            neori.bind("Mod+M", { enter_mode = "move" })
+            "#,
+        )
+        .unwrap();
+
+        // The normal binds don't include the modes' binds.
+        let normal: Vec<_> = config
+            .binds
+            .0
+            .iter()
+            .map(|b| b.press_action().cloned())
+            .collect();
+        assert_eq!(
+            normal,
+            [
+                Some(Action::CloseWindow { id: None }),
+                Some(Action::EnterMode {
+                    name: "resize".into()
+                }),
+                Some(Action::EnterMode {
+                    name: "move".into()
+                }),
+            ]
+        );
+        // Modes are sorted by name.
+        let names: Vec<_> = config.modes.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["move", "resize"]);
+        let resize = &config.modes[1].binds.0;
+        assert_eq!(resize.len(), 2);
+        assert!(matches!(
+            resize[1].press_action(),
+            Some(Action::ExitMode {})
+        ));
+        assert_eq!(resize[1].hotkey_overlay_title, Some(Some("Done".into())));
+    }
+
+    #[test]
+    fn keybinding_mode_errors() {
+        let err = |lua: &str| format!("{:?}", Config::parse_mem(lua).unwrap_err());
+
+        let msg = err(r#"neori.bind("Mod+R", "enter-mode resize")"#);
+        assert!(
+            msg.contains("but no mode has that name") && msg.contains("resize"),
+            "{msg}"
+        );
+
+        let msg = err(r#"neori.mode("a", function() end) neori.mode("a", function() end)"#);
+        assert!(msg.contains("declared twice"), "{msg}");
+
+        let msg = err(r#"neori.mode("a", function() neori.mode("b", function() end) end)"#);
+        assert!(msg.contains("can't be nested"), "{msg}");
+
+        let msg = err(
+            r#"neori.mode("a", function() neori.bind("Left", "close-window") neori.bind("Left", "close-window") end)"#,
+        );
+        assert!(msg.contains("duplicate keybind: Left"), "{msg}");
+
+        // An error inside the mode's function still ends the mode: later binds are normal.
+        let config = Config::parse_mem(
+            r#"
+            pcall(neori.mode, "a", function() error("oops") end)
+            neori.bind("Mod+T", "close-window")
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.binds.0.len(), 1);
+    }
+
+    #[test]
+    fn keybinding_mode_functions() {
+        let (_config, host) = Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"
+            neori.mode("resize", function() end)
+            neori.bind("Mod+T", function()
+                neori.enter_mode("resize")
+                neori.exit_mode()
+                seen = neori.current_mode()
+                ok, err = pcall(neori.enter_mode, "nope")
+                err = tostring(err)
+            end)
+            "#,
+        )
+        .config
+        .unwrap();
+        let mut ctx = FakeContext::default();
+        let actions = run_bind(&host, &mut ctx);
+        assert_eq!(
+            actions,
+            [
+                Action::EnterMode {
+                    name: "resize".into()
+                },
+                Action::ExitMode {}
+            ]
+        );
+        let mlua::Value::String(err) = host.read_global("err").unwrap() else {
+            panic!("err is not a string");
+        };
+        assert!(err.to_str().unwrap().contains("no mode is named \"nope\""));
     }
 
     #[test]

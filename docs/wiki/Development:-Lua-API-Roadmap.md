@@ -29,7 +29,7 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **LuaLS type stubs** for editor completion, in `resources/lua/neori.lua`. They're written by hand,
   and a test checks them against the real API.
 
-### Phase 1: high value features
+### Phase 1: high value features (done)
 
 - **Timers (done):** `neori.after(ms, fn)` and `neori.every(ms, fn)`, on calloop timers. (Not
   `neori.timer { repeat = … }`: `repeat` is a Lua keyword.)
@@ -39,8 +39,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   with the old value. They come from their own per-frame diff of what Lua reads rather than the
   IPC diff, which compares the fullscreen state the client acknowledged, and only runs with an
   IPC server.
-- **Keybinding modes:** `neori.mode("resize", { ... })`, `neori.enter_mode(name)`,
-  `neori.exit_mode()`, shown in the hotkey overlay.
+- **Keybinding modes (done):** `neori.mode("resize", function() … end)` (binds made inside go into
+  the mode), `enter-mode` / `exit-mode` actions, `neori.enter_mode`, `neori.exit_mode`,
+  `neori.current_mode`, a `mode-changed` signal, and the hotkey overlay shows the active mode.
 - **Lua over IPC (done):** `neori msg lua '<expr>'` and `neori msg lua -f script.lua`.
   The socket is only accessible to the same user, like the existing `spawn` action.
 - **Lifecycle (done):** `neori.is_startup()`, plus `config-reloaded` and `shutdown` signals.

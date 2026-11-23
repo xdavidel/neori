@@ -13,6 +13,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 - **Lua-based configuration** — configure with `config.lua` instead of KDL
 - **Window-rule extensions** — `geometry_corner_radius`, `clip_to_geometry`, `draw_border_with_background`, `opacity`, `tiled_state`, `baba_is_float`, `variable_refresh_rate` and more
 - **Scratchpads** — named scratchpads (plus a default one): hide a window with `send-to-scratchpad term`, bring it back with `remove-from-scratchpad term`, or toggle it with `toggle-scratchpad term`; declare each with `neori.scratchpad("term", { spawn = { "kitty" } })` so toggling an empty scratchpad spawns its window
+- **Keybinding modes** — `neori.mode("resize", function() … end)` declares a separate set of binds that `enter-mode resize` switches to, like i3/sway modes, shown in the hotkey overlay
 - **Keycode-based binds** — binds match the physical key by default, so shortcuts keep working across keyboard layouts; opt out with `keycode = false`
 - **Shake-to-find cursor** — shake the mouse to temporarily enlarge the cursor, with configurable size, timing, and detection sensitivity (`neori.cursor.shake_to_find`); trigger it with the `enlarge-cursor` action or retune it at runtime with `neori msg action set-shake-to-find`
 - **Lid and tablet-mode events** — `neori.on("lid-open" / "lid-closed" / "tablet-mode-on" / "tablet-mode-off", ...)` handlers, run even while the session is locked

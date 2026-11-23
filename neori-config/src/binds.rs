@@ -15,6 +15,13 @@ use crate::input::ModKey;
 #[derive(Debug, Default, PartialEq)]
 pub struct Binds(pub Vec<Bind>);
 
+/// A keybinding mode: while it's active, its binds replace the normal binds.
+#[derive(Debug, PartialEq)]
+pub struct BindMode {
+    pub name: String,
+    pub binds: Binds,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bind {
     pub key: Key,

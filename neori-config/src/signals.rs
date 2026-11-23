@@ -287,6 +287,12 @@ pub const BUILTIN_SIGNALS: &[BuiltinSignal] = &[
         None,
     ),
     builtin(
+        "mode-changed",
+        "a keybinding mode was entered or left",
+        "new mode name or nil, old mode name or nil",
+        None,
+    ),
+    builtin(
         "config-reloaded",
         "the config was reloaded; runs in the newly loaded config",
         "nothing",

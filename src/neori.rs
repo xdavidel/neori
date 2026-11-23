@@ -480,6 +480,8 @@ pub struct Neori {
     pub screenshot_ui: ScreenshotUi,
     pub config_error_notification: ConfigErrorNotification,
     pub hotkey_overlay: HotkeyOverlay,
+    /// The active keybinding mode: its binds replace the normal binds.
+    pub active_mode: Option<String>,
     pub exit_confirm_dialog: ExitConfirmDialog,
     #[cfg(feature = "dbus")]
     pub global_shortcuts_portal_binds: GlobalShortcutsPortalBinds,
@@ -2109,21 +2111,22 @@ impl State {
             preserved_output_config = Some(mem::take(&mut old_config.outputs));
         }
 
-        let binds_changed = config.binds != old_config.binds;
+        let binds_changed = config.binds != old_config.binds || config.modes != old_config.modes;
         let new_mod_key = self.backend.mod_key(&config);
         let mut hotkey_overlay_changed =
             config.hotkey_overlay.hide_not_bound != old_config.hotkey_overlay.hide_not_bound;
         if new_mod_key != self.backend.mod_key(&old_config) || binds_changed {
             hotkey_overlay_changed = true;
-            self.neori.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &config.binds);
+            let all_binds = crate::input::binds_with_modes(&config);
+            self.neori.mods_with_mouse_binds = mods_with_mouse_binds(new_mod_key, &all_binds);
             self.neori.mods_with_horizontal_wheel_binds =
-                mods_with_horizontal_wheel_binds(new_mod_key, &config.binds);
+                mods_with_horizontal_wheel_binds(new_mod_key, &all_binds);
             self.neori.mods_with_vertical_wheel_binds =
-                mods_with_vertical_wheel_binds(new_mod_key, &config.binds);
+                mods_with_vertical_wheel_binds(new_mod_key, &all_binds);
             self.neori.mods_with_tablet_stylus_binds =
-                mods_with_tablet_stylus_binds(new_mod_key, &config.binds);
+                mods_with_tablet_stylus_binds(new_mod_key, &all_binds);
             self.neori.mods_with_finger_scroll_binds =
-                mods_with_finger_scroll_binds(new_mod_key, &config.binds);
+                mods_with_finger_scroll_binds(new_mod_key, &all_binds);
         }
         if hotkey_overlay_changed {
             self.neori
@@ -2290,6 +2293,20 @@ impl State {
         self.neori.queue_redraw_all();
         // Named-workspace unname/ensure side effects are picked up by the next
         // ipc_refresh_workspaces tick.
+
+        // Leave the active mode if the new config doesn't have it anymore.
+        let mode_gone = self.neori.active_mode.as_ref().is_some_and(|name| {
+            !self
+                .neori
+                .config
+                .borrow()
+                .modes
+                .iter()
+                .any(|m| &m.name == name)
+        });
+        if mode_gone {
+            self.set_bind_mode(None);
+        }
 
         // Last, so that its handlers see the new config applied.
         self.fire_lua_lifecycle_event("config-reloaded");
@@ -3081,13 +3098,14 @@ impl Neori {
         let cursor_shake = CursorShake::new(&config_.cursor);
 
         let mod_key = backend.mod_key(&config.borrow());
-        let mods_with_mouse_binds = mods_with_mouse_binds(mod_key, &config_.binds);
+        // Modes bind keys too; track the modifiers of all of them.
+        let all_binds = crate::input::binds_with_modes(&config_);
+        let mods_with_mouse_binds = mods_with_mouse_binds(mod_key, &all_binds);
         let mods_with_horizontal_wheel_binds =
-            mods_with_horizontal_wheel_binds(mod_key, &config_.binds);
-        let mods_with_vertical_wheel_binds =
-            mods_with_vertical_wheel_binds(mod_key, &config_.binds);
-        let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, &config_.binds);
-        let mods_with_tablet_stylus_binds = mods_with_tablet_stylus_binds(mod_key, &config_.binds);
+            mods_with_horizontal_wheel_binds(mod_key, &all_binds);
+        let mods_with_vertical_wheel_binds = mods_with_vertical_wheel_binds(mod_key, &all_binds);
+        let mods_with_finger_scroll_binds = mods_with_finger_scroll_binds(mod_key, &all_binds);
+        let mods_with_tablet_stylus_binds = mods_with_tablet_stylus_binds(mod_key, &all_binds);
 
         let screenshot_ui = ScreenshotUi::new(animation_clock.clone(), config.clone());
         let window_mru_ui = WindowMruUi::new(config.clone());
@@ -3304,6 +3322,7 @@ impl Neori {
             screenshot_ui,
             config_error_notification,
             hotkey_overlay,
+            active_mode: None,
             exit_confirm_dialog,
             #[cfg(feature = "dbus")]
             global_shortcuts_portal_binds: global_shortcuts,

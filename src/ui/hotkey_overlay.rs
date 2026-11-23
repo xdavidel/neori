@@ -31,6 +31,8 @@ pub struct HotkeyOverlay {
     is_open: bool,
     config: Rc<RefCell<Config>>,
     mod_key: ModKey,
+    /// The active keybinding mode, whose binds the overlay shows instead.
+    mode: Option<String>,
     buffers: RefCell<HashMap<WeakOutput, RenderedOverlay>>,
 }
 
@@ -44,6 +46,7 @@ impl HotkeyOverlay {
             is_open: false,
             config,
             mod_key,
+            mode: None,
             buffers: RefCell::new(HashMap::new()),
         }
     }
@@ -68,6 +71,14 @@ impl HotkeyOverlay {
 
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Shows the binds of keybinding mode `mode` (or the normal hotkeys for `None`) from now on.
+    pub fn set_mode(&mut self, mode: Option<String>) {
+        if self.mode != mode {
+            self.mode = mode;
+            self.buffers.borrow_mut().clear();
+        }
     }
 
     pub fn on_hotkey_config_updated(&mut self, mod_key: ModKey) {
@@ -102,8 +113,14 @@ impl HotkeyOverlay {
 
         let rendered = buffers.entry(weak).or_insert_with(|| {
             let renderer = renderer.as_gles_renderer();
-            render(renderer, &self.config.borrow(), self.mod_key, scale)
-                .unwrap_or_else(|_| RenderedOverlay { buffer: None })
+            render(
+                renderer,
+                &self.config.borrow(),
+                self.mode.as_deref(),
+                self.mod_key,
+                scale,
+            )
+            .unwrap_or_else(|_| RenderedOverlay { buffer: None })
         });
         let buffer = rendered.buffer.as_ref()?;
 
@@ -127,16 +144,12 @@ impl HotkeyOverlay {
 
     pub fn a11y_text(&self) -> String {
         let config = self.config.borrow();
-        let actions = collect_actions(&config);
+        let (title, entries) = overlay_entries(&config, self.mode.as_deref());
 
         let mut buf = String::new();
-        writeln!(&mut buf, "{TITLE}").unwrap();
+        writeln!(&mut buf, "{title}").unwrap();
 
-        for action in actions {
-            let Some((key, action)) = format_bind(&config.binds.0, action) else {
-                continue;
-            };
-
+        for (key, action) in entries {
             let key = key.map(|key| key_name(true, self.mod_key, &key));
             let key = key.as_deref().unwrap_or("not bound");
 
@@ -169,6 +182,35 @@ fn find_bound_action(binds: &[Bind], actions: &[&'static Action]) -> Option<&'st
         .iter()
         .copied()
         .find(|action| binds.iter().any(|bind| bind_triggers(bind, action)))
+}
+
+/// The title and the `(key, description)` lines of the overlay: the important hotkeys, or every
+/// bind of keybinding mode `mode` while it's active.
+fn overlay_entries(config: &Config, mode: Option<&str>) -> (String, Vec<(Option<Key>, String)>) {
+    if let Some(mode) = mode.and_then(|name| config.modes.iter().find(|m| m.name == name)) {
+        let entries = mode
+            .binds
+            .0
+            .iter()
+            // A bind can hide itself with hotkey_overlay_title = nil.
+            .filter(|bind| !matches!(bind.hotkey_overlay_title, Some(None)))
+            .filter_map(|bind| {
+                let action = bind.press_action().or(bind.release_action())?;
+                let title = match &bind.hotkey_overlay_title {
+                    Some(Some(title)) => title.clone(),
+                    _ => action_name(action),
+                };
+                Some((Some(bind.key), title))
+            })
+            .collect();
+        return (format!("Mode: {}", mode.name), entries);
+    }
+
+    let entries = collect_actions(config)
+        .into_iter()
+        .filter_map(|action| format_bind(&config.binds.0, action))
+        .collect();
+    (TITLE.to_owned(), entries)
 }
 
 fn format_bind(binds: &[Bind], action: &Action) -> Option<(Option<Key>, String)> {
@@ -366,6 +408,7 @@ fn collect_actions(config: &Config) -> Vec<&Action> {
 fn render(
     renderer: &mut GlesRenderer,
     config: &Config,
+    mode: Option<&str>,
     mod_key: ModKey,
     scale: f64,
 ) -> anyhow::Result<RenderedOverlay> {
@@ -381,9 +424,9 @@ fn render(
     // target_size.h -= margin * 2;
     // anyhow::ensure!(target_size.w > 0 && target_size.h > 0);
 
-    let strings = collect_actions(config)
+    let (title, entries) = overlay_entries(config, mode);
+    let strings = entries
         .into_iter()
-        .filter_map(|action| format_bind(&config.binds.0, action))
         .map(|(key, action)| {
             let key = key.map(|key| key_name(false, mod_key, &key));
             let key = key.as_deref().unwrap_or("(not bound)");
@@ -404,7 +447,7 @@ fn render(
     let bold = AttrList::new();
     bold.insert(AttrInt::new_weight(Weight::Bold));
     layout.set_attributes(Some(&bold));
-    layout.set_text(TITLE);
+    layout.set_text(&title);
     let title_size = layout.pixel_size();
 
     let attrs = AttrList::new();
@@ -457,7 +500,7 @@ fn render(
 
     cr.move_to(((width - title_size.0) / 2).into(), padding.into());
     layout.set_attributes(Some(&bold));
-    layout.set_text(TITLE);
+    layout.set_text(&title);
     pangocairo::functions::show_layout(&cr, &layout);
 
     cr.move_to(padding.into(), (padding + title_size.1 + padding).into());
@@ -576,8 +619,29 @@ fn action_name(action: &Action) -> String {
             // Fairly crude but should get the job done in most cases.
             command.split_ascii_whitespace().next().unwrap_or("")
         ),
-        _ => String::from("FIXME: Unknown"),
+        Action::ScriptFunction { .. } => String::from("Lua Function"),
+        Action::EnterMode { name } => format!("Enter Mode {name}"),
+        Action::ExitMode {} => String::from("Exit Mode"),
+        _ => generic_action_name(action),
     }
+}
+
+/// A readable name for any action, made from its name: `SetColumnWidth` becomes
+/// "Set Column Width".
+fn generic_action_name(action: &Action) -> String {
+    let name = match serde_json::to_value(action) {
+        Ok(serde_json::Value::String(name)) => name,
+        Ok(serde_json::Value::Object(map)) => map.keys().next().cloned().unwrap_or_default(),
+        _ => String::new(),
+    };
+    let mut words = String::new();
+    for c in name.chars() {
+        if c.is_uppercase() && !words.is_empty() {
+            words.push(' ');
+        }
+        words.push(c);
+    }
+    words
 }
 
 fn key_name(screen_reader: bool, mod_key: ModKey, key: &Key) -> String {
@@ -714,6 +778,45 @@ mod tests {
         } else {
             String::from("None")
         }
+    }
+
+    #[test]
+    fn overlay_shows_the_active_modes_binds() {
+        let config = Config::parse_mem(
+            r#"
+            neori.mode("resize", function()
+                neori.bind("Left", "set-column-width -10%")
+                neori.bind("Right", "set-column-width +10%", { hotkey_overlay_title = "Wider" })
+                neori.bind("Escape", "exit-mode")
+                neori.bind("Space", function() end)
+                neori.bind("Tab", "close-window", { hotkey_overlay_title = false })
+            end)
+            neori.bind("Mod+R", "enter-mode resize")
+            "#,
+        )
+        .unwrap();
+        let (title, entries) = overlay_entries(&config, Some("resize"));
+        assert_eq!(title, "Mode: resize");
+        let lines: Vec<_> = entries
+            .iter()
+            .map(|(key, title)| {
+                let key = key.map(|key| key_name(false, ModKey::Super, &key));
+                format!("{} : {title}", key.unwrap_or_default())
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "left : Set Column Width",
+                "right : Wider",
+                "escape : Exit Mode",
+                "Space : Lua Function",
+            ]
+        );
+
+        // Without a mode, or with an unknown one, the normal important hotkeys.
+        assert_eq!(overlay_entries(&config, None).0, TITLE);
+        assert_eq!(overlay_entries(&config, Some("gone")).0, TITLE);
     }
 
     #[test]

@@ -396,6 +396,10 @@ impl ScriptContext for State {
         apply_device_op(&mut self.neori, sysname, op);
     }
 
+    fn current_mode(&mut self) -> Option<String> {
+        self.neori.active_mode.clone()
+    }
+
     fn arm_timer(&mut self, id: u64, timeout: Duration) {
         self.arm_lua_timer(id, timeout);
     }
@@ -514,6 +518,18 @@ impl State {
             self.with_lua_running(running, |state| with_script_context(state, || eval.run()));
         self.deliver_queued_lua_events();
         result
+    }
+
+    /// Switches the active keybinding mode (`None` for the normal binds), and fires
+    /// `mode-changed` if it changed.
+    pub fn set_bind_mode(&mut self, mode: Option<String>) {
+        if self.neori.active_mode == mode {
+            return;
+        }
+        let old = std::mem::replace(&mut self.neori.active_mode, mode.clone());
+        self.neori.hotkey_overlay.set_mode(mode.clone());
+        self.neori.queue_redraw_all();
+        self.run_lua_event("mode-changed", None, |_| (mode, old));
     }
 
     /// Fires a lifecycle event without arguments: `config-reloaded` or `shutdown`.

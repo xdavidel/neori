@@ -719,6 +719,7 @@ impl State {
                     let config = this.neori.config.borrow();
                     let bindings = make_binds_iter(
                         &config,
+                        this.neori.active_mode.as_deref(),
                         &this.neori.screenshot_ui,
                         &mut this.neori.window_mru_ui,
                         #[cfg(feature = "dbus")]
@@ -2797,6 +2798,23 @@ impl State {
                 }
                 self.neori.queue_redraw_all();
             }
+            Action::EnterMode { name } => {
+                let exists = self
+                    .neori
+                    .config
+                    .borrow()
+                    .modes
+                    .iter()
+                    .any(|m| m.name == name);
+                if exists {
+                    self.set_bind_mode(Some(name));
+                } else {
+                    warn!("can't enter mode {name:?}: no mode has that name");
+                }
+            }
+            Action::ExitMode {} => {
+                self.set_bind_mode(None);
+            }
             Action::SetWindowUrgent { id } => {
                 let window = self
                     .neori
@@ -3308,6 +3326,24 @@ impl State {
         self.neori.queue_redraw_all();
     }
 
+    /// The binds that key presses are matched against right now, in order, for tests.
+    #[cfg(test)]
+    pub(crate) fn binds_for_tests(&mut self) -> Vec<Bind> {
+        let config = self.neori.config.borrow();
+        make_binds_iter(
+            &config,
+            self.neori.active_mode.as_deref(),
+            &self.neori.screenshot_ui,
+            &mut self.neori.window_mru_ui,
+            #[cfg(feature = "dbus")]
+            &self.neori.global_shortcuts_portal_binds,
+            self.neori.keyboard_focus.is_overview(),
+            Modifiers::empty(),
+        )
+        .cloned()
+        .collect()
+    }
+
     fn find_pointer_bind(
         &mut self,
         mod_key: ModKey,
@@ -3319,6 +3355,7 @@ impl State {
         let config = self.neori.config.borrow();
         let bindings = make_binds_iter(
             &config,
+            self.neori.active_mode.as_deref(),
             &self.neori.screenshot_ui,
             &mut self.neori.window_mru_ui,
             #[cfg(feature = "dbus")]
@@ -6129,18 +6166,31 @@ fn hardcoded_overview_binds<'a>() -> impl Iterator<Item = &'a Bind> + Clone {
     BINDS.iter()
 }
 
+/// The normal binds and the binds of every mode, for code that needs all binds that can trigger,
+/// like the tracking of which modifiers have binds.
+pub fn binds_with_modes(config: &Config) -> Binds {
+    let modes = config.modes.iter().flat_map(|m| m.binds.0.iter());
+    Binds(config.binds.0.iter().chain(modes).cloned().collect())
+}
+
 /// Returns an iterator over bindings.
 ///
-/// Includes dynamically populated bindings like the MRU UI.
+/// Includes dynamically populated bindings like the MRU UI. While a keybinding mode is active,
+/// its binds replace the normal binds.
 fn make_binds_iter<'a>(
     config: &'a Config,
+    active_mode: Option<&str>,
     screenshot_ui: &'a ScreenshotUi,
     mru: &'a mut WindowMruUi,
     #[cfg(feature = "dbus")] global_shortcuts: &'a GlobalShortcutsPortalBinds,
     overview_focused: bool,
     mods: Modifiers,
 ) -> impl Iterator<Item = &'a Bind> + Clone {
-    let general_binds = config.binds.0.iter();
+    let mode_binds = active_mode.and_then(|name| config.modes.iter().find(|m| m.name == name));
+    let general_binds = mode_binds
+        .map_or(&config.binds, |mode| &mode.binds)
+        .0
+        .iter();
 
     // Figure out the binds to use depending on whether the MRU is enabled and/or open.
     let general_binds = (!mru.is_open()).then_some(general_binds);

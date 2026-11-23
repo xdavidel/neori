@@ -672,6 +672,14 @@ end
 -- Bind options go in an optional third argument, for any kind of action:
 -- neori.bind("Mod+Alt+G", function() ... end, { hotkey_overlay_title = "…", ["repeat"] = false })
 
+-- A keybinding mode: while it's active, its binds replace the normal ones.
+-- neori.mode("resize", function()
+--   neori.bind("Left", "set-column-width -10%")
+--   neori.bind("Right", "set-column-width +10%")
+--   neori.bind("Escape", "exit-mode")
+-- end)
+-- neori.bind("Mod+Alt+R", "enter-mode resize", { hotkey_overlay_title = "Resize Mode" })
+
 -- A function bind that composes two actions:
 -- neori.bind("Mod+Alt+G", function()
 --   neori.action("focus_column_first")

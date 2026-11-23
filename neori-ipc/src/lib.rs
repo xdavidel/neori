@@ -1209,6 +1209,14 @@ pub enum Action {
         #[cfg_attr(feature = "clap", arg(long))]
         name: Option<String>,
     },
+    /// Enter a keybinding mode: until it's left, the mode's binds replace the normal binds.
+    EnterMode {
+        /// Name of the mode, as declared with `neori.mode` in the config.
+        #[cfg_attr(feature = "clap", arg())]
+        name: String,
+    },
+    /// Leave the active keybinding mode, going back to the normal binds.
+    ExitMode {},
     /// Toggle urgent status of a window.
     ToggleWindowUrgent {
         /// Id of the window to toggle urgent.

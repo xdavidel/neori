@@ -2953,3 +2953,139 @@ fn shutdown_runs_its_handlers() {
     assert_eq!(read_global_string(&f, "said_goodbye"), "yes");
     assert!(has_output(&mut f, "goodbye"));
 }
+
+/// Presses the configured bind whose key is `key`, like a key press would.
+fn press_bind_for(f: &mut Fixture, key: &str) {
+    let wanted: neori_config::Key = key.parse().unwrap();
+    let bind = {
+        let config = f.state.server.state.neori.config.borrow();
+        let active = f.state.server.state.neori.active_mode.clone();
+        let binds = match &active {
+            Some(name) => &config.modes.iter().find(|m| &m.name == name).unwrap().binds,
+            None => &config.binds,
+        };
+        binds
+            .0
+            .iter()
+            .find(|b| b.key == wanted || b.key == wanted.into_keycode().unwrap_or(wanted))
+            .unwrap_or_else(|| panic!("no bind for {key} in mode {active:?}"))
+            .clone()
+    };
+    f.state
+        .server
+        .state
+        .handle_bind(bind, true, InputTime::now());
+    f.state.server.dispatch();
+}
+
+#[test]
+fn keybinding_mode_replaces_the_normal_binds() {
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.mode("resize", function()
+            neori.bind("Mod+T", function() log = log .. "mode-T;" end)
+            neori.bind("Escape", "exit-mode")
+        end)
+        neori.bind("Mod+T", function() log = log .. "normal-T;" end)
+        neori.bind("Mod+R", "enter-mode resize")
+        neori.on("mode-changed", function(mode, old)
+            log = log .. "changed:" .. tostring(old) .. "->" .. tostring(mode) .. ";"
+            current = tostring(neori.current_mode())
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+
+    press_bind_for(&mut f, "Mod+T");
+    press_bind_for(&mut f, "Mod+R");
+    assert_eq!(
+        f.state.server.state.neori.active_mode.as_deref(),
+        Some("resize")
+    );
+    assert_eq!(read_global_string(&f, "current"), "resize");
+    press_bind_for(&mut f, "Mod+T");
+    press_bind_for(&mut f, "Escape");
+    assert_eq!(f.state.server.state.neori.active_mode, None);
+    press_bind_for(&mut f, "Mod+T");
+
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "normal-T;changed:nil->resize;mode-T;changed:resize->nil;normal-T;"
+    );
+}
+
+#[test]
+fn make_binds_iter_uses_the_active_modes_binds() {
+    // The real lookup that key presses use, not just the test helper above.
+    let mut f = fixture_from_lua(
+        r#"
+        neori.mode("resize", function() neori.bind("Mod+T", "exit-mode") end)
+        neori.bind("Mod+T", "close-window")
+        neori.bind("Mod+R", "enter-mode resize")
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let key = f.state.server.state.neori.config.borrow().binds.0[0].key;
+    let trigger = |f: &mut Fixture| {
+        f.state
+            .server
+            .state
+            .binds_for_tests()
+            .into_iter()
+            .find(|b| b.key == key)
+            .and_then(|b| b.press_action().cloned())
+    };
+    assert_eq!(trigger(&mut f), Some(Action::CloseWindow { id: None }));
+    act(
+        &mut f,
+        Action::EnterMode {
+            name: "resize".into(),
+        },
+    );
+    assert_eq!(trigger(&mut f), Some(Action::ExitMode {}));
+    act(&mut f, Action::ExitMode {});
+    assert_eq!(trigger(&mut f), Some(Action::CloseWindow { id: None }));
+}
+
+#[test]
+fn reload_leaves_a_mode_that_is_gone() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.mode("resize", function() neori.bind("Escape", "exit-mode") end)
+        neori.bind("Mod+R", "enter-mode resize")
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    act(
+        &mut f,
+        Action::EnterMode {
+            name: "resize".into(),
+        },
+    );
+    assert_eq!(
+        f.state.server.state.neori.active_mode.as_deref(),
+        Some("resize")
+    );
+
+    let reloaded = neori_config::while_reloading(|| {
+        Config::parse_with_host(
+            std::path::Path::new("test.lua"),
+            r#"neori.on("mode-changed", function(mode, old) left = tostring(old) end)"#,
+        )
+        .config
+    })
+    .unwrap();
+    f.neori_state().reload_config(Ok(reloaded));
+    assert_eq!(f.state.server.state.neori.active_mode, None);
+    assert_eq!(read_global_string(&f, "left"), "resize");
+
+    // Entering an unknown mode is ignored.
+    act(
+        &mut f,
+        Action::EnterMode {
+            name: "resize".into(),
+        },
+    );
+    assert_eq!(f.state.server.state.neori.active_mode, None);
+}

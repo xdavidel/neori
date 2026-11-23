@@ -143,6 +143,7 @@ Supported event names and their handler arg:
 | `workspace-removed`  | `Workspace` userdata — last known state of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
 | `layout-changed`     | string — the new active keyboard layout's name      |
+| `mode-changed`       | the new mode's name or `nil`, the old mode's name or `nil` — see [keybinding modes](Configuration:-Key-Bindings.md#keybinding-modes); `neori.current_mode()` returns the active one |
 | `config-reloaded`    | — (no arg); runs in the newly loaded config, after a successful reload |
 | `shutdown`           | — (no arg); the compositor is about to exit         |
 | `window-title-changed`      | `Window`, its old title                      |

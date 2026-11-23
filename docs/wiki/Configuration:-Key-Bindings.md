@@ -263,6 +263,39 @@ neori.bind("Mod+TabletStylusButton2", "close-window")
 neori.bind("Mod+TabletStylusButton3", "close-window")
 ```
 
+### Keybinding Modes
+
+A mode is a separate set of binds that you switch to, like the resize mode of i3 or sway.
+While a mode is active, its binds replace your normal binds: the same keys can do something else,
+and keys the mode doesn't bind go to the app as usual.
+
+```lua
+neori.mode("resize", function()
+    -- Every neori.bind in here belongs to the mode.
+    neori.bind("Left", "set-column-width -10%")
+    neori.bind("Right", "set-column-width +10%")
+    neori.bind("Up", "set-window-height -10%")
+    neori.bind("Down", "set-window-height +10%")
+    neori.bind("Mod+Slash", "show-hotkey-overlay")
+    neori.bind("Escape", "exit-mode")
+    neori.bind("Return", "exit-mode")
+end)
+
+neori.bind("Mod+Alt+R", "enter-mode resize", { hotkey_overlay_title = "Resize Mode" })
+```
+
+`enter-mode <name>` and `exit-mode` are actions, so they also work from Lua (`neori.enter_mode`,
+`neori.exit_mode`) and over IPC (`neori msg action exit-mode`). A bind that enters a mode that
+doesn't exist is a config error.
+
+Give every mode a bind that leaves it. If you get stuck in one, `neori msg action exit-mode`
+from a terminal gets you out.
+
+While a mode is active, the hotkey overlay shows its name and all of its binds; bind
+`show-hotkey-overlay` inside the mode to open it. The screenshot UI, the overview and the
+recent windows switcher keep their own keys in a mode. If a config reload removes the active
+mode, neori goes back to the normal binds.
+
 ### Custom Hotkey Overlay Titles
 
 <sup>Since: 25.02</sup>

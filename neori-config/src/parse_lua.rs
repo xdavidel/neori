@@ -1374,7 +1374,8 @@ impl ScriptHost {
 
         let mut config = Config::default();
         PARSE_ENV.with(|env| *env.borrow_mut() = Some((search_dir, Arc::clone(&includes))));
-        let res = parse_table_into_config(table, &mut config);
+        let res = parse_table_into_config(table, &mut config)
+            .and_then(|()| check_mode_references(&config));
         PARSE_ENV.with(|env| *env.borrow_mut() = None);
         res.map_err(parse_err)?;
         let includes = includes.lock().unwrap().clone();
@@ -1985,10 +1986,13 @@ fn setup_neori_api(
     // appended to a sequence so that definition order is preserved (it matters for the
     // hotkey overlay). A function callback is stored in `bind_functions` keyed by a
     // monotonic id; the parsed Bind carries that id in `Action::ScriptFunction`.
+    // The mode whose binds neori.bind is declaring, inside neori.mode(name, fn).
+    let bind_mode: Arc<Mutex<Option<String>>> = Arc::default();
     {
         let data = data.clone();
         let bind_functions = Arc::clone(bind_functions);
         let next_bind_fn_id = Arc::clone(next_bind_fn_id);
+        let bind_mode = Arc::clone(&bind_mode);
         let func = lua
             .create_function(
                 move |lua, (key, action, options): (String, Value, Option<LuaTable>)| {
@@ -2003,14 +2007,21 @@ fn setup_neori_api(
                     key.parse::<Key>()
                         .map_err(|e| LuaError::runtime(format!("invalid keybind '{key}': {e}")))?;
 
-                    let binds: Option<LuaTable> = data.get("binds")?;
-                    let binds = match binds {
-                        Some(binds) => binds,
-                        None => {
-                            let binds = lua.create_table()?;
-                            data.set("binds", binds.clone())?;
-                            binds
+                    // Inside neori.mode(name, fn), binds go into that mode.
+                    let mode = bind_mode.lock().unwrap().clone();
+                    let binds: LuaTable = match &mode {
+                        Some(name) => {
+                            let modes: LuaTable = data.get("modes")?;
+                            modes.get(name.as_str())?
                         }
+                        None => match data.get::<Option<LuaTable>>("binds")? {
+                            Some(binds) => binds,
+                            None => {
+                                let binds = lua.create_table()?;
+                                data.set("binds", binds.clone())?;
+                                binds
+                            }
+                        },
                     };
                     for pair in binds.clone().pairs::<Value, Value>() {
                         let (existing_key, existing_value) = pair?;
@@ -2522,6 +2533,68 @@ fn setup_neori_api(
         neori.set("signals", func).map_err(err)?;
     }
 
+    // neori.mode(name, fn) declares a keybinding mode: the binds made by neori.bind while fn
+    // runs belong to the mode. While the mode is active, they replace the normal binds.
+    {
+        let data = data.clone();
+        let bind_mode = Arc::clone(&bind_mode);
+        let func = lua
+            .create_function(move |lua, (name, declare): (String, mlua::Function)| {
+                if bind_mode.lock().unwrap().is_some() {
+                    return Err(LuaError::runtime("neori.mode can't be nested"));
+                }
+                let modes = match data.get::<Option<LuaTable>>("modes")? {
+                    Some(modes) => modes,
+                    None => {
+                        let modes = lua.create_table()?;
+                        data.set("modes", modes.clone())?;
+                        modes
+                    }
+                };
+                if modes.contains_key(name.as_str())? {
+                    return Err(LuaError::runtime(format!(
+                        "mode {name:?} is declared twice"
+                    )));
+                }
+                modes.set(name.as_str(), lua.create_table()?)?;
+
+                *bind_mode.lock().unwrap() = Some(name);
+                let result = declare.call::<()>(());
+                *bind_mode.lock().unwrap() = None;
+                result
+            })
+            .map_err(err)?;
+        neori.set("mode", func).map_err(err)?;
+    }
+
+    // neori.enter_mode(name) / neori.exit_mode() switch modes right away, like the enter-mode
+    // and exit-mode actions. neori.current_mode() returns the active mode's name, or nil.
+    {
+        let data = data.clone();
+        let func = lua
+            .create_function(move |_, name: String| {
+                let declared = data
+                    .get::<Option<LuaTable>>("modes")?
+                    .is_some_and(|modes| modes.contains_key(name.as_str()).unwrap_or(false));
+                if !declared {
+                    return Err(LuaError::runtime(format!(
+                        "no mode is named {name:?}; declare it with neori.mode"
+                    )));
+                }
+                apply_action(Action::EnterMode { name })
+            })
+            .map_err(err)?;
+        neori.set("enter_mode", func).map_err(err)?;
+        let func = lua
+            .create_function(|_, ()| apply_action(Action::ExitMode {}))
+            .map_err(err)?;
+        neori.set("exit_mode", func).map_err(err)?;
+        let func = lua
+            .create_function(|_, ()| Ok(with_context(|ctx| ctx.current_mode()).flatten()))
+            .map_err(err)?;
+        neori.set("current_mode", func).map_err(err)?;
+    }
+
     // neori.after(ms, fn) calls fn once after ms milliseconds; neori.every(ms, fn) calls it every
     // ms milliseconds. Both return a Timer, which the callback also receives.
     for (name, repeat) in [("after", false), ("every", true)] {
@@ -2880,6 +2953,7 @@ fn table_has_bind(binds: &LuaTable, key: &str) -> Result<bool, String> {
 /// Used to emit a `warn!` for unknown keys (typos) so they don't get silently dropped.
 /// Both snake_case and kebab-case aliases must be listed here.
 const KNOWN_TOP_LEVEL_KEYS: &[&str] = &[
+    "modes",
     "input",
     "layout",
     "cursor",
@@ -3041,6 +3115,7 @@ fn parse_table_into_config(table: LuaTable, config: &mut Config) -> Result<(), S
                     parse_xwayland_satellite_section(t, config)?;
                 }
                 "binds" => parse_binds_section(t, config)?,
+                "modes" => parse_modes(t, config)?,
                 "switch_events" | "switch-events" => parse_switch_events_section(t, config)?,
                 "debug" => parse_debug_section(t, config)?,
                 "recent_windows" | "recent-windows" => parse_recent_windows_section(t, config)?,
@@ -5279,6 +5354,49 @@ fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<
     Ok(())
 }
 
+/// Parses the `modes` table, `{ <name> = <binds> }`, made by `neori.mode`.
+fn parse_modes(table: LuaTable, config: &mut Config) -> Result<(), String> {
+    let mut modes = Vec::new();
+    for pair in table.pairs::<Value, LuaTable>() {
+        let (name, binds) = pair.map_err(|e| format!("modes error: {e}"))?;
+        let name = key_str(&name)?;
+        let mut parsed = Config::default();
+        parse_binds_section(binds, &mut parsed).map_err(|e| format!("mode {name}: {e}"))?;
+        modes.push(BindMode {
+            name,
+            binds: parsed.binds,
+        });
+    }
+    modes.sort_by(|a, b| a.name.cmp(&b.name));
+    config.modes = modes;
+    Ok(())
+}
+
+/// Checks that every `enter-mode` bind names a mode the config declares.
+fn check_mode_references(config: &Config) -> Result<(), String> {
+    let binds = config
+        .binds
+        .0
+        .iter()
+        .chain(config.modes.iter().flat_map(|m| m.binds.0.iter()));
+    for bind in binds {
+        for action in [bind.press_action(), bind.release_action()]
+            .into_iter()
+            .flatten()
+        {
+            if let Action::EnterMode { name } = action {
+                if !config.modes.iter().any(|m| &m.name == name) {
+                    return Err(format!(
+                        "a bind enters mode {name:?}, but no mode has that name; declare it with \
+                         neori.mode({name:?}, function() ... end)"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
     let mut bvec = Vec::new();
     let mut seen_keys: Vec<(String, Key)> = Vec::new();
@@ -5934,6 +6052,15 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
             Action::RemoveFromScratchpad { name: None }
         }
         "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad { name: None },
+        "exit_mode" | "exit-mode" => Action::ExitMode {},
+        _ if let Some(name) = s
+            .strip_prefix("enter-mode ")
+            .or_else(|| s.strip_prefix("enter_mode ")) =>
+        {
+            Action::EnterMode {
+                name: name.trim().to_string(),
+            }
+        }
         _ if let Some(name) = s
             .strip_prefix("send-to-scratchpad ")
             .or_else(|| s.strip_prefix("send_to_scratchpad ")) =>
@@ -6293,6 +6420,10 @@ fn action_from_table_key(
         "toggle_scratchpad" | "toggle-scratchpad" => Some(Action::ToggleScratchpad {
             name: scratchpad_name_from_value(value)?,
         }),
+        "enter_mode" | "enter-mode" => Some(Action::EnterMode {
+            name: value_to_string(value).map_err(|e| format!("enter_mode: {e}"))?,
+        }),
+        "exit_mode" | "exit-mode" => Some(Action::ExitMode {}),
         "show_hotkey_overlay" | "show-hotkey-overlay" => Some(Action::ShowHotkeyOverlay {}),
         "screenshot" => {
             let show_pointer = table

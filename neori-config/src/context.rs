@@ -99,6 +99,11 @@ pub trait ScriptContext {
     /// Changes a setting of the input device with this sysname right away.
     fn device_op(&mut self, sysname: &str, op: DeviceOp);
 
+    /// The name of the active keybinding mode, if any.
+    fn current_mode(&mut self) -> Option<String> {
+        None
+    }
+
     /// Arms Lua timer `id` to fire after `timeout`, replacing its countdown if it's already
     /// armed.
     fn arm_timer(&mut self, id: u64, timeout: Duration) {
