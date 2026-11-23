@@ -917,6 +917,10 @@ prints its values; statements can `return` values. What the code `print`s comes 
 terminal instead of the Lua log, and an error is reported with a non-zero exit code. `--json`
 prints `{ "printed": …, "values": [ … ] }`.
 
+In zsh, Tab completes the code: `neori.` names, methods after `:` (`neori.focused_window():ti`
+completes to `title`), and global names, including your config's own. The types come from the
+[editor definitions](#editor-support), and nothing you typed is run to work them out.
+
 The code can change anything a config callback can, so only processes of your own user can use
 it, through the IPC socket, like `neori msg action spawn`.
 

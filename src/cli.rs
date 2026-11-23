@@ -34,6 +34,52 @@ pub struct Cli {
     pub subcommand: Option<Sub>,
 }
 
+/// Fixes the zsh completion script that clap generates.
+///
+/// clap lists the startup command (`neori -- <command>`) as a normal optional first positional
+/// argument, although it's only accepted after `--`. zsh then puts the subcommand into it, and
+/// completes nothing under `neori msg`. Drop it from the script.
+pub fn fix_zsh_completion(script: &str) -> String {
+    let script: String = script
+        .lines()
+        .filter(|line| !line.starts_with("'::command -- "))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    // The Lua code of `neori msg lua` completes through `neori msg lua --complete`.
+    let script = script.replacen(
+        "'::code -- The Lua code to run:_default' \\",
+        "'::code -- The Lua code to run:_neori_lua_code' \\",
+        1,
+    );
+    let script = script.replacen(
+        "if [ \"$funcstack[1]\" = \"_neori\" ]; then",
+        concat!(
+            "(( $+functions[_neori_lua_code] )) ||\n",
+            "_neori_lua_code() {\n",
+            "    local -a candidates\n",
+            "    candidates=(${(f)\"$(neori msg lua --complete \"$PREFIX\" 2>/dev/null)\"})\n",
+            "    compadd -S '' -- $candidates\n",
+            "}\n",
+            "\n",
+            "if [ \"$funcstack[1]\" = \"_neori\" ]; then",
+        ),
+        1,
+    );
+    // The subcommand is now the first positional argument of `neori` instead of the second. Only
+    // the top-level block changes: `neori msg output <name> <action>` has its own `$line[2]`.
+    let top_level = [
+        (
+            "words=($line[2] \"${words[@]}\")",
+            "words=($line[1] \"${words[@]}\")",
+        ),
+        (":neori-command-$line[2]:", ":neori-command-$line[1]:"),
+        ("case $line[2] in", "case $line[1] in"),
+    ];
+    top_level
+        .into_iter()
+        .fold(script, |script, (from, to)| script.replacen(from, to, 1))
+}
+
 #[derive(Subcommand)]
 pub enum Sub {
     /// Communicate with the running neori instance.
@@ -143,11 +189,14 @@ pub enum Msg {
     /// Statements can `return` values. Changes apply right away.
     Lua {
         /// The Lua code to run.
-        #[arg(required_unless_present = "file", conflicts_with = "file")]
+        #[arg(required_unless_present_any = ["file", "complete"], conflicts_with_all = ["file", "complete"])]
         code: Option<String>,
         /// Run the Lua code in this file instead.
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "complete")]
         file: Option<std::path::PathBuf>,
+        /// Print the completions of this Lua code, one per line, for shell completion.
+        #[arg(long, hide = true)]
+        complete: Option<String>,
     },
 }
 
@@ -173,5 +222,58 @@ impl TryFrom<CompletionShell> for Shell {
             CompletionShell::Zsh => Ok(Shell::Zsh),
             CompletionShell::Nushell => Err("Nushell should be handled separately"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory as _;
+
+    use super::*;
+
+    fn zsh_completion() -> String {
+        // Generating the script for the whole CLI needs more stack than a test thread has.
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let mut script = Vec::new();
+                clap_complete::generate(
+                    clap_complete::Shell::Zsh,
+                    &mut Cli::command(),
+                    "neori",
+                    &mut script,
+                );
+                fix_zsh_completion(&String::from_utf8(script).unwrap())
+            })
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    #[test]
+    fn zsh_completion_completes_subcommands() {
+        let script = zsh_completion();
+        // The startup command no longer takes the subcommand's place.
+        assert!(!script.contains("Command to run upon compositor startup"));
+        let top = script.split("(msg)").next().unwrap();
+        assert!(top.contains("case $line[1] in"), "{top}");
+        assert!(!top.contains("$line[2]"), "{top}");
+        // `neori msg output <name> <action>` keeps its second positional.
+        assert!(script.contains(":neori-msg-output-command-$line[2]:"));
+    }
+
+    #[test]
+    fn zsh_completion_completes_lua_code() {
+        let script = zsh_completion();
+        assert!(script.contains("'::code -- The Lua code to run:_neori_lua_code' \\"));
+        let function = script.find("_neori_lua_code() {").unwrap();
+        let dispatch = script
+            .find("if [ \"$funcstack[1]\" = \"_neori\" ]; then")
+            .unwrap();
+        assert!(
+            function < dispatch,
+            "the function must be defined before it's used"
+        );
+        assert!(script.contains("neori msg lua --complete \"$PREFIX\""));
     }
 }

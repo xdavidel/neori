@@ -128,12 +128,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     other => {
                         let generator = Shell::try_from(other).unwrap();
+                        let mut script = Vec::new();
                         clap_complete::generate(
                             generator,
                             &mut Cli::command(),
                             "neori",
-                            &mut io::stdout(),
+                            &mut script,
                         );
+                        let mut script = String::from_utf8(script).unwrap();
+                        if generator == Shell::Zsh {
+                            script = neori::cli::fix_zsh_completion(&script);
+                        }
+                        io::stdout().write_all(script.as_bytes())?;
                     }
                 }
                 return Ok(());

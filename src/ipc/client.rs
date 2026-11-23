@@ -15,6 +15,29 @@ use serde_json::json;
 use crate::cli::Msg;
 use crate::utils::version;
 
+/// The names of the global variables in the running compositor's Lua state, for completion, or
+/// none if it can't be reached.
+fn lua_globals() -> Vec<String> {
+    let code = "local names = {} \
+        for name in pairs(_G) do \
+            if type(name) == 'string' then names[#names + 1] = name end \
+        end \
+        return table.concat(names, '\\n')";
+    let Ok(mut socket) = Socket::connect() else {
+        return Vec::new();
+    };
+    match socket.send(Request::Lua {
+        code: code.to_owned(),
+    }) {
+        Ok(Ok(Response::LuaEvaluated(result))) => result
+            .values
+            .first()
+            .map(|names| names.lines().map(str::to_owned).collect())
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
 pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Result<()> {
     // For actions taking paths, prepend the neori CLI's working directory.
     if let Msg::Action {
@@ -61,7 +84,17 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
         Msg::RequestError => Request::ReturnError,
         Msg::OverviewState => Request::OverviewState,
         Msg::Casts => Request::Casts,
-        Msg::Lua { code, file } => {
+        Msg::Lua {
+            complete: Some(text),
+            ..
+        } => {
+            // Shell completion: print the candidates and nothing else, even on errors.
+            for candidate in crate::ipc::lua_complete::complete(text, &lua_globals()) {
+                println!("{candidate}");
+            }
+            return Ok(());
+        }
+        Msg::Lua { code, file, .. } => {
             let code = match (code, file) {
                 (Some(code), _) => code.clone(),
                 (None, Some(file)) => std::fs::read_to_string(file)
