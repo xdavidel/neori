@@ -11,15 +11,15 @@
 //! caused by a queued event are queued one level deeper; past [`MAX_LUA_EVENT_DEPTH`] levels they
 //! are dropped, so handlers that keep triggering each other can't loop forever.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use neori_config::mlua::IntoLuaMulti;
 use neori_config::parse_lua::LuaCall;
 use neori_config::{
     with_script_context, DeviceOp, DeviceSnapshot, LuaOutput, LuaTimer, LuaWorkspace,
-    OutputSnapshot, PointerSnapshot, ScriptContext, SignalTarget, Window as LuaWindow,
-    WindowSnapshot, WorkspaceSnapshot,
+    OutputSnapshot, PointerSnapshot, PropertyValue, ScriptContext, SignalTarget,
+    Window as LuaWindow, WindowSnapshot, WorkspaceSnapshot,
 };
 use smithay::backend::input::InputTime;
 use smithay::desktop::Window;
@@ -60,6 +60,7 @@ pub fn window_snapshot(
             .as_ref()
             .map_or_else(|| mapped.is_floating(), |p| p.floating),
         is_fullscreen: mapped.pending_sizing_mode().is_fullscreen(),
+        is_urgent: mapped.is_urgent(),
         workspace_idx: placement.as_ref().map(|p| p.idx),
         workspace_name: placement.and_then(|p| p.name),
         output_name,
@@ -197,6 +198,94 @@ impl LuaEventQueue {
         self.queue.push_back(event);
         Ok(depth)
     }
+}
+
+/// The window property signals.
+const WINDOW_PROPERTY_SIGNALS: &[&str] = &[
+    "window-title-changed",
+    "window-fullscreen-changed",
+    "window-floating-changed",
+    "window-urgent-changed",
+    "window-workspace-changed",
+];
+
+/// The properties behind the property signals, as Lua last saw them.
+///
+/// Only kept while something listens to a property signal; see
+/// [`State::refresh_lua_properties`].
+#[derive(Default)]
+pub struct LuaProperties {
+    windows: HashMap<u64, WindowSnapshot>,
+    workspace_names: HashMap<u64, Option<String>>,
+    output_modes: HashMap<String, Option<String>>,
+}
+
+impl LuaProperties {
+    /// Whether nothing is kept, as when no handler listens to a property signal.
+    pub fn is_empty(&self) -> bool {
+        self.windows.is_empty() && self.workspace_names.is_empty() && self.output_modes.is_empty()
+    }
+}
+
+/// The property signals that `old` and `new` (the same window) differ in, with the old values.
+fn window_property_changes(
+    old: &WindowSnapshot,
+    new: &WindowSnapshot,
+) -> Vec<(&'static str, PropertyValue)> {
+    let mut changes = Vec::new();
+    if old.title != new.title {
+        let title = old
+            .title
+            .clone()
+            .map_or(PropertyValue::Nil, PropertyValue::String);
+        changes.push(("window-title-changed", title));
+    }
+    if old.is_fullscreen != new.is_fullscreen {
+        changes.push((
+            "window-fullscreen-changed",
+            PropertyValue::Bool(old.is_fullscreen),
+        ));
+    }
+    if old.is_floating != new.is_floating {
+        changes.push((
+            "window-floating-changed",
+            PropertyValue::Bool(old.is_floating),
+        ));
+    }
+    if old.is_urgent != new.is_urgent {
+        changes.push(("window-urgent-changed", PropertyValue::Bool(old.is_urgent)));
+    }
+    if (old.workspace_idx, &old.workspace_name) != (new.workspace_idx, &new.workspace_name) {
+        let workspace = match old.workspace_idx {
+            Some(idx) => PropertyValue::Workspace {
+                idx,
+                name: old.workspace_name.clone(),
+            },
+            None => PropertyValue::Nil,
+        };
+        changes.push(("window-workspace-changed", workspace));
+    }
+    changes
+}
+
+/// Records the `new` values in `map`, and returns the keys whose value changed, with their old
+/// value. Keys seen for the first time are only recorded, and keys that are gone are forgotten.
+fn diff_values<K: Clone + Eq + std::hash::Hash, V: Clone + PartialEq>(
+    map: &mut HashMap<K, V>,
+    new: impl IntoIterator<Item = (K, V)>,
+) -> Vec<(K, V)> {
+    let mut seen = HashSet::new();
+    let mut changed = Vec::new();
+    for (key, value) in new {
+        seen.insert(key.clone());
+        if let Some(old) = map.insert(key.clone(), value.clone()) {
+            if old != value {
+                changed.push((key, old));
+            }
+        }
+    }
+    map.retain(|key, _| seen.contains(key));
+    changed
 }
 
 /// The event loop timers of the Lua timers.
@@ -425,6 +514,78 @@ impl State {
             self.with_lua_running(running, |state| with_script_context(state, || eval.run()));
         self.deliver_queued_lua_events();
         result
+    }
+
+    /// Fires the property signals (`window-title-changed`, …) for what changed since the last
+    /// refresh.
+    ///
+    /// Compares the same state that Lua reads, so a handler sees the new value. Costs one lookup
+    /// per signal while no handler for a property signal is connected, and keeps no state then;
+    /// the first refresh after a handler is connected only records the current values.
+    pub fn refresh_lua_properties(&mut self) {
+        let _span = tracy_client::span!("State::refresh_lua_properties");
+
+        if WINDOW_PROPERTY_SIGNALS
+            .iter()
+            .any(|event| self.scripting.has_handlers(event))
+        {
+            let mut changes = Vec::new();
+            let mut seen = HashSet::new();
+            for snapshot in window_snapshots(&self.neori) {
+                seen.insert(snapshot.id);
+                if let Some(old) = self.lua_properties.windows.get(&snapshot.id) {
+                    for (event, old_value) in window_property_changes(old, &snapshot) {
+                        changes.push((event, snapshot.clone(), old_value));
+                    }
+                }
+                self.lua_properties.windows.insert(snapshot.id, snapshot);
+            }
+            self.lua_properties
+                .windows
+                .retain(|id, _| seen.contains(id));
+            for (event, snapshot, old_value) in changes {
+                let target = SignalTarget::Window(snapshot.id);
+                self.run_lua_event(event, Some(target), |_| (LuaWindow(snapshot), old_value));
+            }
+        } else {
+            self.lua_properties.windows.clear();
+        }
+
+        if self.scripting.has_handlers("workspace-name-changed") {
+            let snapshots = workspace_snapshots(&self.neori);
+            let names = snapshots.iter().map(|ws| (ws.id, ws.name.clone()));
+            let changed = diff_values(&mut self.lua_properties.workspace_names, names);
+            for (id, old_name) in changed {
+                let Some(snapshot) = snapshots.iter().find(|ws| ws.id == id).cloned() else {
+                    continue;
+                };
+                let old = old_name.map_or(PropertyValue::Nil, PropertyValue::String);
+                let target = SignalTarget::Workspace(id);
+                self.run_lua_event("workspace-name-changed", Some(target), |_| {
+                    (LuaWorkspace(snapshot), old)
+                });
+            }
+        } else {
+            self.lua_properties.workspace_names.clear();
+        }
+
+        if self.scripting.has_handlers("output-mode-changed") {
+            let snapshots = output_snapshots(self);
+            let modes = snapshots.iter().map(|o| (o.name.clone(), o.mode.clone()));
+            let changed = diff_values(&mut self.lua_properties.output_modes, modes);
+            for (name, old_mode) in changed {
+                let Some(snapshot) = snapshots.iter().find(|o| o.name == name).cloned() else {
+                    continue;
+                };
+                let old = old_mode.map_or(PropertyValue::Nil, PropertyValue::String);
+                let target = SignalTarget::Output(name);
+                self.run_lua_event("output-mode-changed", Some(target), |_| {
+                    (LuaOutput(snapshot), old)
+                });
+            }
+        } else {
+            self.lua_properties.output_modes.clear();
+        }
     }
 
     /// Installs a freshly loaded Lua host, replacing the current one: the old config's timers are

@@ -2702,3 +2702,182 @@ fn reload_drops_the_old_configs_timers() {
     wait_ms(&mut f, 40);
     assert!(!has_output(&mut f, "old-timer"));
 }
+
+/// Runs the event loop so that the per-refresh property diff runs.
+fn refresh(f: &mut Fixture) {
+    f.state.server.dispatch();
+    f.state.server.dispatch();
+}
+
+#[test]
+fn window_title_changed_fires_with_the_old_title() {
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("window-title-changed", function(w, old)
+            log = log .. tostring(old) .. "->" .. w:title() .. ";"
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let surface = map_window(&mut f, id, "first");
+    refresh(&mut f);
+    assert_eq!(read_global_string(&f, "log"), "", "opening isn't a change");
+
+    for title in ["second", "third"] {
+        let window = f.client(id).window(&surface);
+        window.set_title(title);
+        window.commit();
+        f.double_roundtrip(id);
+        refresh(&mut f);
+    }
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "first->second;second->third;"
+    );
+}
+
+#[test]
+fn window_property_signals_reach_their_window() {
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.bind("Mod+Alt+T", function()
+            local w = neori.focused_window()
+            w:connect("fullscreen-changed", function(win, was)
+                log = log .. "fullscreen:" .. tostring(was) .. "->" .. tostring(win:is_fullscreen()) .. ";"
+            end)
+            w:connect("floating-changed", function(win, was)
+                log = log .. "floating:" .. tostring(was) .. "->" .. tostring(win:is_floating()) .. ";"
+            end)
+            w:connect("urgent-changed", function(win, was)
+                log = log .. "urgent:" .. tostring(was) .. "->" .. tostring(win:is_urgent()) .. ";"
+            end)
+            w:connect("workspace-changed", function(win, old)
+                log = log .. "workspace:" .. old.idx .. "->" .. win:workspace().idx .. ";"
+            end)
+            w:connect("title-changed", function() log = log .. "title;" end)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    let _other = map_window(&mut f, id, "other");
+    let _watched = map_window(&mut f, id, "watched");
+    refresh(&mut f);
+    press_first_function_bind(&mut f);
+    refresh(&mut f);
+    let watched = f.neori().layout.focus().unwrap().id().get();
+
+    act(&mut f, Action::FullscreenWindow { id: Some(watched) });
+    refresh(&mut f);
+    act(&mut f, Action::FullscreenWindow { id: Some(watched) });
+    refresh(&mut f);
+    act(&mut f, Action::MoveWindowToFloating { id: Some(watched) });
+    refresh(&mut f);
+    // A focused window can't become urgent: focus the other one first.
+    let other = f
+        .neori()
+        .layout
+        .windows()
+        .map(|(_, m)| m.id().get())
+        .find(|&id| id != watched)
+        .unwrap();
+    act(&mut f, Action::FocusWindow { id: other });
+    refresh(&mut f);
+    act(&mut f, Action::SetWindowUrgent { id: watched });
+    refresh(&mut f);
+    act(
+        &mut f,
+        Action::MoveWindowToWorkspace {
+            window_id: Some(watched),
+            reference: neori_ipc::WorkspaceReferenceArg::Index(2),
+            focus: false,
+        },
+    );
+    refresh(&mut f);
+
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "fullscreen:false->true;fullscreen:true->false;floating:false->true;\
+         urgent:false->true;workspace:1->2;"
+    );
+}
+
+#[test]
+fn workspace_name_and_output_mode_changed() {
+    let mut f = fixture_from_lua(
+        r#"
+        log = ""
+        neori.on("workspace-name-changed", function(ws, old)
+            log = log .. "name:" .. tostring(old) .. "->" .. tostring(ws:name()) .. ";"
+        end)
+        neori.on("output-mode-changed", function(out, old)
+            log = log .. "mode:" .. out:name() .. ":" .. tostring(old) .. "->" .. tostring(out:mode()) .. ";"
+        end)
+        neori.bind("Mod+Alt+T", function()
+            for _, out in ipairs(neori.outputs()) do
+                if out:name() == "dock" then out:set_mode("1280x720@60") end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    act(
+        &mut f,
+        Action::CreateVirtualOutput {
+            name: Some("dock".into()),
+            width: None,
+            height: None,
+            refresh_rate: None,
+        },
+    );
+    refresh(&mut f);
+
+    act(
+        &mut f,
+        Action::SetWorkspaceName {
+            name: "web".into(),
+            workspace: None,
+        },
+    );
+    refresh(&mut f);
+    act(&mut f, Action::UnsetWorkspaceName { reference: None });
+    refresh(&mut f);
+    press_first_function_bind(&mut f);
+    refresh(&mut f);
+
+    assert_eq!(
+        read_global_string(&f, "log"),
+        "name:nil->web;name:web->nil;mode:dock:1920x1080@60.000->1280x720@60.000;"
+    );
+}
+
+#[test]
+fn property_diff_keeps_no_state_without_handlers() {
+    // Nothing listens: no state. Connecting records a baseline without firing.
+    let mut f = fixture_from_lua(
+        r#"
+        fired = 0
+        neori.bind("Mod+Alt+T", function()
+            neori.connect("window-floating-changed", function() fired = fired + 1 end)
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    refresh(&mut f);
+    assert!(f.state.server.state.lua_properties.is_empty());
+
+    press_first_function_bind(&mut f);
+    refresh(&mut f);
+    assert!(!f.state.server.state.lua_properties.is_empty());
+    assert_eq!(read_global_int(&f, "fired"), 0);
+
+    let window = f.neori().layout.focus().unwrap().id().get();
+    act(&mut f, Action::MoveWindowToFloating { id: Some(window) });
+    refresh(&mut f);
+    assert_eq!(read_global_int(&f, "fired"), 1);
+}

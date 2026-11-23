@@ -20,8 +20,8 @@ use crate::layout::*;
 use crate::misc::*;
 use crate::output::*;
 use crate::signals::{
-    builtin_object_signals, builtin_signal, builtin_signal_names, ends_target, object_signal,
-    BuiltinSignal, SharedSignals, SignalTarget, BUILTIN_SIGNALS,
+    builtin_object_signals, builtin_signal, builtin_signal_names, ends_target, find_builtin,
+    object_signal, BuiltinSignal, SharedSignals, SignalTarget, BUILTIN_SIGNALS,
 };
 use crate::utils::{Flag, Percent, RegexEq};
 use crate::window_rule::*;
@@ -76,6 +76,8 @@ pub struct WindowSnapshot {
     pub is_focused: bool,
     pub is_floating: bool,
     pub is_fullscreen: bool,
+    /// Whether the window requests attention.
+    pub is_urgent: bool,
     /// 1-based global index of the workspace the window lives on.
     pub workspace_idx: Option<u8>,
     pub workspace_name: Option<String>,
@@ -784,6 +786,7 @@ impl mlua::UserData for Window {
         methods.add_method("title", |_, this, ()| Ok(this.current().title));
         methods.add_method("is_focused", |_, this, ()| Ok(this.current().is_focused));
         methods.add_method("is_floating", |_, this, ()| Ok(this.current().is_floating));
+        methods.add_method("is_urgent", |_, this, ()| Ok(this.current().is_urgent));
         methods.add_method("is_fullscreen", |_, this, ()| {
             Ok(this.current().is_fullscreen)
         });
@@ -1400,6 +1403,16 @@ impl ScriptHost {
         })
     }
 
+    /// Whether anything listens to the built-in signal `event`: a global handler, or a handler of
+    /// its short name on an object. Lets the compositor skip work for signals nobody uses.
+    pub fn has_handlers(&self, event: &str) -> bool {
+        let kind = find_builtin(event).and_then(|b| b.object);
+        self.signals
+            .lock()
+            .unwrap()
+            .has_handlers(event, kind, object_signal(event))
+    }
+
     /// Whether any handlers are connected to object signals (`obj:connect`). Lets tests check
     /// that handlers of closed windows and removed workspaces are cleaned up.
     pub fn has_object_signals(&self) -> bool {
@@ -1589,6 +1602,36 @@ fn format_lua_value(lua: &Lua, value: &Value, depth: usize) -> LuaResult<String>
             tostring.call::<String>(other.clone())?
         }
     })
+}
+
+/// The old value of a property, passed to the handlers of a property signal like
+/// `window-title-changed`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertyValue {
+    Nil,
+    Bool(bool),
+    String(String),
+    /// A window's workspace, as `w:workspace()` returns it.
+    Workspace {
+        idx: u8,
+        name: Option<String>,
+    },
+}
+
+impl IntoLua for PropertyValue {
+    fn into_lua(self, lua: &Lua) -> LuaResult<Value> {
+        Ok(match self {
+            PropertyValue::Nil => Value::Nil,
+            PropertyValue::Bool(b) => Value::Boolean(b),
+            PropertyValue::String(s) => Value::String(lua.create_string(s)?),
+            PropertyValue::Workspace { idx, name } => {
+                let t = lua.create_table()?;
+                t.set("idx", idx)?;
+                t.set("name", name)?;
+                Value::Table(t)
+            }
+        })
+    }
 }
 
 /// Lua callbacks ready to run, detached from the [`ScriptHost`] they came from.

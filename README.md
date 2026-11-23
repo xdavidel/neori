@@ -21,7 +21,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 - **Extended IPC state** — `neori msg windows` exposes `is_fullscreen`, `is_window_cast_target`, `is_active_in_column`, and `is_xwayland`
 - **NIRI_SOCKET compatibility** — IPC remains niri-compatible (`niri msg ...` works, DMS can detect via `NIRI_SOCKET`)
 - **Config validation and API** — full `neori.*` Lua API with `include`/strict mode, `startup`/`monitor-added`/`monitor-removed` hooks, and switch events
-- **Live Lua scripting** — `Window`, `Output`, `Workspace` and `Device` objects that always read current state and apply changes right away, signals (`neori.connect`, per-object `w:connect("closed", …)`, custom signals with `neori.emit`, listing with `neori.signals()`), timers (`neori.after`, `neori.every`), `neori msg lua` to run Lua from a shell, and type definitions for lua-language-server
+- **Live Lua scripting** — `Window`, `Output`, `Workspace` and `Device` objects that always read current state and apply changes right away, signals (`neori.connect`, per-object `w:connect("closed", …)`, custom signals with `neori.emit`, property signals like `window-title-changed`, listing with `neori.signals()`), timers (`neori.after`, `neori.every`), `neori msg lua` to run Lua from a shell, and type definitions for lua-language-server
 
 ### Neori features (inherited)
 

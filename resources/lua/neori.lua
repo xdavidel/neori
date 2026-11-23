@@ -31,6 +31,13 @@
 ---| "workspace-removed" # A workspace was removed.
 ---| "output-focused" # An output became the active one.
 ---| "layout-changed" # The keyboard layout changed.
+---| "window-title-changed" # A window's title changed.
+---| "window-fullscreen-changed" # A window entered or left fullscreen.
+---| "window-floating-changed" # A window moved between the floating and the tiling layout.
+---| "window-urgent-changed" # A window started or stopped requesting attention.
+---| "window-workspace-changed" # A window moved to another workspace.
+---| "workspace-name-changed" # A workspace was named, renamed or unnamed.
+---| "output-mode-changed" # An output's mode changed.
 
 ---An action: an action name like `"close-window"` (with its arguments, as in
 ---`"focus-workspace 2"`), or an action table like `{ focus_workspace = 2 }` or the result of
@@ -187,6 +194,13 @@ function neori.every(ms, callback) end
 ---@overload fun(event: "workspace-removed", handler: fun(workspace: neori.Workspace))
 ---@overload fun(event: "output-focused", handler: fun(output: neori.Output))
 ---@overload fun(event: "layout-changed", handler: fun(layout: string))
+---@overload fun(event: "window-title-changed", handler: fun(window: neori.Window, old_title: string?))
+---@overload fun(event: "window-fullscreen-changed", handler: fun(window: neori.Window, was_fullscreen: boolean))
+---@overload fun(event: "window-floating-changed", handler: fun(window: neori.Window, was_floating: boolean))
+---@overload fun(event: "window-urgent-changed", handler: fun(window: neori.Window, was_urgent: boolean))
+---@overload fun(event: "window-workspace-changed", handler: fun(window: neori.Window, old_workspace: neori.WindowWorkspace?))
+---@overload fun(event: "workspace-name-changed", handler: fun(workspace: neori.Workspace, old_name: string?))
+---@overload fun(event: "output-mode-changed", handler: fun(output: neori.Output, old_mode: string?))
 ---@param event neori.Signal
 ---@param handler function|neori.Action
 function neori.on(event, handler) end
@@ -210,6 +224,13 @@ function neori.on(event, handler) end
 ---@overload fun(signal: "workspace-removed", handler: fun(workspace: neori.Workspace)): fun(workspace: neori.Workspace)
 ---@overload fun(signal: "output-focused", handler: fun(output: neori.Output)): fun(output: neori.Output)
 ---@overload fun(signal: "layout-changed", handler: fun(layout: string)): fun(layout: string)
+---@overload fun(signal: "window-title-changed", handler: fun(window: neori.Window, old_title: string?)): fun(window: neori.Window, old_title: string?)
+---@overload fun(signal: "window-fullscreen-changed", handler: fun(window: neori.Window, was_fullscreen: boolean)): fun(window: neori.Window, was_fullscreen: boolean)
+---@overload fun(signal: "window-floating-changed", handler: fun(window: neori.Window, was_floating: boolean)): fun(window: neori.Window, was_floating: boolean)
+---@overload fun(signal: "window-urgent-changed", handler: fun(window: neori.Window, was_urgent: boolean)): fun(window: neori.Window, was_urgent: boolean)
+---@overload fun(signal: "window-workspace-changed", handler: fun(window: neori.Window, old_workspace: neori.WindowWorkspace?)): fun(window: neori.Window, old_workspace: neori.WindowWorkspace?)
+---@overload fun(signal: "workspace-name-changed", handler: fun(workspace: neori.Workspace, old_name: string?)): fun(workspace: neori.Workspace, old_name: string?)
+---@overload fun(signal: "output-mode-changed", handler: fun(output: neori.Output, old_mode: string?)): fun(output: neori.Output, old_mode: string?)
 ---@param signal neori.Signal|string
 ---@param handler F
 ---@return F
@@ -426,6 +447,9 @@ function Window:is_focused() end
 function Window:is_floating() end
 ---@return boolean
 function Window:is_fullscreen() end
+---Whether the window requests attention.
+---@return boolean
+function Window:is_urgent() end
 ---@return neori.WindowWorkspace?
 function Window:workspace() end
 ---Connector name of its output.
@@ -461,14 +485,16 @@ function Window:open_maximized(enable) end
 ---@param enable? boolean
 function Window:open_floating(enable) end
 
----Connects a function to a signal of this window: `"focused"`, `"closed"`, or one of your own.
----Returns the function.
+---Connects a function to a signal of this window: `"focused"`, `"closed"`, a property signal
+---(`"title-changed"`, `"fullscreen-changed"`, `"floating-changed"`, `"urgent-changed"`,
+---`"workspace-changed"`, which also receive the old value), or one of your own. Returns the
+---function.
 ---@generic F: function
----@param signal "focused"|"closed"|string
+---@param signal "focused"|"closed"|"title-changed"|"fullscreen-changed"|"floating-changed"|"urgent-changed"|"workspace-changed"|string
 ---@param handler F
 ---@return F
 function Window:connect(signal, handler) end
----@param signal "focused"|"closed"|string
+---@param signal "focused"|"closed"|"title-changed"|"fullscreen-changed"|"floating-changed"|"urgent-changed"|"workspace-changed"|string
 ---@param handler? function
 ---@return boolean
 function Window:disconnect(signal, handler) end
@@ -536,14 +562,14 @@ function Output:set_position(position) end
 ---@param on_demand? boolean
 function Output:set_vrr(enable, on_demand) end
 
----Connects a function to a signal of this output: `"focused"`, `"added"`, `"removed"`, or one
----of your own. Output signals are kept by connector name, so they survive a replug.
+---Connects a function to a signal of this output: `"focused"`, `"added"`, `"removed"`,
+---`"mode-changed"` (which also receives the old mode), or one of your own. Output signals are kept by connector name, so they survive a replug.
 ---@generic F: function
----@param signal "focused"|"added"|"removed"|string
+---@param signal "focused"|"added"|"removed"|"mode-changed"|string
 ---@param handler F
 ---@return F
 function Output:connect(signal, handler) end
----@param signal "focused"|"added"|"removed"|string
+---@param signal "focused"|"added"|"removed"|"mode-changed"|string
 ---@param handler? function
 ---@return boolean
 function Output:disconnect(signal, handler) end
@@ -584,14 +610,14 @@ function Workspace:send_to_output(output) end
 function Workspace:set_name(name) end
 function Workspace:unset_name() end
 
----Connects a function to a signal of this workspace: `"focused"`, `"removed"`, or one of your
----own. Returns the function.
+---Connects a function to a signal of this workspace: `"focused"`, `"removed"`, `"name-changed"`
+---(which also receives the old name), or one of your own. Returns the function.
 ---@generic F: function
----@param signal "focused"|"removed"|string
+---@param signal "focused"|"removed"|"name-changed"|string
 ---@param handler F
 ---@return F
 function Workspace:connect(signal, handler) end
----@param signal "focused"|"removed"|string
+---@param signal "focused"|"removed"|"name-changed"|string
 ---@param handler? function
 ---@return boolean
 function Workspace:disconnect(signal, handler) end

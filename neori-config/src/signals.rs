@@ -127,6 +127,17 @@ impl Signals {
         self.global.contains_key(name)
     }
 
+    /// Whether any handler is connected to the global signal `name`, or to `object_name` on an
+    /// object of `kind`.
+    pub fn has_handlers(&self, name: &str, kind: Option<ObjectKind>, object_name: &str) -> bool {
+        self.global.contains_key(name)
+            || kind.is_some_and(|kind| {
+                self.objects.iter().any(|(target, signals)| {
+                    target.kind() == kind && signals.contains_key(object_name)
+                })
+            })
+    }
+
     /// Whether any object handlers are connected at all.
     pub fn has_objects(&self) -> bool {
         !self.objects.is_empty()
@@ -274,6 +285,48 @@ pub const BUILTIN_SIGNALS: &[BuiltinSignal] = &[
         "the keyboard layout changed",
         "layout name",
         None,
+    ),
+    builtin(
+        "window-title-changed",
+        "a window's title changed",
+        "Window, old title",
+        Some(ObjectKind::Window),
+    ),
+    builtin(
+        "window-fullscreen-changed",
+        "a window entered or left fullscreen",
+        "Window, was fullscreen",
+        Some(ObjectKind::Window),
+    ),
+    builtin(
+        "window-floating-changed",
+        "a window moved between the floating and the tiling layout",
+        "Window, was floating",
+        Some(ObjectKind::Window),
+    ),
+    builtin(
+        "window-urgent-changed",
+        "a window started or stopped requesting attention",
+        "Window, was urgent",
+        Some(ObjectKind::Window),
+    ),
+    builtin(
+        "window-workspace-changed",
+        "a window moved to another workspace",
+        "Window, old workspace ({ idx, name })",
+        Some(ObjectKind::Window),
+    ),
+    builtin(
+        "workspace-name-changed",
+        "a workspace was named, renamed or unnamed",
+        "Workspace, old name",
+        Some(ObjectKind::Workspace),
+    ),
+    builtin(
+        "output-mode-changed",
+        "an output's mode changed",
+        "Output, old mode",
+        Some(ObjectKind::Output),
     ),
 ];
 
@@ -430,7 +483,18 @@ mod tests {
         let window: Vec<_> = builtin_object_signals(ObjectKind::Window)
             .map(|s| object_signal(s.name))
             .collect();
-        assert_eq!(window, ["closed", "focused"]);
+        assert_eq!(
+            window,
+            [
+                "closed",
+                "focused",
+                "title-changed",
+                "fullscreen-changed",
+                "floating-changed",
+                "urgent-changed",
+                "workspace-changed",
+            ]
+        );
     }
 
     #[test]

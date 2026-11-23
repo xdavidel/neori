@@ -810,6 +810,8 @@ pub struct State {
     pub lua_events: crate::script::LuaEventQueue,
     /// Event loop timers of the Lua `neori.after` / `neori.every` timers.
     pub lua_timers: crate::script::LuaTimerSources,
+    /// The properties behind the Lua property signals, as last seen.
+    pub lua_properties: crate::script::LuaProperties,
 }
 
 impl State {
@@ -860,6 +862,7 @@ impl State {
             print_log_sink: None,
             lua_events: Default::default(),
             lua_timers: Default::default(),
+            lua_properties: Default::default(),
         };
 
         // Create any declaratively-configured virtual outputs early, so that options like
@@ -1036,6 +1039,7 @@ impl State {
         self.neori.refresh_window_rules();
         self.refresh_ipc_outputs();
         self.ipc_refresh_layout();
+        self.refresh_lua_properties();
         self.ipc_refresh_keyboard_layout_index();
         self.ipc_refresh_touchpad();
 

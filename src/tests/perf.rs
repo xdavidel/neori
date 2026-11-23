@@ -182,3 +182,49 @@ fn perf_ipc_refresh_layout_with_lua_handlers() {
          likely regression: diff logic is firing events on no-op ticks",
     );
 }
+
+#[test]
+#[ignore = "perf test — run with --ignored --nocapture"]
+fn perf_refresh_lua_properties() {
+    // The property diff runs every refresh tick. With no property handler it must only look
+    // the signals up; with one, it snapshots the windows but fires nothing when nothing changed.
+    let mut f = fixture("-- no handlers registered\n");
+    f.add_output(1, (1920, 1080));
+    let state = &mut f.state.server.state;
+
+    const N: usize = 10_000;
+    let start = Instant::now();
+    for _ in 0..N {
+        state.refresh_lua_properties();
+    }
+    let idle = start.elapsed();
+    println!(
+        "refresh_lua_properties, no handlers: {N} iterations, {idle:?}, {:?} per op",
+        idle / u32::try_from(N).unwrap()
+    );
+    assert!(
+        idle.as_millis() < 100,
+        "refresh_lua_properties without handlers took {idle:?} for {N} iterations"
+    );
+
+    let (_config, host) = neori_config::Config::parse_with_host(
+        std::path::Path::new("test.lua"),
+        "neori.on('window-title-changed', function() end)",
+    )
+    .config
+    .unwrap();
+    state.install_script_host(host);
+    let start = Instant::now();
+    for _ in 0..N {
+        state.refresh_lua_properties();
+    }
+    let busy = start.elapsed();
+    println!(
+        "refresh_lua_properties, with a handler (no change): {N} iterations, {busy:?}, {:?} per op",
+        busy / u32::try_from(N).unwrap()
+    );
+    assert!(
+        busy.as_millis() < 1_000,
+        "refresh_lua_properties with a handler took {busy:?} for {N} iterations"
+    );
+}

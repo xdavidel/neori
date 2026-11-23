@@ -696,7 +696,7 @@ end
 -- Window events + Window userdata.
 --
 -- Read-only methods: id(), app_id(), title(), is_focused(), is_floating(),
--- is_fullscreen(), workspace(), output().
+-- is_fullscreen(), is_urgent(), workspace(), output().
 --
 -- Mutation methods: close(), focus(), fullscreen(true|false|nil),
 -- float(true|false|nil), send_to_workspace(idx|name), send_to_output(name).
@@ -798,6 +798,16 @@ end
 --     w:connect("closed", function(win)
 --       neori.action("spawn-sh", string.format("notify-send 'closed' %q", win:title() or "?"))
 --     end)
+--   end
+-- end)
+
+-- Property signals fire when something about a window, workspace or output
+-- changes, with the object and the old value: window-title-changed,
+-- window-fullscreen-changed, window-floating-changed, window-urgent-changed,
+-- window-workspace-changed, workspace-name-changed, output-mode-changed.
+-- neori.on("window-urgent-changed", function(w, was_urgent)
+--   if w:is_urgent() then
+--     neori.action("spawn", { "notify-send", "Needs attention", w:title() or "?" })
 --   end
 -- end)
 

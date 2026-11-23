@@ -33,8 +33,12 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 - **Timers (done):** `neori.after(ms, fn)` and `neori.every(ms, fn)`, on calloop timers. (Not
   `neori.timer { repeat = … }`: `repeat` is a Lua keyword.)
-- **Property signals:** `window::title`, `window::fullscreen`, `window::floating`, `window::urgent`,
-  `window::workspace`, `workspace::name`, `output::mode`, fired from the existing IPC diff.
+- **Property signals (done):** `window-title-changed`, `window-fullscreen-changed`,
+  `window-floating-changed`, `window-urgent-changed`, `window-workspace-changed`,
+  `workspace-name-changed`, `output-mode-changed` (`title-changed` and so on on the objects),
+  with the old value. They come from their own per-frame diff of what Lua reads rather than the
+  IPC diff, which compares the fullscreen state the client acknowledged, and only runs with an
+  IPC server.
 - **Keybinding modes:** `neori.mode("resize", { ... })`, `neori.enter_mode(name)`,
   `neori.exit_mode()`, shown in the hotkey overlay.
 - **Lua over IPC (done):** `neori msg lua '<expr>'` and `neori msg lua -f script.lua`.

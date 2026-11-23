@@ -62,7 +62,7 @@ pub use crate::misc::*;
 pub use crate::output::{Output, OutputName, Outputs, Position, Vrr};
 pub use crate::parse_lua::{
     DeviceOp, DeviceSnapshot, LuaDevice, LuaOutput, LuaTimer, LuaWorkspace, OpenOverrides,
-    OutputSnapshot, PointerSnapshot, PrintSink, ScriptHost, Window, WindowSnapshot,
+    OutputSnapshot, PointerSnapshot, PrintSink, PropertyValue, ScriptHost, Window, WindowSnapshot,
     WorkspaceSnapshot,
 };
 pub use crate::recent_windows::{MruDirection, MruFilter, MruPreviews, MruScope, RecentWindows};
@@ -1712,6 +1712,7 @@ mod tests {
             is_focused: true,
             is_floating: false,
             is_fullscreen: false,
+            is_urgent: false,
             workspace_idx: Some(3),
             workspace_name: Some("browser".to_string()),
             output_name: Some("eDP-1".to_string()),
@@ -2125,7 +2126,16 @@ mod tests {
         // The window's own list: its built-in signals, then its custom ones.
         assert_eq!(
             signal_rows(&host, "window_list"),
-            ["closed:1", "focused:0", "poke:1*"]
+            [
+                "closed:1",
+                "focused:0",
+                "title-changed:0",
+                "fullscreen-changed:0",
+                "floating-changed:0",
+                "urgent-changed:0",
+                "workspace-changed:0",
+                "poke:1*"
+            ]
         );
     }
 
@@ -2156,10 +2166,13 @@ mod tests {
             ..Default::default()
         };
         with_script_context(&mut ctx, || host.call_bind_function(1)).unwrap();
-        assert_eq!(signal_rows(&host, "ws_list"), ["focused:0", "removed:0"]);
+        assert_eq!(
+            signal_rows(&host, "ws_list"),
+            ["focused:0", "removed:0", "name-changed:0"]
+        );
         assert_eq!(
             signal_rows(&host, "out_list"),
-            ["added:0", "removed:0", "focused:0"]
+            ["added:0", "removed:0", "focused:0", "mode-changed:0"]
         );
     }
 

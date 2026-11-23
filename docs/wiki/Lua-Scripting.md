@@ -143,6 +143,26 @@ Supported event names and their handler arg:
 | `workspace-removed`  | `Workspace` userdata — last known state of the destroyed workspace |
 | `output-focused`     | `Output` userdata — the newly active output         |
 | `layout-changed`     | string — the new active keyboard layout's name      |
+| `window-title-changed`      | `Window`, its old title                      |
+| `window-fullscreen-changed` | `Window`, whether it was fullscreen          |
+| `window-floating-changed`   | `Window`, whether it was floating            |
+| `window-urgent-changed`     | `Window`, whether it was urgent              |
+| `window-workspace-changed`  | `Window`, its old workspace (`{ idx, name }`) |
+| `workspace-name-changed`    | `Workspace`, its old name                    |
+| `output-mode-changed`       | `Output`, its old mode                       |
+
+The `*-changed` events are *property signals*: they fire when a property of an existing object
+changes (not when it appears), with the object, which reads the new value, and the old value.
+They're checked once per frame, only while something listens to one of them.
+
+```lua
+-- Mention windows that ask for attention.
+neori.on("window-urgent-changed", function(w, was_urgent)
+    if w:is_urgent() then
+        neori.action("spawn", { "notify-send", "Needs attention", w:title() or "?" })
+    end
+end)
+```
 
 Workspace / output lifecycle events fire whenever the compositor notices a
 change (per refresh tick), so a bind that focuses a different workspace,
@@ -287,9 +307,9 @@ The built-in events also reach the object they're about, under a short name:
 
 | object      | signals                                                                     |
 |---          |---                                                                          |
-| `Window`    | `focused`, `closed` (from `window-focused`, `window-closed`)                |
-| `Workspace` | `focused`, `removed` (from `workspace-focused`, `workspace-removed`)        |
-| `Output`    | `focused` (from `output-focused`); `added`, `removed` (from `monitor-added`, `monitor-removed`, called with the connector name and the `Output`, like the global event) |
+| `Window`    | `focused`, `closed` (from `window-focused`, `window-closed`), and `title-changed`, `fullscreen-changed`, `floating-changed`, `urgent-changed`, `workspace-changed` |
+| `Workspace` | `focused`, `removed`, `name-changed` (from `workspace-focused`, …)          |
+| `Output`    | `focused` (from `output-focused`), `mode-changed`; `added`, `removed` (from `monitor-added`, `monitor-removed`, called with the connector name and the `Output`, like the global event) |
 
 ```lua
 -- Get a notification when this particular window closes.
@@ -471,6 +491,7 @@ Window in a Lua variable and call methods on it across callbacks.
 | `w:is_focused()`    | boolean                                                    |
 | `w:is_floating()`   | boolean                                                    |
 | `w:is_fullscreen()` | boolean                                                    |
+| `w:is_urgent()`     | boolean — whether the window requests attention            |
 | `w:workspace()`     | `{ idx = <number>, name = <string?> }` or `nil`            |
 | `w:output()`        | connector-name string or `nil`                             |
 
