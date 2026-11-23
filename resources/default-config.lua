@@ -907,7 +907,8 @@ end
 --
 -- Read-only methods: name(), make(), model(), serial(), mode(), modes(),
 -- scale(), transform(), position(), is_focused(), is_virtual(), is_off(),
--- vrr_supported(), vrr_enabled().
+-- vrr_supported(), vrr_enabled(), geometry(), workarea(), physical_size(),
+-- windows(). neori.output_at(x, y) finds the output at a point.
 --
 -- Mutation methods: on(), off(), enable(bool|nil), set_mode("WxH@HZ"|"auto"),
 -- set_scale(n|"auto"), set_transform("90"|...), set_position({x,y}|"auto"),
@@ -948,6 +949,13 @@ end
 --     if out:name() == "eDP-1" then panel = out end
 --   end
 --   if panel then panel:enable() end
+-- end)
+
+-- Send the focused window to the output under the pointer.
+-- neori.bind("Mod+Ctrl+O", function()
+--   local p, w = neori.pointer(), neori.focused_window()
+--   local out = p and neori.output_at(p.x, p.y)
+--   if w and out then w:send_to_output(out:name()) end
 -- end)
 
 -- Enumerate outputs into a notification.

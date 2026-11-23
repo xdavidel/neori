@@ -143,6 +143,23 @@ pub struct OutputSnapshot {
     pub off: bool,
     pub vrr_supported: bool,
     pub vrr_enabled: bool,
+    /// Logical size, as `(width, height)`.
+    pub size: Option<(i32, i32)>,
+    /// Physical size of the screen in millimetres, as `(width, height)`, if known.
+    pub physical_size: Option<(i32, i32)>,
+    /// The area left for windows once layer-shell panels reserved their space, in global
+    /// logical coordinates, as `(x, y, width, height)`.
+    pub workarea: Option<(i32, i32, i32, i32)>,
+}
+
+/// Makes a `{ x, y, width, height }` table.
+fn rect_table(lua: &Lua, (x, y, width, height): (i32, i32, i32, i32)) -> LuaResult<LuaTable> {
+    let t = lua.create_table()?;
+    t.set("x", x)?;
+    t.set("y", y)?;
+    t.set("width", width)?;
+    t.set("height", height)?;
+    Ok(t)
 }
 
 /// Snapshot of a workspace's state, exposed to Lua as the `Workspace` userdata.
@@ -291,6 +308,43 @@ impl mlua::UserData for LuaOutput {
             Ok(this.current().vrr_supported)
         });
         methods.add_method("vrr_enabled", |_, this, ()| Ok(this.current().vrr_enabled));
+        // out:geometry() -> { x, y, width, height } in global logical coordinates.
+        methods.add_method("geometry", |lua, this, ()| {
+            let out = this.current();
+            match (out.position, out.size) {
+                (Some((x, y)), Some((w, h))) => rect_table(lua, (x, y, w, h)).map(Some),
+                _ => Ok(None),
+            }
+        });
+        // out:workarea() -> { x, y, width, height }: the area left for windows.
+        methods.add_method("workarea", |lua, this, ()| {
+            this.current()
+                .workarea
+                .map(|area| rect_table(lua, area))
+                .transpose()
+        });
+        // out:physical_size() -> { width, height } in millimetres, or nil.
+        methods.add_method("physical_size", |lua, this, ()| {
+            let Some((width, height)) = this.current().physical_size else {
+                return Ok(None);
+            };
+            let t = lua.create_table()?;
+            t.set("width", width)?;
+            t.set("height", height)?;
+            Ok(Some(t))
+        });
+        // out:windows() -> the windows on this output.
+        methods.add_method("windows", |lua, this, ()| {
+            let windows = with_context(|ctx| ctx.windows()).unwrap_or_default();
+            let arr = lua.create_table()?;
+            let on_output = windows
+                .into_iter()
+                .filter(|w| w.output_name.as_deref() == Some(this.0.name.as_str()));
+            for (i, w) in on_output.enumerate() {
+                arr.set(i + 1, Window(w))?;
+            }
+            Ok(arr)
+        });
 
         // Mutation methods. Each applies an OutputAction to this output right away.
 
@@ -2414,6 +2468,18 @@ fn setup_neori_api(
             })
             .map_err(err)?;
         neori.set(name, func).map_err(err)?;
+    }
+
+    // neori.output_at(x, y) returns the output at those global coordinates, or nil.
+    {
+        let func = lua
+            .create_function(|_, (x, y): (f64, f64)| {
+                Ok(with_context(|ctx| ctx.output_at(x, y))
+                    .flatten()
+                    .map(LuaOutput))
+            })
+            .map_err(err)?;
+        neori.set("output_at", func).map_err(err)?;
     }
 
     // neori.outputs() — runtime lookup, returns an array of Output userdata.

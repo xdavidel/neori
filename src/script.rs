@@ -904,6 +904,19 @@ pub fn output_snapshot(neori: &Neori, output: &SmithayOutput, vrr: (bool, bool))
     let is_focused = neori.layout.active_output() == Some(output);
     let is_virtual = VirtualOutputMarker::is_virtual(output);
 
+    let geometry = neori.global_space.output_geometry(output);
+    let size = geometry.map(|g| (g.size.w, g.size.h));
+    let physical_size = Some((props.size.w, props.size.h)).filter(|&(w, h)| w > 0 && h > 0);
+    let workarea = geometry.map(|g| {
+        let area = smithay::desktop::layer_map_for_output(output).non_exclusive_zone();
+        (
+            g.loc.x + area.loc.x,
+            g.loc.y + area.loc.y,
+            area.size.w,
+            area.size.h,
+        )
+    });
+
     // VRR flags come from the IPC-output mirror (passed in). `off` is always
     // false here because only live outputs are in global_space; disabled
     // outputs are gone from it.
@@ -926,6 +939,9 @@ pub fn output_snapshot(neori: &Neori, output: &SmithayOutput, vrr: (bool, bool))
         off,
         vrr_supported,
         vrr_enabled,
+        size,
+        physical_size,
+        workarea,
     }
 }
 

@@ -3187,3 +3187,83 @@ fn window_maximize_and_kill_guard() {
     let err = read_global_string(&f, "err");
     assert!(err.contains("refusing to kill process"), "{err}");
 }
+
+#[test]
+fn output_geometry_output_at_and_windows() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local lines = {}
+            for _, out in ipairs(neori.outputs()) do
+                local g = out:geometry()
+                lines[#lines + 1] = string.format("%s %d,%d %dx%d windows=%d",
+                    out:name(), g.x, g.y, g.width, g.height, #out:windows())
+            end
+            table.sort(lines)
+            info = table.concat(lines, "; ")
+            local right = neori.output_at(1930, 10)
+            at_right = right and right:name() or "nil"
+            at_nowhere = tostring(neori.output_at(-50, -50))
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    f.add_output(2, (1280, 720));
+    f.neori_focus_output(1);
+    let id = f.add_client();
+    map_window(&mut f, id, "w");
+    f.state.server.dispatch();
+    press_first_function_bind(&mut f);
+
+    // Outputs are placed left to right.
+    assert_eq!(
+        read_global_string(&f, "info"),
+        "headless-1 0,0 1920x1080 windows=1; headless-2 1920,0 1280x720 windows=0"
+    );
+    assert_eq!(read_global_string(&f, "at_right"), "headless-2");
+    assert_eq!(read_global_string(&f, "at_nowhere"), "nil");
+}
+
+#[test]
+fn output_workarea_leaves_out_panels() {
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::Layer;
+    use smithay::reexports::wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1::Anchor;
+
+    use crate::tests::client::LayerConfigureProps;
+
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            local a = neori.focused_output():workarea()
+            area = string.format("%d,%d %dx%d", a.x, a.y, a.width, a.height)
+            physical = tostring(neori.focused_output():physical_size())
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "area"), "0,0 1920x1080");
+
+    // A 50 px bar at the top.
+    let id = f.add_client();
+    let layer = f.client(id).create_layer(None, Layer::Top, "bar");
+    let surface = layer.surface.clone();
+    layer.set_configure_props(LayerConfigureProps {
+        anchor: Some(Anchor::Left | Anchor::Right | Anchor::Top),
+        size: Some((0, 50)),
+        exclusive_zone: Some(50),
+        ..Default::default()
+    });
+    layer.commit();
+    f.roundtrip(id);
+    let layer = f.client(id).layer(&surface);
+    layer.attach_new_buffer();
+    layer.set_size(1920, 50);
+    layer.ack_last_and_commit();
+    f.double_roundtrip(id);
+
+    press_first_function_bind(&mut f);
+    assert_eq!(read_global_string(&f, "area"), "0,50 1920x1030");
+    // Headless outputs have no physical size.
+    assert_eq!(read_global_string(&f, "physical"), "nil");
+}

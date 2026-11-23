@@ -718,6 +718,9 @@ mod tests {
             off: false,
             vrr_supported: true,
             vrr_enabled: false,
+            size: Some((1536, 864)),
+            physical_size: Some((344, 194)),
+            workarea: Some((100, 230, 1536, 834)),
         };
         let name = snap.name.clone();
         let mut ctx = FakeContext::with_outputs(vec![snap], Some(&name));

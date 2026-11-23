@@ -70,6 +70,16 @@ pub trait ScriptContext {
     fn output(&mut self, name: &str) -> Option<OutputSnapshot> {
         self.outputs().into_iter().find(|o| o.name == name)
     }
+    /// The output at these global logical coordinates, if any.
+    fn output_at(&mut self, x: f64, y: f64) -> Option<OutputSnapshot> {
+        self.outputs().into_iter().find(|o| {
+            let (Some((ox, oy)), Some((w, h))) = (o.position, o.size) else {
+                return false;
+            };
+            let (ox, oy) = (f64::from(ox), f64::from(oy));
+            x >= ox && y >= oy && x < ox + f64::from(w) && y < oy + f64::from(h)
+        })
+    }
     /// The focused output, if any.
     fn focused_output(&mut self) -> Option<OutputSnapshot> {
         self.outputs().into_iter().find(|o| o.is_focused)

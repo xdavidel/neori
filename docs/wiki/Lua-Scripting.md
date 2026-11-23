@@ -705,7 +705,8 @@ compositor's log stream.
 ## Outputs
 
 Inside any Lua callback, `neori.outputs()` returns an array of `Output` userdata
-and `neori.focused_output()` returns the focused one (or `nil`). The
+and `neori.focused_output()` returns the focused one (or `nil`). `neori.output_at(x, y)` returns
+the output at those global coordinates. The
 `monitor-added` / `monitor-removed` event handlers receive an `Output` as their
 second argument (the connector-name string is still the first argument, so old
 handlers keep working).
@@ -758,6 +759,10 @@ apply an `OutputAction` right away: after `out:set_scale(2)`, `out:scale()` retu
 | `out:is_off()`         | boolean                                                       |
 | `out:vrr_supported()`  | boolean                                                       |
 | `out:vrr_enabled()`    | boolean                                                       |
+| `out:geometry()`       | `{ x, y, width, height }` — position and logical size, in global logical coordinates |
+| `out:workarea()`       | `{ x, y, width, height }` — the area left for windows once layer-shell panels and bars reserved their space |
+| `out:physical_size()`  | `{ width, height }` in millimetres, or `nil` if unknown (like for virtual outputs) |
+| `out:windows()`        | array of the `Window`s on this output                         |
 
 **Mutation:**
 

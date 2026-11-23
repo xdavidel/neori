@@ -321,6 +321,12 @@ function neori.outputs() end
 ---@return neori.Output?
 function neori.focused_output() end
 
+---The output at these global logical coordinates.
+---@param x number
+---@param y number
+---@return neori.Output?
+function neori.output_at(x, y) end
+
 ---Every workspace, in global index order.
 ---@return neori.Workspace[]
 function neori.workspaces() end
@@ -619,6 +625,19 @@ function Output:is_off() end
 function Output:vrr_supported() end
 ---@return boolean
 function Output:vrr_enabled() end
+---Position and logical size, in global logical coordinates.
+---@return { x: integer, y: integer, width: integer, height: integer }?
+function Output:geometry() end
+---The area left for windows once layer-shell panels and bars reserved their space, in global
+---logical coordinates.
+---@return { x: integer, y: integer, width: integer, height: integer }?
+function Output:workarea() end
+---Physical size of the screen in millimetres; nil if unknown (like for virtual outputs).
+---@return { width: integer, height: integer }?
+function Output:physical_size() end
+---The windows on this output.
+---@return neori.Window[]
+function Output:windows() end
 
 function Output:on() end
 function Output:off() end
