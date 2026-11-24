@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use miette::miette;
+use neori_config_derive::LuaTable;
 use smithay::input::keyboard::{keysyms, Keysym, XkbConfig};
 use smithay::reexports::input;
 
@@ -8,7 +9,7 @@ use crate::binds::Modifiers;
 use crate::utils::{Flag, Percent};
 use crate::FloatOrInt;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, LuaTable)]
 pub struct Input {
     pub keyboard: Keyboard,
     pub touchpad: Touchpad,
@@ -18,7 +19,9 @@ pub struct Input {
     pub tablet: Tablet,
     pub touch: Touch,
     pub disable_power_key_handling: bool,
+    #[lua(with = crate::lua_table::bool_or_table, lua_type = "boolean|table")]
     pub warp_mouse_to_focus: Option<WarpMouseToFocus>,
+    #[lua(with = crate::lua_table::bool_or_table, lua_type = "boolean|table")]
     pub focus_follows_mouse: Option<FocusFollowsMouse>,
     pub workspace_auto_back_and_forth: bool,
     pub mod_key: Option<ModKey>,
@@ -43,7 +46,7 @@ pub struct InputPart {
     pub mod_key_nested: Option<ModKey>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, LuaTable)]
 pub struct Keyboard {
     pub xkb: Xkb,
     pub repeat_delay: u16,
@@ -74,13 +77,14 @@ pub struct KeyboardPart {
     pub numlock: Option<Flag>,
 }
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, LuaTable)]
 pub struct Xkb {
     pub rules: String,
     pub model: String,
     pub layout: String,
     pub variant: String,
     pub options: Option<String>,
+    #[lua(with = crate::lua_table::xkb_file, lua_type = "string")]
     pub file: Option<XkbFile>,
 }
 
@@ -107,7 +111,7 @@ pub enum TrackLayout {
     Window,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct ScrollFactor {
     pub base: Option<FloatOrInt<0, 100>>,
     pub horizontal: Option<FloatOrInt<-100, 100>>,
@@ -123,7 +127,7 @@ impl ScrollFactor {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Touchpad {
     pub off: bool,
     pub tap: bool,
@@ -142,11 +146,12 @@ pub struct Touchpad {
     pub left_handed: bool,
     pub disabled_on_external_mouse: bool,
     pub middle_emulation: bool,
+    #[lua(with = crate::lua_table::scroll_factor, lua_type = "number|table")]
     pub scroll_factor: Option<ScrollFactor>,
     pub pinch_sensitivity: Option<FloatOrInt<0, 100>>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Mouse {
     pub off: bool,
     pub natural_scroll: bool,
@@ -157,10 +162,11 @@ pub struct Mouse {
     pub scroll_button_lock: bool,
     pub left_handed: bool,
     pub middle_emulation: bool,
+    #[lua(with = crate::lua_table::scroll_factor, lua_type = "number|table")]
     pub scroll_factor: Option<ScrollFactor>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Trackpoint {
     pub off: bool,
     pub natural_scroll: bool,
@@ -173,7 +179,7 @@ pub struct Trackpoint {
     pub middle_emulation: bool,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Trackball {
     pub off: bool,
     pub natural_scroll: bool,
@@ -250,7 +256,7 @@ impl From<TapButtonMap> for input::TapButtonMap {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Tablet {
     pub off: bool,
     pub calibration_matrix: Option<Vec<f32>>,
@@ -260,20 +266,20 @@ pub struct Tablet {
     pub left_handed: bool,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Touch {
     pub off: bool,
     pub calibration_matrix: Option<Vec<f32>>,
     pub map_to_output: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, LuaTable)]
 pub struct FocusFollowsMouse {
     pub outputs_only: Option<bool>,
     pub max_scroll_amount: Option<Percent>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default, LuaTable)]
 pub struct WarpMouseToFocus {
     pub mode: Option<WarpMouseToFocusMode>,
 }

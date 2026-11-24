@@ -5443,6 +5443,79 @@ mod tests {
     }
 
     #[test]
+    fn input_parses_its_special_forms() {
+        let config = Config::parse_mem(
+            r#"
+            neori.input {
+                keyboard = { xkb = { layout = "us,ru", options = "grp:win_space_toggle" } },
+                touchpad = { tap = true, accel_profile = "flat", scroll_factor = 0.5 },
+                mouse = { scroll_factor = { horizontal = -1, vertical = 2 } },
+                focus_follows_mouse = { max_scroll_amount = "10%" },
+                warp_mouse_to_focus = { mode = "center-xy" },
+                mod_key = "win",
+                tablet = { calibration_matrix = { 1, 0, 0, 0, 1, 0 } },
+            }
+            "#,
+        )
+        .unwrap();
+        let input = &config.input;
+        assert_eq!(input.keyboard.xkb.layout, "us,ru");
+        assert_eq!(
+            input.keyboard.xkb.options.as_deref(),
+            Some("grp:win_space_toggle")
+        );
+        assert!(input.touchpad.tap);
+        assert_eq!(
+            input.touchpad.accel_profile,
+            Some(crate::input::AccelProfile::Flat)
+        );
+        assert_eq!(
+            input.touchpad.scroll_factor.unwrap().h_v_factors(),
+            (0.5, 0.5)
+        );
+        assert_eq!(input.mouse.scroll_factor.unwrap().h_v_factors(), (-1., 2.));
+        assert!(input
+            .focus_follows_mouse
+            .unwrap()
+            .max_scroll_amount
+            .is_some());
+        assert_eq!(
+            input.warp_mouse_to_focus.unwrap().mode,
+            Some(crate::input::WarpMouseToFocusMode::CenterXy)
+        );
+        assert_eq!(input.mod_key, Some(crate::input::ModKey::Super));
+        assert_eq!(input.tablet.calibration_matrix.as_ref().unwrap().len(), 6);
+
+        let config = Config::parse_mem(
+            "neori.input { focus_follows_mouse = true, warp_mouse_to_focus = false }",
+        )
+        .unwrap();
+        assert_eq!(
+            config.input.focus_follows_mouse,
+            Some(crate::input::FocusFollowsMouse::default())
+        );
+        assert_eq!(config.input.warp_mouse_to_focus, None);
+
+        for (code, error) in [
+            (
+                "neori.input { touchpad = { accel_speed = 3 } }",
+                "input.touchpad.accel_speed: must be between -1 and 1, got 3",
+            ),
+            (
+                r#"neori.input { touchpad = { click_method = "tap" } }"#,
+                "input.touchpad.click_method: invalid value `tap`",
+            ),
+            (
+                "neori.input { keyboard = { repeat_rate = 1000 } }",
+                "input.keyboard.repeat_rate: must be between 0 and 255, got 1000",
+            ),
+        ] {
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{code}")).unwrap_err();
+            assert!(format!("{err:?}").contains(error), "{code}: {err:?}");
+        }
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

@@ -16,13 +16,17 @@ use crate::appearance::{
     GradientRelativeTo, InsertHint, Shadow, TabIndicator, TabIndicatorLength, TabIndicatorPosition,
 };
 use crate::debug::PreviewRender;
+use crate::input::{
+    AccelProfile, ClickMethod, ModKey, ScrollFactor, ScrollMethod, TapButtonMap, TrackLayout,
+    WarpMouseToFocusMode, XkbFile,
+};
 use crate::layout::{CenterFocusedColumn, DefaultPresetSize, PresetSize};
 use crate::parse_lua::{
     invalid_config, key_str, parse_block_out_from, parse_css_color, unknown_key, value_is_truthy,
     value_to_corner_radius, value_to_default_preset_size, value_to_f64, value_to_i64,
     value_to_string,
 };
-use crate::utils::{Flag, RegexEq};
+use crate::utils::{Flag, Percent, RegexEq};
 use crate::window_rule::{OnXdgActivate, RelativeTo, VrrRule};
 use crate::FloatOrInt;
 
@@ -608,3 +612,108 @@ string_enum!(
         ("screen-capture", PreviewRender::ScreenCapture),
     ]
 );
+
+string_enum!(
+    TrackLayout,
+    &[
+        ("global", TrackLayout::Global),
+        ("window", TrackLayout::Window)
+    ]
+);
+string_enum!(
+    ClickMethod,
+    &[
+        ("clickfinger", ClickMethod::Clickfinger),
+        ("button-areas", ClickMethod::ButtonAreas),
+    ]
+);
+string_enum!(
+    AccelProfile,
+    &[
+        ("adaptive", AccelProfile::Adaptive),
+        ("flat", AccelProfile::Flat),
+    ]
+);
+string_enum!(
+    ScrollMethod,
+    &[
+        ("no-scroll", ScrollMethod::NoScroll),
+        ("two-finger", ScrollMethod::TwoFinger),
+        ("edge", ScrollMethod::Edge),
+        ("on-button-down", ScrollMethod::OnButtonDown),
+    ]
+);
+string_enum!(
+    TapButtonMap,
+    &[
+        ("left-right-middle", TapButtonMap::LeftRightMiddle),
+        ("left-middle-right", TapButtonMap::LeftMiddleRight),
+    ]
+);
+string_enum!(
+    WarpMouseToFocusMode,
+    &[
+        ("center-xy", WarpMouseToFocusMode::CenterXy),
+        ("center-xy-always", WarpMouseToFocusMode::CenterXyAlways),
+    ]
+);
+
+/// A value parsed with its `FromStr` implementation, for types whose names have aliases.
+macro_rules! from_str_value {
+    ($ty:ty, $lua_type:expr) => {
+        impl FromLuaConfig for $ty {
+            fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+                let s = at(path, value_to_string(value))?;
+                match <$ty>::from_str(&s) {
+                    Ok(v) => Ok(Some(v)),
+                    Err(e) => invalid(path, e),
+                }
+            }
+
+            fn lua_type() -> String {
+                $lua_type.to_owned()
+            }
+        }
+    };
+}
+from_str_value!(
+    ModKey,
+    "\"ctrl\"|\"shift\"|\"alt\"|\"super\"|\"iso_level3_shift\"|\"iso_level5_shift\""
+);
+from_str_value!(Percent, "string");
+
+/// For `#[lua(with = …)]` on a `scroll_factor`: a number sets the base factor, a table
+/// `{ base, horizontal, vertical }` sets them separately.
+pub fn scroll_factor(value: &Value, path: &str) -> Result<Option<Option<ScrollFactor>>, String> {
+    if let Value::Table(_) = value {
+        return Ok(table_from_lua::<ScrollFactor>(value, path)?.map(Some));
+    }
+    let base = FloatOrInt::<0, 100>::from_lua_config(value, path)?;
+    Ok(base.map(|base| {
+        Some(ScrollFactor {
+            base: Some(base),
+            horizontal: None,
+            vertical: None,
+        })
+    }))
+}
+
+/// For `#[lua(with = …)]` on an optional feature: `true` turns it on with its defaults, a table
+/// turns it on with these settings, and `false` turns it off.
+pub fn bool_or_table<T: LuaTable>(value: &Value, path: &str) -> Result<Option<Option<T>>, String> {
+    match value {
+        Value::Table(_) => Ok(table_from_lua::<T>(value, path)?.map(Some)),
+        Value::Boolean(true) => Ok(Some(Some(T::default()))),
+        Value::Boolean(false) => Ok(Some(None)),
+        _ => invalid(
+            path,
+            format!("must be true, false or a table, got {}", value.type_name()),
+        ),
+    }
+}
+
+/// For `#[lua(with = …)]` on `xkb.file`: a path, relative to the config file.
+pub fn xkb_file(value: &Value, path: &str) -> Result<Option<Option<XkbFile>>, String> {
+    let file = at(path, value_to_string(value))?;
+    Ok(Some(Some(crate::parse_lua::read_xkb_file(&file))))
+}
