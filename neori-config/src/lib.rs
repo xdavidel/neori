@@ -4606,13 +4606,16 @@ mod tests {
             Some(MaxBpc(neori_ipc::MaxBpc::_10))
         );
 
-        // Out-of-range integers must not wrap into a valid variant (262 as u8 == 6).
-        let err =
-            Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 262 }"#).unwrap_err();
-        assert!(err.main.contains("max-bpc"), "{err}");
+        // Out-of-range integers must not wrap into a valid variant (262 as u8 == 6): they're
+        // skipped with a warning, or an error in strict mode.
+        for bpc in [262, 7] {
+            let code = format!(r#"neori.output {{ name = "eDP-1", max_bpc = {bpc} }}"#);
+            let config = Config::parse_mem(&code).unwrap();
+            assert_eq!(config.outputs.0[0].max_bpc, None);
 
-        let err = Config::parse_mem(r#"neori.output { name = "eDP-1", max_bpc = 7 }"#).unwrap_err();
-        assert!(err.main.contains("max-bpc"), "{err}");
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{code}")).unwrap_err();
+            assert!(err.main.contains("output.max_bpc"), "{err}");
+        }
     }
 
     #[test]
@@ -5565,6 +5568,72 @@ mod tests {
 
         let config = Config::parse_mem("neori.cursor { shake_to_find = true }").unwrap();
         assert!(config.cursor.shake_to_find.enable);
+    }
+
+    #[test]
+    fn output_parses_every_key() {
+        let config = Config::parse_mem(
+            r##"
+            neori.output("DP-1", {
+                transform = "90",
+                mode = "2560x1440@143.912",
+                position = { x = 1920, y = 0 },
+                scale = 1.25,
+                variable_refresh_rate = { on_demand = true },
+                hot_corners = { top_left = true },
+                backdrop_color = "#101010",
+                layout = {
+                    gaps = 8,
+                    border = { active_gradient = { from = "#f00", to = "#00f" } },
+                    tab_indicator = { place_within_column = true },
+                },
+            })
+            neori.output("HDMI-A-1", { variable_refresh_rate = true, transform = "flipped-270" })
+            "##,
+        )
+        .unwrap();
+        let dp = &config.outputs.0[0];
+        assert_eq!(dp.name, "DP-1");
+        // "90" used to be read as flipped-90.
+        assert_eq!(dp.transform, neori_ipc::Transform::_90);
+        assert!(dp.mode.is_some());
+        assert_eq!(dp.position, Some(crate::output::Position { x: 1920, y: 0 }));
+        assert_eq!(dp.scale, Some(FloatOrInt(1.25)));
+        assert_eq!(
+            dp.variable_refresh_rate,
+            Some(crate::Vrr { on_demand: true })
+        );
+        assert!(dp.hot_corners.unwrap().top_left);
+        assert!(dp.backdrop_color.is_some());
+        let layout = dp.layout.as_ref().unwrap();
+        assert_eq!(layout.gaps, Some(FloatOrInt(8.)));
+        assert!(layout.border.unwrap().active_gradient.is_some());
+        assert!(layout.tab_indicator.unwrap().place_within_column.is_some());
+
+        let hdmi = &config.outputs.0[1];
+        assert_eq!(
+            hdmi.variable_refresh_rate,
+            Some(crate::Vrr { on_demand: false })
+        );
+        assert_eq!(hdmi.transform, neori_ipc::Transform::Flipped270);
+
+        for (code, error) in [
+            (
+                r#"neori.output("DP-1", { scale = 20 })"#,
+                "output.scale: must be between 0 and 10, got 20",
+            ),
+            (
+                r#"neori.output("DP-1", { transform = "sideways" })"#,
+                "output.transform: invalid transform \"sideways\"",
+            ),
+            (
+                r#"neori.output("DP-1", { rotation = 90 })"#,
+                "unknown key `rotation` in output",
+            ),
+        ] {
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{code}")).unwrap_err();
+            assert!(err.main.contains(error), "{code}: {err:?}");
+        }
     }
 
     #[test]

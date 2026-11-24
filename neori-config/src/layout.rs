@@ -61,7 +61,7 @@ impl Default for Layout {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct LayoutPart {
     pub focus_ring: Option<BorderRule>,
     pub border: Option<BorderRule>,

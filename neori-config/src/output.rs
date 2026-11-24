@@ -1,3 +1,4 @@
+use neori_config_derive::LuaTable;
 use neori_ipc::{ConfiguredMode, Transform};
 
 use crate::gestures::HotCorners;
@@ -27,7 +28,7 @@ pub struct Modeline {
     pub vsync_polarity: neori_ipc::VSyncPolarity,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, LuaTable)]
 pub struct Output {
     pub off: bool,
     pub create_virtual: bool,
@@ -37,7 +38,9 @@ pub struct Output {
     pub position: Option<Position>,
     pub max_bpc: Option<MaxBpc>,
     pub mode: Option<Mode>,
+    #[lua(with = crate::parse_lua::parse_modeline, lua_type = "table")]
     pub modeline: Option<Modeline>,
+    #[lua(with = crate::lua_table::bool_or_table, lua_type = "boolean|table")]
     pub variable_refresh_rate: Option<Vrr>,
     pub drm_lease: bool,
     pub focus_at_startup: bool,
@@ -92,7 +95,7 @@ pub struct OutputName {
     pub serial: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, LuaTable)]
 pub struct Position {
     pub x: i32,
     pub y: i32,
@@ -101,7 +104,7 @@ pub struct Position {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MaxBpc(pub neori_ipc::MaxBpc);
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, LuaTable)]
 pub struct Vrr {
     pub on_demand: bool,
 }

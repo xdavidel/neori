@@ -732,3 +732,60 @@ pub fn recent_windows_off(
     this.on = !value_is_truthy(value);
     Ok(true)
 }
+
+/// `"normal"`, `"90"`, `"flipped-270"` and so on.
+impl FromLuaConfig for neori_ipc::Transform {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let s = at(path, value_to_string(value))?;
+        match crate::parse_lua::parse_transform_string(&s) {
+            Ok(transform) => Ok(Some(transform)),
+            Err(e) => invalid(path, e),
+        }
+    }
+
+    fn lua_type() -> String {
+        "\"normal\"|\"90\"|\"180\"|\"270\"|\"flipped\"|\"flipped-90\"|\"flipped-180\"|\"flipped-270\""
+            .to_owned()
+    }
+}
+
+/// `"1920x1080"` or `"1920x1080@59.951"`.
+impl FromLuaConfig for crate::output::Mode {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let s = at(path, value_to_string(value))?;
+        match crate::parse_lua::parse_mode_string(&s) {
+            Some(mode) => Ok(Some(mode)),
+            None => invalid(
+                path,
+                format!("invalid mode `{s}`, expected like \"1920x1080@60\""),
+            ),
+        }
+    }
+
+    fn lua_type() -> String {
+        "string".to_owned()
+    }
+}
+
+/// `8`, `10`, or a name `neori_ipc::MaxBpc` knows.
+impl FromLuaConfig for crate::output::MaxBpc {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let parsed = match value {
+            Value::Integer(n) => u8::try_from(*n)
+                .map_err(|e| e.to_string())
+                .and_then(|n| neori_ipc::MaxBpc::try_from(n).map_err(|e| e.to_string())),
+            _ => {
+                let s = at(path, value_to_string(value))?;
+                neori_ipc::MaxBpc::from_str(&s).map_err(|e| e.to_string())
+            }
+        };
+        match parsed {
+            Ok(bpc) => Ok(Some(crate::output::MaxBpc(bpc))),
+            Err(e) => invalid(path, e),
+        }
+    }
+
+    fn lua_type() -> String {
+        "integer|string".to_owned()
+    }
+}

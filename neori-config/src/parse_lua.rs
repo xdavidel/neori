@@ -8,13 +8,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mlua::prelude::*;
 use mlua::Value;
-use neori_ipc::{ColumnDisplay, ConfiguredMode, SizeChange, Transform};
+use neori_ipc::{ConfiguredMode, SizeChange};
 
 use crate::animations::*;
 use crate::appearance::*;
 use crate::binds::*;
 use crate::context::with_context;
-use crate::gestures::*;
 use crate::input::*;
 use crate::layout::*;
 use crate::misc::*;
@@ -23,7 +22,6 @@ use crate::signals::{
     builtin_object_signals, builtin_signal, builtin_signal_names, ends_target, find_builtin,
     object_signal, BuiltinSignal, SharedSignals, SignalTarget, BUILTIN_SIGNALS,
 };
-use crate::utils::Flag;
 use crate::window_rule::*;
 use crate::workspace::*;
 use crate::*;
@@ -949,7 +947,7 @@ fn apply_device_op(sysname: &str, op: DeviceOp) -> LuaResult<()> {
     with_context(|ctx| ctx.device_op(sysname, op)).ok_or_else(|| outside_callback("Device"))
 }
 
-fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
+pub(crate) fn parse_transform_string(s: &str) -> Result<neori_ipc::Transform, String> {
     match s {
         "normal" => Ok(neori_ipc::Transform::Normal),
         "90" => Ok(neori_ipc::Transform::_90),
@@ -3718,184 +3716,75 @@ fn table_get_alias(table: &LuaTable, snake: &str, kebab: &str) -> Result<Value, 
 }
 
 fn parse_outputs(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for item in table.sequence_values::<LuaTable>() {
-        let t = item.map_err(|e| format!("output error: {e}"))?;
-        let name: String = t
-            .get("name")
-            .map_err(|e| format!("output needs name: {e}"))?;
-        let off: bool = t.get("off").unwrap_or(false);
-        let create_virtual =
-            value_is_truthy(&table_get_alias(&t, "create_virtual", "create-virtual")?);
-        let scale: Option<f64> = t.get("scale").map_err(|e| format!("{e}")).ok();
-        let transform_str: Option<String> = t.get("transform").map_err(|e| format!("{e}")).ok();
-        let focus_at_startup: bool = t.get("focus_at_startup").unwrap_or(false);
-        let drm_lease = value_is_truthy(&table_get_alias(&t, "drm_lease", "drm-lease")?);
-
-        let transform = match transform_str.as_deref() {
-            Some("normal") | None => Transform::Normal,
-            Some("90") => Transform::Flipped90,
-            Some("180") => Transform::Flipped180,
-            Some("270") => Transform::Flipped270,
-            Some("flipped") => Transform::Flipped,
-            Some("flipped-90") | Some("flipped_90") => Transform::Flipped90,
-            Some("flipped-180") | Some("flipped_180") => Transform::Flipped180,
-            Some("flipped-270") | Some("flipped_270") => Transform::Flipped270,
-            _ => Transform::Normal,
+    for item in table.sequence_values::<Value>() {
+        let item = item.map_err(|e| format!("output error: {e}"))?;
+        let Some(output) = crate::lua_table::table_from_lua::<Output>(&item, "output")? else {
+            continue;
         };
-
-        let mode_str: Option<String> = t.get("mode").map_err(|e| format!("{e}")).ok();
-        let mode = mode_str.as_deref().and_then(parse_mode_string);
-
-        let position: Option<Position> = match t
-            .get::<Option<Value>>("position")
-            .map_err(|e| format!("output position error: {e}"))?
-        {
-            Some(Value::Table(pt)) => Some(Position {
-                x: pt.get("x").map_err(|e| format!("position x error: {e}"))?,
-                y: pt.get("y").map_err(|e| format!("position y error: {e}"))?,
-            }),
-            _ => None,
-        };
-
-        let max_bpc: Option<MaxBpc> = match table_get_alias(&t, "max_bpc", "max-bpc")? {
-            Value::Integer(n) => Some(MaxBpc(
-                neori_ipc::MaxBpc::try_from(u8::try_from(n).map_err(|e| format!("max-bpc: {e}"))?)
-                    .map_err(|e| format!("max-bpc: {e}"))?,
-            )),
-            Value::String(s) => Some(MaxBpc(
-                neori_ipc::MaxBpc::from_str(&s.to_str().map_err(|e| format!("{e}"))?)
-                    .map_err(|e| format!("max-bpc: {e}"))?,
-            )),
-            _ => None,
-        };
-
-        let modeline: Option<Modeline> = match t
-            .get::<Option<Value>>("modeline")
-            .map_err(|e| format!("output modeline error: {e}"))?
-        {
-            Some(Value::Table(mt)) => Some(Modeline {
-                clock: mt
-                    .get("clock")
-                    .map_err(|e| format!("modeline clock error: {e}"))?,
-                hdisplay: mt
-                    .get("hdisplay")
-                    .map_err(|e| format!("modeline hdisplay error: {e}"))?,
-                hsync_start: mt
-                    .get("hsync_start")
-                    .map_err(|e| format!("modeline hsync_start error: {e}"))?,
-                hsync_end: mt
-                    .get("hsync_end")
-                    .map_err(|e| format!("modeline hsync_end error: {e}"))?,
-                htotal: mt
-                    .get("htotal")
-                    .map_err(|e| format!("modeline htotal error: {e}"))?,
-                vdisplay: mt
-                    .get("vdisplay")
-                    .map_err(|e| format!("modeline vdisplay error: {e}"))?,
-                vsync_start: mt
-                    .get("vsync_start")
-                    .map_err(|e| format!("modeline vsync_start error: {e}"))?,
-                vsync_end: mt
-                    .get("vsync_end")
-                    .map_err(|e| format!("modeline vsync_end error: {e}"))?,
-                vtotal: mt
-                    .get("vtotal")
-                    .map_err(|e| format!("modeline vtotal error: {e}"))?,
-                hsync_polarity: {
-                    let s = value_to_string(&table_get_alias(
-                        &mt,
-                        "hsync_polarity",
-                        "hsync-polarity",
-                    )?)?;
-                    neori_ipc::HSyncPolarity::from_str(&s)
-                        .map_err(|e| format!("modeline hsync_polarity: {e}"))?
-                },
-                vsync_polarity: {
-                    let s = value_to_string(&table_get_alias(
-                        &mt,
-                        "vsync_polarity",
-                        "vsync-polarity",
-                    )?)?;
-                    neori_ipc::VSyncPolarity::from_str(&s)
-                        .map_err(|e| format!("modeline vsync_polarity: {e}"))?
-                },
-            }),
-            _ => None,
-        };
-
-        let variable_refresh_rate: Option<Vrr> =
-            match table_get_alias(&t, "variable_refresh_rate", "variable-refresh-rate")? {
-                Value::Boolean(true) => Some(Vrr { on_demand: false }),
-                Value::Table(vt) => Some(Vrr {
-                    on_demand: match table_get_alias(&vt, "on_demand", "on-demand")? {
-                        Value::Nil => false,
-                        v => value_is_truthy(&v),
-                    },
-                }),
-                _ => None,
-            };
-
-        let background_color = match table_get_alias(&t, "background_color", "background-color")? {
-            Value::String(s) => parse_css_color(&s.to_str().map_err(|e| format!("{e}"))?).ok(),
-            _ => None,
-        };
-
-        let backdrop_color = match table_get_alias(&t, "backdrop_color", "backdrop-color")? {
-            Value::String(s) => parse_css_color(&s.to_str().map_err(|e| format!("{e}"))?).ok(),
-            _ => None,
-        };
-
-        let hot_corners: Option<HotCorners> =
-            match table_get_alias(&t, "hot_corners", "hot-corners")? {
-                Value::Table(hct) => Some(HotCorners {
-                    off: hct.get("off").map_err(|e| format!("{e}")).unwrap_or(false),
-                    top_left: value_is_truthy(&table_get_alias(&hct, "top_left", "top-left")?),
-                    top_right: value_is_truthy(&table_get_alias(&hct, "top_right", "top-right")?),
-                    bottom_left: value_is_truthy(&table_get_alias(
-                        &hct,
-                        "bottom_left",
-                        "bottom-left",
-                    )?),
-                    bottom_right: value_is_truthy(&table_get_alias(
-                        &hct,
-                        "bottom_right",
-                        "bottom-right",
-                    )?),
-                }),
-                _ => None,
-            };
-
-        let layout_table: Option<LuaTable> = t
-            .get("layout")
-            .map_err(|e| format!("output layout error: {e}"))?;
-        let layout = match layout_table {
-            Some(lt) => Some(parse_layout_part(&lt)?),
-            None => None,
-        };
-
-        config.outputs.0.push(Output {
-            off,
-            create_virtual,
-            name,
-            scale: scale.map(FloatOrInt),
-            transform,
-            position,
-            max_bpc,
-            mode,
-            modeline,
-            variable_refresh_rate,
-            focus_at_startup,
-            drm_lease,
-            background_color,
-            backdrop_color,
-            hot_corners,
-            layout,
-        });
+        if output.name.is_empty() {
+            invalid_config("output needs a name")?;
+            continue;
+        }
+        config.outputs.0.push(output);
     }
     Ok(())
 }
 
-fn parse_mode_string(s: &str) -> Option<Mode> {
+/// For `#[lua(with = …)]` on `output.modeline`: every field is required.
+pub(crate) fn parse_modeline(
+    value: &Value,
+    path: &str,
+) -> Result<Option<Option<Modeline>>, String> {
+    let Value::Table(mt) = value else {
+        invalid_config(&format!(
+            "{path} must be a table, got {}",
+            value.type_name()
+        ))?;
+        return Ok(None);
+    };
+    let modeline = Modeline {
+        clock: mt
+            .get("clock")
+            .map_err(|e| format!("modeline clock error: {e}"))?,
+        hdisplay: mt
+            .get("hdisplay")
+            .map_err(|e| format!("modeline hdisplay error: {e}"))?,
+        hsync_start: mt
+            .get("hsync_start")
+            .map_err(|e| format!("modeline hsync_start error: {e}"))?,
+        hsync_end: mt
+            .get("hsync_end")
+            .map_err(|e| format!("modeline hsync_end error: {e}"))?,
+        htotal: mt
+            .get("htotal")
+            .map_err(|e| format!("modeline htotal error: {e}"))?,
+        vdisplay: mt
+            .get("vdisplay")
+            .map_err(|e| format!("modeline vdisplay error: {e}"))?,
+        vsync_start: mt
+            .get("vsync_start")
+            .map_err(|e| format!("modeline vsync_start error: {e}"))?,
+        vsync_end: mt
+            .get("vsync_end")
+            .map_err(|e| format!("modeline vsync_end error: {e}"))?,
+        vtotal: mt
+            .get("vtotal")
+            .map_err(|e| format!("modeline vtotal error: {e}"))?,
+        hsync_polarity: {
+            let s = value_to_string(&table_get_alias(mt, "hsync_polarity", "hsync-polarity")?)?;
+            neori_ipc::HSyncPolarity::from_str(&s)
+                .map_err(|e| format!("modeline hsync_polarity: {e}"))?
+        },
+        vsync_polarity: {
+            let s = value_to_string(&table_get_alias(mt, "vsync_polarity", "vsync-polarity")?)?;
+            neori_ipc::VSyncPolarity::from_str(&s)
+                .map_err(|e| format!("modeline vsync_polarity: {e}"))?
+        },
+    };
+    Ok(Some(Some(modeline)))
+}
+
+pub(crate) fn parse_mode_string(s: &str) -> Option<Mode> {
     let parts: Vec<&str> = s.split('@').collect();
     let res_parts: Vec<&str> = parts[0].split('x').collect();
     let width = res_parts.first()?.parse().ok()?;
@@ -4098,248 +3987,8 @@ fn parse_layout_section(table: LuaTable, config: &mut Config) -> Result<(), Stri
 /// Parses a `LayoutPart`, the partial layout overrides used by outputs and workspaces.
 fn parse_layout_part(table: &LuaTable) -> Result<LayoutPart, String> {
     let mut part = LayoutPart::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("layout error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "focus_ring" | "focus-ring" => {
-                if let Value::Table(t) = &value {
-                    part.focus_ring = Some(parse_border_rule(t)?);
-                }
-            }
-            "border" => {
-                if let Value::Table(t) = &value {
-                    part.border = Some(parse_border_rule(t)?);
-                }
-            }
-            "shadow" => {
-                if let Value::Table(t) = &value {
-                    part.shadow = Some(parse_shadow_rule(t)?);
-                }
-            }
-            "tab_indicator" | "tab-indicator" => {
-                if let Value::Table(t) = &value {
-                    part.tab_indicator = Some(parse_tab_indicator_part(t)?);
-                }
-            }
-            "insert_hint" | "insert-hint" => {
-                if let Value::Table(t) = &value {
-                    part.insert_hint = Some(parse_insert_hint_part(t)?);
-                }
-            }
-            "preset_column_widths" | "preset-column-widths" => {
-                if let Value::Table(t) = &value {
-                    let mut sizes = Vec::new();
-                    for item in t.clone().sequence_values::<LuaTable>() {
-                        sizes.push(parse_preset_size(item.map_err(|e| format!("{e}"))?)?);
-                    }
-                    part.preset_column_widths = Some(sizes);
-                }
-            }
-            "default_column_width" | "default-column-width" => {
-                part.default_column_width = Some(value_to_default_preset_size(&value)?);
-            }
-            "preset_window_heights" | "preset-window-heights" => {
-                if let Value::Table(t) = &value {
-                    let mut sizes = Vec::new();
-                    for item in t.clone().sequence_values::<LuaTable>() {
-                        sizes.push(parse_preset_size(item.map_err(|e| format!("{e}"))?)?);
-                    }
-                    part.preset_window_heights = Some(sizes);
-                }
-            }
-            "center_focused_column" | "center-focused-column" => {
-                let s = value_to_string(&value)?;
-                part.center_focused_column = Some(match s.as_str() {
-                    "never" => CenterFocusedColumn::Never,
-                    "always" => CenterFocusedColumn::Always,
-                    "on-overflow" | "on_overflow" => CenterFocusedColumn::OnOverflow,
-                    _ => return Err(format!("invalid center-focused-column: {s}")),
-                });
-            }
-            "always_center_single_column" | "always-center-single-column" => {
-                part.always_center_single_column = Some(value_is_truthy(&value));
-            }
-            "empty_workspace_above_first" | "empty-workspace-above-first" => {
-                part.empty_workspace_above_first = Some(value_is_truthy(&value));
-            }
-            "default_column_display" | "default-column-display" => {
-                let s = value_to_string(&value)?;
-                part.default_column_display = Some(
-                    s.parse::<ColumnDisplay>()
-                        .map_err(|e| format!("invalid default-column-display: {e}"))?,
-                );
-            }
-            "gaps" => {
-                part.gaps = Some(FloatOrInt(value_to_f64(&value)?));
-            }
-            "struts" => {
-                if let Value::Table(t) = &value {
-                    part.struts = Some(Struts {
-                        left: FloatOrInt(t.get("left").unwrap_or(0.0f64)),
-                        right: FloatOrInt(t.get("right").unwrap_or(0.0f64)),
-                        top: FloatOrInt(t.get("top").unwrap_or(0.0f64)),
-                        bottom: FloatOrInt(t.get("bottom").unwrap_or(0.0f64)),
-                    });
-                }
-            }
-            "background_color" | "background-color" => {
-                let s = value_to_string(&value)?;
-                part.background_color = Some(parse_css_color(&s)?);
-            }
-            "fullscreen_backdrop_color" | "fullscreen-backdrop-color" => {
-                let s = value_to_string(&value)?;
-                part.fullscreen_backdrop_color = Some(parse_css_color(&s)?);
-            }
-            _ => unknown_key("layout part", &ks)?,
-        }
-    }
+    crate::lua_table::LuaTable::merge_lua_table(&mut part, table, "layout")?;
     Ok(part)
-}
-
-fn parse_border_rule(table: &LuaTable) -> Result<BorderRule, String> {
-    let mut rule = BorderRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("border error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => rule.off = value_is_truthy(&value),
-            "on" => rule.on = value_is_truthy(&value),
-            "width" => rule.width = Some(FloatOrInt(value_to_f64(&value)?)),
-            "active_color" | "active-color" => {
-                rule.active_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            "inactive_color" | "inactive-color" => {
-                rule.inactive_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            "urgent_color" | "urgent-color" => {
-                rule.urgent_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            _ => unknown_key("border rule", &ks)?,
-        }
-    }
-    Ok(rule)
-}
-
-fn parse_shadow_rule(table: &LuaTable) -> Result<ShadowRule, String> {
-    let mut rule = ShadowRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("shadow error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => rule.off = value_is_truthy(&value),
-            "on" => rule.on = value_is_truthy(&value),
-            "offset" => {
-                if let Value::Table(t) = &value {
-                    let x: f64 = t.get("x").map_err(|e| format!("{e}")).unwrap_or(0.0);
-                    let y: f64 = t.get("y").map_err(|e| format!("{e}")).unwrap_or(0.0);
-                    rule.offset = Some(ShadowOffset {
-                        x: FloatOrInt(x),
-                        y: FloatOrInt(y),
-                    });
-                }
-            }
-            "softness" => rule.softness = Some(FloatOrInt(value_to_f64(&value)?)),
-            "spread" => rule.spread = Some(FloatOrInt(value_to_f64(&value)?)),
-            "draw_behind_window" | "draw-behind-window" => {
-                rule.draw_behind_window = Some(value_is_truthy(&value));
-            }
-            "color" => {
-                rule.color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            "inactive_color" | "inactive-color" => {
-                rule.inactive_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            _ => unknown_key("shadow rule", &ks)?,
-        }
-    }
-    Ok(rule)
-}
-
-fn parse_tab_indicator_part(table: &LuaTable) -> Result<TabIndicatorPart, String> {
-    let mut part = TabIndicatorPart::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("tab-indicator error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => part.off = value_is_truthy(&value),
-            "on" => part.on = value_is_truthy(&value),
-            "hide_when_single_tab" | "hide-when-single-tab" => {
-                part.hide_when_single_tab = Some(Flag(value_is_truthy(&value)));
-            }
-            "place_within_column" | "place-within-column" => {
-                part.place_within_column = Some(Flag(value_is_truthy(&value)));
-            }
-            "gap" => part.gap = Some(FloatOrInt(value_to_f64(&value)?)),
-            "width" => part.width = Some(FloatOrInt(value_to_f64(&value)?)),
-            "length" => {
-                let len = match &value {
-                    Value::Table(t) => TabIndicatorLength {
-                        total_proportion: t
-                            .get("total_proportion")
-                            .map_err(|e| format!("{e}"))
-                            .ok(),
-                    },
-                    _ => TabIndicatorLength {
-                        total_proportion: Some(value_to_f64(&value)?),
-                    },
-                };
-                part.length = Some(len);
-            }
-            "position" => {
-                let s = value_to_string(&value)?;
-                part.position = Some(match s.as_str() {
-                    "left" => TabIndicatorPosition::Left,
-                    "right" => TabIndicatorPosition::Right,
-                    "top" => TabIndicatorPosition::Top,
-                    "bottom" => TabIndicatorPosition::Bottom,
-                    _ => return Err(format!("invalid tab-indicator position: {s}")),
-                });
-            }
-            "gaps_between_tabs" | "gaps-between-tabs" => {
-                part.gaps_between_tabs = Some(FloatOrInt(value_to_f64(&value)?));
-            }
-            "corner_radius" | "corner-radius" => {
-                part.corner_radius = Some(FloatOrInt(value_to_f64(&value)?));
-            }
-            "active_color" | "active-color" => {
-                part.active_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            "inactive_color" | "inactive-color" => {
-                part.inactive_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            "urgent_color" | "urgent-color" => {
-                part.urgent_color = Some(parse_css_color(&value_to_string(&value)?)?);
-            }
-            _ => unknown_key("tab_indicator rule", &ks)?,
-        }
-    }
-    Ok(part)
-}
-
-fn parse_insert_hint_part(table: &LuaTable) -> Result<InsertHintPart, String> {
-    let mut part = InsertHintPart::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("insert-hint error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => part.off = value_is_truthy(&value),
-            "on" => part.on = value_is_truthy(&value),
-            "color" => part.color = Some(parse_css_color(&value_to_string(&value)?)?),
-            _ => unknown_key("insert_hint rule", &ks)?,
-        }
-    }
-    Ok(part)
-}
-
-fn parse_preset_size(table: LuaTable) -> Result<PresetSize, String> {
-    if let Ok(v) = table.get::<f64>("proportion") {
-        Ok(PresetSize::Proportion(v))
-    } else if let Ok(v) = table.get::<i64>("fixed") {
-        Ok(PresetSize::Fixed(v as i32))
-    } else {
-        Err("preset size must have 'proportion' or 'fixed' field".to_string())
-    }
 }
 
 fn parse_cursor_section(table: LuaTable, config: &mut Config) -> Result<(), String> {

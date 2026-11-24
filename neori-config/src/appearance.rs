@@ -540,7 +540,7 @@ impl MergeWith<TabIndicatorPart> for TabIndicator {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct TabIndicatorPart {
     pub off: bool,
     pub on: bool,
@@ -603,7 +603,7 @@ impl MergeWith<InsertHintPart> for InsertHint {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct InsertHintPart {
     pub off: bool,
     pub on: bool,
