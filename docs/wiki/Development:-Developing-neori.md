@@ -83,9 +83,9 @@ end
 returns it, `test.title(w, title)` and `test.close(w)` act like its app, `test.press(key)` presses
 a bind, `test.type()` types an unbound key, `test.refresh(n)` runs the event loop, and
 `test.lua_log()` returns what callbacks printed and the errors they raised. `test.eq(a, b)`
-asserts equality. They run with the other tests; `NEORI_LUA_TEST=rules cargo test
-lua_script_tests` runs the files whose name contains `rules`. The harness is
-`src/tests/lua_scripts.rs`.
+asserts equality. They run with the other tests, each file in its own thread;
+`NEORI_LUA_TEST=rules,binds cargo test lua_script_tests` runs the files whose name contains
+`rules` or `binds`. The harness is `src/tests/lua_scripts.rs`.
 
 ### Visual Tests
 

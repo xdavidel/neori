@@ -372,13 +372,27 @@ fn lua_script_tests() {
     for path in &files {
         let code = std::fs::read_to_string(path).unwrap();
         let name = path.file_name().unwrap().to_string_lossy();
-        // A file can be run alone: NEORI_LUA_TEST=rules cargo test lua_script_tests
+        // Some files can be run alone: NEORI_LUA_TEST=rules,binds cargo test lua_script_tests
         if let Ok(only) = std::env::var("NEORI_LUA_TEST") {
-            if !name.contains(&only) {
+            if !only.split(',').any(|part| name.contains(part)) {
                 continue;
             }
         }
-        if let Err(err) = Harness::new(path, &code).and_then(|mut h| h.run()) {
+        // Each file gets its own thread, like separate Rust tests: the compositor keeps some
+        // state per thread, such as the next workspace number.
+        let thread_path = path.clone();
+        let result =
+            std::thread::spawn(move || Harness::new(&thread_path, &code).and_then(|mut h| h.run()))
+                .join()
+                .unwrap_or_else(|panic| {
+                    let message = panic
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
+                        .unwrap_or_default();
+                    Err(format!("panicked: {message}"))
+                });
+        if let Err(err) = result {
             writeln!(failures, "\n--- {name}\n{err}").unwrap();
         }
     }

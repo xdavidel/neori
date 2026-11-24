@@ -2067,7 +2067,7 @@ impl<W: LayoutElement> Layout<W> {
     /// Call this around every operation that can change the active workspace
     /// (not just [`Self::activate_workspace_position`]), otherwise
     /// `switch_workspace_previous()` ends up toggling to a stale workspace.
-    fn record_previous_active_workspace(&mut self, before: Option<WorkspaceId>) {
+    pub fn record_previous_active_workspace(&mut self, before: Option<WorkspaceId>) {
         let after = self.active_workspace_id();
         if let Some(before) = before {
             if after != Some(before) {

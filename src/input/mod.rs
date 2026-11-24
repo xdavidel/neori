@@ -994,6 +994,17 @@ impl State {
             return;
         }
 
+        // Any action can change the active workspace (moving a window there with focus, focusing
+        // another output, …), so the one it leaves becomes the previous one here, once, rather
+        // than in each of them.
+        let workspace_before = self.neori.layout.active_workspace_id();
+        self.do_action_inner(action, allow_when_locked, time);
+        self.neori
+            .layout
+            .record_previous_active_workspace(workspace_before);
+    }
+
+    fn do_action_inner(&mut self, action: Action, allow_when_locked: bool, time: InputTime) {
         if let Some(touch) = self.neori.seat.get_touch() {
             touch.cancel(self);
         }
