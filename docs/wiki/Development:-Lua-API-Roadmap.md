@@ -72,8 +72,10 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **Rules (done):** `neori.rules.add { where, where_any, where_not, where_not_any, set, run,
   when }`, after cwc's `cuteful.rules`, for windows, outputs, workspaces, devices and layer
   surfaces. Window rules set what they can at `window-opening`, before the first frame.
-- Lua-script-driven integration tests, and a strict-mode wiki test.
-- Generated API reference docs.
+- Lua-script-driven integration tests. (The wiki test already checks every snippet in strict
+  mode.)
+- **API reference (done):** the wiki's [Lua API Reference](./Lua-API-Reference.md), generated
+  from `resources/lua/neori.lua` by the `lua-reference` test, which fails when it's stale.
 
 ### Later
 

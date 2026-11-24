@@ -70,6 +70,9 @@ fn wiki_docs_parses() {
                 .map(|ext| ext == "md")
                 .unwrap_or(false)
         })
+        // Generated from the type definitions; its examples are snippets from inside callbacks,
+        // not whole configs.
+        .filter(|file| file.file_name() != "Lua-API-Reference.md")
         .flat_map(|file| {
             let file_contents = fs::read_to_string(file.path()).unwrap();
             let file_path = file.path();

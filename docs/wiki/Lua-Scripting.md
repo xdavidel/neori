@@ -5,6 +5,10 @@ functions. From those functions you can dispatch any IPC Action at runtime throu
 `neori.action(name, args)`. This turns the config from a declarative description into a
 small script the compositor runs.
 
+This page explains the API with examples. The [Lua API Reference](./Lua-API-Reference.md) lists
+every function, method, type and signal, with their parameters, generated from the type
+definitions.
+
 ## `neori.bind(key, function)` — Lua function callbacks
 
 Binds accept three action shapes: a string, a table, or a Lua function.

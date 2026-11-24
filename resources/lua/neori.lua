@@ -431,8 +431,9 @@ function neori.pointer() end
 ---@return string?
 function neori.keyboard_layout() end
 
--- Config sections. Call one with a table to merge it into the section, or read and assign its
--- fields:
+-- Config sections
+--
+-- Call one with a table to merge it into the section, or read and assign its fields:
 --
 --     neori.layout { gaps = 10 }
 --     neori.layout.gaps = 16
@@ -500,6 +501,8 @@ neori.debug = {}
 ---`neori.misc.prefer_no_csd = true`, `neori.misc.screenshot_path = nil`, …
 ---@type neori.Misc
 neori.misc = {}
+
+-- Rules (neori.rules)
 
 ---What a `where` value matches: a regex (unanchored, like window rules' `match`), a number, a
 ---boolean, a function that gets the value and the object and returns whether it matches, or a
@@ -652,6 +655,49 @@ neori.misc = {}
 ---before the window's first frame apply at `window-opening`, and the rest and `run` at
 ---`window-opened`.
 ---@field when neori.Signal|neori.Signal[]?
+
+---Rules: match windows, outputs, workspaces, devices or layer surfaces when an event fires, and
+---set their properties or run a function.
+---
+---```lua
+---neori.rules.add {
+---    where = { app_id = "^firefox$" },
+---    set = { workspace = "web" },
+---}
+---neori.rules.add {
+---    where = { title = "Picture-in-Picture" },
+---    set = { floating = true, opacity = 0.9 },
+---    run = function(w) w:center() end,
+---}
+---neori.rules.add {
+---    when = "monitor-added",
+---    where = { name = "^HDMI-" },
+---    set = { scale = 1.5 },
+---}
+---```
+---@class neori.Rules
+neori.rules = {}
+---Adds a rule and returns its id.
+---@param rule neori.Rule
+---@return string id
+function neori.rules.add(rule) end
+---Removes the rule with this id, or this rule table. Returns whether one was removed.
+---@param rule string|neori.Rule
+---@return boolean
+function neori.rules.remove(rule) end
+---Whether the object matches the rule's `where` conditions.
+---@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
+---@param rule neori.Rule
+---@return boolean
+function neori.rules.matches(object, rule) end
+---Applies the rule to the object now, if it matches: sets `set` with the setters and calls
+---`run`. Returns whether it matched.
+---@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
+---@param rule neori.Rule
+---@return boolean
+function neori.rules.apply(object, rule) end
+
+-- Helpers (neori.util)
 
 ---A rectangle, like `w:geometry()` and `out:geometry()` return.
 ---@class neori.Rect
@@ -941,47 +987,6 @@ function neori.util.fs.is_dir(path) end
 ---@return boolean ok
 ---@return string? error
 function neori.util.fs.mkdir(dir) end
-
----Rules: match windows, outputs, workspaces, devices or layer surfaces when an event fires, and
----set their properties or run a function.
----
----```lua
----neori.rules.add {
----    where = { app_id = "^firefox$" },
----    set = { workspace = "web" },
----}
----neori.rules.add {
----    where = { title = "Picture-in-Picture" },
----    set = { floating = true, opacity = 0.9 },
----    run = function(w) w:center() end,
----}
----neori.rules.add {
----    when = "monitor-added",
----    where = { name = "^HDMI-" },
----    set = { scale = 1.5 },
----}
----```
----@class neori.Rules
-neori.rules = {}
----Adds a rule and returns its id.
----@param rule neori.Rule
----@return string id
-function neori.rules.add(rule) end
----Removes the rule with this id, or this rule table. Returns whether one was removed.
----@param rule string|neori.Rule
----@return boolean
-function neori.rules.remove(rule) end
----Whether the object matches the rule's `where` conditions.
----@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
----@param rule neori.Rule
----@return boolean
-function neori.rules.matches(object, rule) end
----Applies the rule to the object now, if it matches: sets `set` with the setters and calls
----`run`. Returns whether it matched.
----@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
----@param rule neori.Rule
----@return boolean
-function neori.rules.apply(object, rule) end
 
 ---Ask apps to not draw their own title bars and borders. Same as `neori.misc.prefer_no_csd`.
 ---@param prefer boolean

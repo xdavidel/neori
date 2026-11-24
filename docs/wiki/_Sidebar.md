@@ -28,6 +28,7 @@
 * [Outputs](./Configuration:-Outputs.md)
 * [Virtual Outputs](./Virtual-Outputs.md)
 * [Lua Scripting](./Lua-Scripting.md)
+* [Lua API Reference](./Lua-API-Reference.md)
 * [Key Bindings](./Configuration:-Key-Bindings.md)
 * [Switch Events](./Configuration:-Switch-Events.md)
 * [Layout](./Configuration:-Layout.md)

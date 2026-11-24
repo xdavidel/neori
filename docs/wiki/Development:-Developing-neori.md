@@ -34,6 +34,18 @@ generated from the same structs; the `lua-definitions` test fails until you rege
 NEORI_UPDATE_LUA_DEFINITIONS=1 cargo test -p neori-config --test lua-definitions
 ```
 
+The wiki's [Lua API Reference](./Lua-API-Reference.md) is generated from the API's definitions,
+`resources/lua/neori.lua`, so a change there needs it regenerated too; the `lua-reference` test
+fails until you do:
+
+```sh
+NEORI_UPDATE_LUA_REFERENCE=1 cargo test -p neori-config --test lua-reference
+```
+
+Keep the definitions' layout: `----` banners make the reference's sections, a `-- Title`
+comment makes a subsection (any `--` lines after it are its text), and each `---` doc block goes
+right before the declaration it describes.
+
 ### Running Tests
 
 Make sure to run `cargo test --all` to run tests from sub-crates too.
