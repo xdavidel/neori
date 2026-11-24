@@ -404,6 +404,8 @@ pub struct Neori {
     /// (hotplug, default-monitor focus, direct calls). Collapsing window-focused
     /// to the per-refresh cadence would lose intermediate focus transitions.
     pub last_focused_window_id: Option<u64>,
+    /// The last state of objects that went away, for the Lua values that outlive them.
+    pub lua_removed: neori_config::RemovedObjects,
     /// Fallback for the `layout-changed` Lua diff when `ipc_server` is `None`
     /// (IPC server failed to start). In the happy path IPC's own
     /// `state.keyboard_layouts.current_idx` is the source of truth.
@@ -3295,6 +3297,7 @@ impl Neori {
             keyboard_focus: KeyboardFocus::Layout { surface: None },
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
+            lua_removed: Default::default(),
             last_keyboard_layout_idx_fallback: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),
@@ -3661,6 +3664,13 @@ impl Neori {
         for layer in layer_map_for_output(output).layers() {
             layer.layer_surface().send_close();
         }
+
+        // Remember its last state for the Lua values of it. The VRR state lives in the backend;
+        // they keep what they last saw.
+        let snapshot = crate::script::output_snapshot(self, output, (false, false));
+        self.lua_removed
+            .outputs
+            .insert(snapshot.name.clone(), snapshot);
 
         self.layout.remove_output(output);
         self.global_space.unmap_output(output);

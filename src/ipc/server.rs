@@ -878,6 +878,10 @@ impl State {
             self.fire_workspace_event("workspace-added", snap);
         }
         for snap in lua_removed {
+            self.neori
+                .lua_removed
+                .workspaces
+                .insert(snap.id, snap.clone());
             self.fire_workspace_event("workspace-removed", snap);
         }
         if let Some(snap) = lua_focused_changed {

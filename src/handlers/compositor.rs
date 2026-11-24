@@ -319,6 +319,7 @@ impl CompositorHandler for State {
                         .remove_window(&window, transaction.clone());
 
                     if let Some(snap) = closed_snapshot {
+                        self.neori.lua_removed.windows.insert(snap.id, snap.clone());
                         self.fire_window_event("window-closed", snap);
                     }
                     self.add_default_dmabuf_pre_commit_hook(surface);

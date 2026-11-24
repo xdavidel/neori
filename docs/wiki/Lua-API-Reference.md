@@ -1635,7 +1635,8 @@ Parameters:
 #### `neori.Window`
 
 A window. Reads return its current state, even for a `Window` kept from an earlier callback;
-once the window is closed they return its last known state. Changes apply right away.
+once the window is closed they return its last known state, no longer focused. Changes apply
+right away.
 
 #### `Window:id()`
 

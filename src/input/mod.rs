@@ -321,6 +321,10 @@ impl State {
                 self.neori.tablets.remove(device);
                 self.neori.devices.remove(device);
                 self.neori.device_output_maps.remove(device.sysname());
+                self.neori
+                    .lua_removed
+                    .devices
+                    .insert(snapshot.sysname.clone(), snapshot.clone());
                 self.fire_device_event("device-removed", snapshot);
             }
             _ => (),

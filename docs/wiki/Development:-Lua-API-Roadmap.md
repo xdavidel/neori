@@ -85,13 +85,6 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   them apply to the running compositor until the next reload, like handlers do: parse the
   changed table again and swap the binds (and the section's settings) in place.
 
-- **Last known state:** a `Window`, `Output`, `Workspace`, `Device` or `LayerSurface` kept from
-  an earlier callback reads its live state while the object exists, but once it's gone it reads
-  the state it had when that Lua value was made, not its last state. A `Window` kept since it
-  opened reports its first title after it closed. Keep the last snapshot of removed objects (for
-  a while, or while Lua values refer to them) and fall back to it. `src/tests/lua/signals.lua`
-  checks today's behaviour.
-
 ### Known gaps to fold in
 
 These Lua config options are documented but not parsed yet, and get fixed along the way:

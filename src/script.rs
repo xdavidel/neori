@@ -771,6 +771,10 @@ impl ScriptContext for State {
         Some(device_snapshot(device))
     }
 
+    fn removed_objects(&self) -> Option<&neori_config::RemovedObjects> {
+        Some(&self.neori.lua_removed)
+    }
+
     fn keyboard_layout(&mut self) -> Option<String> {
         let keyboard = self.neori.seat.get_keyboard()?;
         Some(keyboard.with_xkb_state(self, |context| {

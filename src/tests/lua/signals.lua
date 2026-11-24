@@ -22,7 +22,9 @@ function run()
 
     test.close(w)
     test.eq(log[3], "closed third")
-    -- A Window kept from before reads what it had when it was made, not its last state; see the
-    -- roadmap ("Last known state").
-    test.eq(w:title(), "first")
+    -- A Window kept from before reads its last state once it's closed, not the one it had when
+    -- it was made.
+    test.eq(w:title(), "third")
+    test.eq(w:id(), w:id())
+    assert(not w:is_focused())
 end

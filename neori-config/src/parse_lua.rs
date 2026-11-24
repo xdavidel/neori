@@ -261,9 +261,12 @@ pub struct LuaLayer(pub LayerSnapshot);
 
 impl LuaLayer {
     fn current(&self) -> LayerSnapshot {
-        with_context(|ctx| ctx.layer(self.0.id))
-            .flatten()
-            .unwrap_or_else(|| self.0.clone())
+        with_context(|ctx| {
+            ctx.layer(self.0.id)
+                .or_else(|| ctx.removed_objects()?.layers.get(&self.0.id).cloned())
+        })
+        .flatten()
+        .unwrap_or_else(|| self.0.clone())
     }
 }
 
@@ -362,9 +365,29 @@ impl LuaOutput {
     /// disconnected): this returns the last known state, marked as off. Outside a callback it
     /// returns the last known state as is.
     fn current(&self) -> OutputSnapshot {
-        match with_context(|ctx| ctx.output(&self.0.name)) {
-            Some(Some(output)) => output,
-            Some(None) => OutputSnapshot {
+        // The live state, or else the last state it had when it was disconnected.
+        let found = with_context(|ctx| {
+            let live = ctx.output(&self.0.name);
+            let last = match live {
+                Some(_) => None,
+                None => ctx
+                    .removed_objects()
+                    .and_then(|r| r.outputs.get(&self.0.name).cloned()),
+            };
+            (live, last)
+        });
+        match found {
+            Some((Some(output), _)) => output,
+            // Gone, so off. Its last state comes from the layout, which doesn't know about VRR,
+            // so VRR stays as this value last saw it.
+            Some((None, Some(last))) => OutputSnapshot {
+                off: true,
+                is_focused: false,
+                vrr_supported: self.0.vrr_supported,
+                vrr_enabled: self.0.vrr_enabled,
+                ..last
+            },
+            Some((None, None)) => OutputSnapshot {
                 off: true,
                 is_focused: false,
                 ..self.0.clone()
@@ -648,9 +671,18 @@ pub struct LuaWorkspace(pub WorkspaceSnapshot);
 impl LuaWorkspace {
     /// The workspace's current state, or the last known one once it's removed.
     fn current(&self) -> WorkspaceSnapshot {
-        with_context(|ctx| ctx.workspace(self.0.id))
-            .flatten()
-            .unwrap_or_else(|| self.0.clone())
+        with_context(|ctx| {
+            ctx.workspace(self.0.id).or_else(|| {
+                // Gone: its last state, no longer focused.
+                let last = ctx.removed_objects()?.workspaces.get(&self.0.id)?;
+                Some(WorkspaceSnapshot {
+                    is_focused: false,
+                    ..last.clone()
+                })
+            })
+        })
+        .flatten()
+        .unwrap_or_else(|| self.0.clone())
     }
 }
 
@@ -741,9 +773,12 @@ pub struct LuaDevice(pub DeviceSnapshot);
 impl LuaDevice {
     /// The device's current state, or the last known one once it's unplugged.
     fn current(&self) -> DeviceSnapshot {
-        with_context(|ctx| ctx.device(&self.0.sysname))
-            .flatten()
-            .unwrap_or_else(|| self.0.clone())
+        with_context(|ctx| {
+            ctx.device(&self.0.sysname)
+                .or_else(|| ctx.removed_objects()?.devices.get(&self.0.sysname).cloned())
+        })
+        .flatten()
+        .unwrap_or_else(|| self.0.clone())
     }
 }
 
@@ -980,9 +1015,18 @@ impl Window {
         if self.0.id == 0 {
             return self.0.clone();
         }
-        with_context(|ctx| ctx.window(self.0.id))
-            .flatten()
-            .unwrap_or_else(|| self.0.clone())
+        with_context(|ctx| {
+            ctx.window(self.0.id).or_else(|| {
+                // Closed: its last state, no longer focused.
+                let last = ctx.removed_objects()?.windows.get(&self.0.id)?;
+                Some(WindowSnapshot {
+                    is_focused: false,
+                    ..last.clone()
+                })
+            })
+        })
+        .flatten()
+        .unwrap_or_else(|| self.0.clone())
     }
 }
 

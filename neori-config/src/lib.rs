@@ -52,7 +52,7 @@ pub use mlua;
 pub use crate::animations::{Animation, Animations};
 pub use crate::appearance::*;
 pub use crate::binds::*;
-pub use crate::context::{with_script_context, ScriptContext};
+pub use crate::context::{with_script_context, Removed, RemovedObjects, ScriptContext};
 pub use crate::debug::Debug;
 pub use crate::error::{ConfigIncludeError, ConfigParseResult};
 pub use crate::gestures::Gestures;

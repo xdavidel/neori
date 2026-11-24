@@ -17,6 +17,8 @@
 //!   context method that ends up running Lua again) gets `None` instead of a second `&mut`.
 
 use std::cell::Cell;
+use std::collections::{HashMap, VecDeque};
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::time::Duration;
@@ -28,11 +30,66 @@ use crate::parse_lua::{
     WindowSnapshot, WorkspaceSnapshot,
 };
 
+/// The last state of objects that are gone, by key, keeping the most recent [`Self::CAPACITY`].
+///
+/// A `Window` (or other object) kept in Lua reads its live state while the object exists. Once
+/// it's gone, it reads its state from here, the state it had when it went away.
+#[derive(Debug)]
+pub struct Removed<K, V> {
+    order: VecDeque<K>,
+    last: HashMap<K, V>,
+}
+
+impl<K, V> Default for Removed<K, V> {
+    fn default() -> Self {
+        Self {
+            order: VecDeque::new(),
+            last: HashMap::new(),
+        }
+    }
+}
+
+impl<K: Eq + Hash + Clone, V> Removed<K, V> {
+    /// How many objects of a kind are remembered.
+    pub const CAPACITY: usize = 64;
+
+    /// Remembers the last state of an object that went away.
+    pub fn insert(&mut self, key: K, value: V) {
+        if self.last.insert(key.clone(), value).is_none() {
+            self.order.push_back(key);
+            if self.order.len() > Self::CAPACITY {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.last.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    pub fn get(&self, key: &K) -> Option<&V> {
+        self.last.get(key)
+    }
+}
+
+/// The last state of removed windows, workspaces, outputs, devices and layer surfaces.
+#[derive(Debug, Default)]
+pub struct RemovedObjects {
+    pub windows: Removed<u64, WindowSnapshot>,
+    pub workspaces: Removed<u64, WorkspaceSnapshot>,
+    pub outputs: Removed<String, OutputSnapshot>,
+    pub devices: Removed<String, DeviceSnapshot>,
+    pub layers: Removed<u64, LayerSnapshot>,
+}
+
 /// Compositor state that Lua callbacks can query.
 ///
 /// Every method defaults to "nothing there", so test contexts only need to implement what they
 /// use. The compositor implements all of them.
 pub trait ScriptContext {
+    /// The last state of objects that are gone, for Lua values that outlive them.
+    fn removed_objects(&self) -> Option<&RemovedObjects> {
+        None
+    }
+
     /// Every mapped window.
     fn windows(&mut self) -> Vec<WindowSnapshot> {
         Vec::new()
@@ -354,5 +411,27 @@ mod tests {
         }));
         assert!(result.is_err());
         assert!(with_context(|ctx| ctx.windows()).is_none());
+    }
+}
+
+#[cfg(test)]
+mod removed_tests {
+    use super::*;
+
+    #[test]
+    fn removed_keeps_the_most_recent() {
+        let mut removed = Removed::<u64, &str>::default();
+        removed.insert(1, "one");
+        // A newer state of the same object replaces it.
+        removed.insert(1, "uno");
+        assert_eq!(removed.get(&1), Some(&"uno"));
+
+        for id in 2..=Removed::<u64, &str>::CAPACITY as u64 + 1 {
+            removed.insert(id, "later");
+        }
+        // The oldest is forgotten once there are more than CAPACITY.
+        assert_eq!(removed.get(&1), None);
+        assert_eq!(removed.get(&2), Some(&"later"));
+        assert_eq!(removed.last.len(), Removed::<u64, &str>::CAPACITY);
     }
 }

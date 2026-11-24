@@ -84,6 +84,10 @@ impl WlrLayerShellHandler for State {
                 .map(|mapped| crate::script::layer_snapshot(&mapped, None))
         };
         if let Some(snapshot) = removed {
+            self.neori
+                .lua_removed
+                .layers
+                .insert(snapshot.id, snapshot.clone());
             self.fire_layer_event("layer-removed", snapshot);
         }
     }
@@ -251,6 +255,10 @@ impl State {
         self.neori.output_resized(&output);
 
         if let Some(snapshot) = removed {
+            self.neori
+                .lua_removed
+                .layers
+                .insert(snapshot.id, snapshot.clone());
             self.fire_layer_event("layer-removed", snapshot);
         }
         if let Some(snapshot) = added {
