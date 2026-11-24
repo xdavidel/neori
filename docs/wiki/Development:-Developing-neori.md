@@ -62,6 +62,31 @@ It also usually helps to run the randomized tests for a longer period, so that t
 env RUN_SLOW_TESTS=1 PROPTEST_CASES=200000 PROPTEST_MAX_GLOBAL_REJECTS=200000 RUST_BACKTRACE=1 cargo test --release --all
 ```
 
+### Lua Tests
+
+Tests of the Lua API can be written in Lua: each `src/tests/lua/*.lua` file is loaded as the
+config of a test compositor, and its `run()` function is the test. The file's top level sets up
+handlers, rules and binds like a config, and `run()` drives the compositor with the `test` table
+and checks the results with the live API:
+
+```lua
+neori.rules.add { where = { app_id = "^pip$" }, set = { floating = true } }
+
+function run()
+    test.output()
+    local w = test.window { app_id = "pip" }
+    assert(w:is_floating())
+end
+```
+
+`test.output(width, height)` adds an output, `test.window { app_id, title }` opens a window and
+returns it, `test.title(w, title)` and `test.close(w)` act like its app, `test.press(key)` presses
+a bind, `test.type()` types an unbound key, `test.refresh(n)` runs the event loop, and
+`test.lua_log()` returns what callbacks printed and the errors they raised. `test.eq(a, b)`
+asserts equality. They run with the other tests; `NEORI_LUA_TEST=rules cargo test
+lua_script_tests` runs the files whose name contains `rules`. The harness is
+`src/tests/lua_scripts.rs`.
+
 ### Visual Tests
 
 The `neori-visual-tests` sub-crate is a GTK application that runs hard-coded test cases so that you can visually check that they look right. It uses mock windows with the real layout and rendering code. It is especially helpful when working on animations.

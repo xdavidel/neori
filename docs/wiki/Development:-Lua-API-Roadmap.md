@@ -72,8 +72,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **Rules (done):** `neori.rules.add { where, where_any, where_not, where_not_any, set, run,
   when }`, after cwc's `cuteful.rules`, for windows, outputs, workspaces, devices and layer
   surfaces. Window rules set what they can at `window-opening`, before the first frame.
-- Lua-script-driven integration tests. (The wiki test already checks every snippet in strict
-  mode.)
+- **Lua tests (done):** `src/tests/lua/*.lua` files, each loaded as a test compositor's config,
+  with a `run()` function that drives it through a `test` table. The wiki test already checks
+  every snippet in strict mode.
 - **API reference (done):** the wiki's [Lua API Reference](./Lua-API-Reference.md), generated
   from `resources/lua/neori.lua` by the `lua-reference` test, which fails when it's stale.
 
@@ -83,6 +84,13 @@ Existing APIs keep working as aliases until the new ones fully replace them.
   config table that is read when the config loads, so from `neori msg lua` they do nothing. Make
   them apply to the running compositor until the next reload, like handlers do: parse the
   changed table again and swap the binds (and the section's settings) in place.
+
+- **Last known state:** a `Window`, `Output`, `Workspace`, `Device` or `LayerSurface` kept from
+  an earlier callback reads its live state while the object exists, but once it's gone it reads
+  the state it had when that Lua value was made, not its last state. A `Window` kept since it
+  opened reports its first title after it closed. Keep the last snapshot of removed objects (for
+  a while, or while Lua values refer to them) and fall back to it. `src/tests/lua/signals.lua`
+  checks today's behaviour.
 
 ### Known gaps to fold in
 
