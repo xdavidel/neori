@@ -5124,6 +5124,97 @@ mod tests {
     }
 
     #[test]
+    fn layer_rule_parses_every_key() {
+        // The full example from the Layer Rules docs: each key used to be dropped with an
+        // "unknown key" warning.
+        let config = Config::parse_mem(
+            r##"
+            neori.layer_rule {
+                match = { namespace = "^waybar$", layer = "top" },
+                exclude = { namespace = "^waybar-hidden$" },
+                opacity = 0.5,
+                shadow = { on = true, softness = 40, color = "#00000064" },
+                geometry_corner_radius = 12,
+                place_within_backdrop = true,
+                baba_is_float = true,
+                background_effect = { xray = true, blur = true, noise = 0.05, saturation = 3 },
+                popups = {
+                    opacity = 0.85,
+                    geometry_corner_radius = 6,
+                    background_effect = { blur = true },
+                },
+            }
+            "##,
+        )
+        .unwrap();
+        let rule = &config.layer_rules[0];
+        assert_eq!(rule.matches.len(), 1);
+        assert_eq!(rule.matches[0].layer, Some(neori_ipc::Layer::Top));
+        assert_eq!(rule.excludes.len(), 1);
+        assert_eq!(rule.opacity, Some(0.5));
+        assert!(rule.shadow.on);
+        assert_eq!(rule.shadow.softness, Some(FloatOrInt(40.)));
+        assert_eq!(
+            rule.geometry_corner_radius,
+            Some(crate::appearance::CornerRadius::from(12.0))
+        );
+        assert_eq!(rule.place_within_backdrop, Some(true));
+        assert_eq!(rule.baba_is_float, Some(true));
+        let effect = &rule.background_effect;
+        assert_eq!(effect.xray, Some(true));
+        assert_eq!(effect.blur, Some(true));
+        assert_eq!(effect.noise, Some(FloatOrInt(0.05)));
+        assert_eq!(effect.saturation, Some(FloatOrInt(3.)));
+        assert_eq!(rule.popups.opacity, Some(0.85));
+        assert_eq!(
+            rule.popups.geometry_corner_radius,
+            Some(crate::appearance::CornerRadius::from(6.0))
+        );
+        assert_eq!(rule.popups.background_effect.blur, Some(true));
+        assert_eq!(rule.popups.background_effect.xray, None);
+    }
+
+    #[test]
+    fn window_rule_parses_background_effect_and_popups() {
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule {
+                background_effect = { xray = false, saturation = 1.5 },
+                popups = { opacity = 0.9, background_effect = { blur = true } },
+            }
+            "#,
+        )
+        .unwrap();
+        let rule = &config.window_rules[0];
+        assert_eq!(rule.background_effect.xray, Some(false));
+        assert_eq!(rule.background_effect.saturation, Some(FloatOrInt(1.5)));
+        assert_eq!(rule.popups.opacity, Some(0.9));
+        assert_eq!(rule.popups.background_effect.blur, Some(true));
+    }
+
+    #[test]
+    fn rule_background_effect_is_checked() {
+        // Out of range and unknown keys fail in strict mode.
+        for (rule, error) in [
+            (
+                "neori.layer_rule { background_effect = { noise = 2000 } }",
+                "layer_rule.background_effect: noise must be between 0 and 1000, got 2000",
+            ),
+            (
+                "neori.window_rule { popups = { background_effect = { glow = true } } }",
+                "unknown key `glow` in window_rule.popups.background_effect",
+            ),
+            (
+                "neori.layer_rule { popups = 3 }",
+                "layer_rule.popups must be a table",
+            ),
+        ] {
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{rule}")).unwrap_err();
+            assert!(format!("{err:?}").contains(error), "{rule}: {err:?}");
+        }
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

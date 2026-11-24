@@ -4484,6 +4484,12 @@ fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
             "tiled_state" | "tiled-state" => {
                 rule.tiled_state = Some(value_is_truthy(&value));
             }
+            "background_effect" | "background-effect" => {
+                rule.background_effect = parse_background_effect_rule(&value, "window_rule")?;
+            }
+            "popups" => {
+                rule.popups = parse_popups_rule(&value, "window_rule")?;
+            }
             _ => unknown_key("window_rule", &ks)?,
         }
     }
@@ -4590,16 +4596,111 @@ fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
                     }
                 }
             }
+            "exclude" | "excludes" => {
+                if let Value::Table(t) = &value {
+                    let mut has_seq = false;
+                    for v in t.clone().sequence_values::<LuaTable>() {
+                        has_seq = true;
+                        let mt = v.map_err(|e| format!("{e}"))?;
+                        rule.excludes.push(parse_layer_match_entry(&mt)?);
+                    }
+                    if !has_seq {
+                        rule.excludes.push(parse_layer_match_entry(t)?);
+                    }
+                }
+            }
+            "opacity" => {
+                rule.opacity = Some(value_to_f64(&value)? as f32);
+            }
             "block_out_from" | "block-out-from" => {
                 rule.block_out_from = parse_block_out_from(&value)?;
             }
+            "shadow" => {
+                if let Value::Table(t) = &value {
+                    rule.shadow = parse_shadow_rule(t)?;
+                }
+            }
+            "geometry_corner_radius" | "geometry-corner-radius" => {
+                rule.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
+            }
+            "place_within_backdrop" | "place-within-backdrop" => {
+                rule.place_within_backdrop = Some(value_is_truthy(&value));
+            }
             "focus_on_type_in_overview" | "focus-on-type-in-overview" => {
                 rule.focus_on_type_in_overview = Some(value_is_truthy(&value));
+            }
+            "baba_is_float" | "baba-is-float" => {
+                rule.baba_is_float = Some(value_is_truthy(&value));
+            }
+            "background_effect" | "background-effect" => {
+                rule.background_effect = parse_background_effect_rule(&value, "layer_rule")?;
+            }
+            "popups" => {
+                rule.popups = parse_popups_rule(&value, "layer_rule")?;
             }
             _ => unknown_key("layer_rule", &ks)?,
         }
     }
     Ok(rule)
+}
+
+/// Parses a rule's `background_effect = { xray, blur, noise, saturation }`.
+fn parse_background_effect_rule(val: &Value, rule: &str) -> Result<BackgroundEffectRule, String> {
+    let section = format!("{rule}.background_effect");
+    let Value::Table(table) = val else {
+        invalid_config(&format!("{section} must be a table"))?;
+        return Ok(BackgroundEffectRule::default());
+    };
+    let mut effect = BackgroundEffectRule::default();
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(|e| format!("{section} error: {e}"))?;
+        let ks = key_str(&key)?;
+        match ks.as_str() {
+            "xray" => effect.xray = Some(value_is_truthy(&value)),
+            "blur" => effect.blur = Some(value_is_truthy(&value)),
+            "noise" | "saturation" => {
+                let v = value_to_f64(&value)?;
+                if !(0. ..=1000.).contains(&v) {
+                    invalid_config(&format!(
+                        "{section}: {ks} must be between 0 and 1000, got {v}"
+                    ))?;
+                    continue;
+                }
+                if ks == "noise" {
+                    effect.noise = Some(FloatOrInt(v));
+                } else {
+                    effect.saturation = Some(FloatOrInt(v));
+                }
+            }
+            _ => unknown_key(&section, &ks)?,
+        }
+    }
+    Ok(effect)
+}
+
+/// Parses a rule's `popups = { opacity, geometry_corner_radius, background_effect }`.
+fn parse_popups_rule(val: &Value, rule: &str) -> Result<PopupsRule, String> {
+    let section = format!("{rule}.popups");
+    let Value::Table(table) = val else {
+        invalid_config(&format!("{section} must be a table"))?;
+        return Ok(PopupsRule::default());
+    };
+    let mut popups = PopupsRule::default();
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = pair.map_err(|e| format!("{section} error: {e}"))?;
+        let ks = key_str(&key)?;
+        match ks.as_str() {
+            "opacity" => popups.opacity = Some(value_to_f64(&value)? as f32),
+            "geometry_corner_radius" | "geometry-corner-radius" => {
+                popups.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
+            }
+            "background_effect" | "background-effect" => {
+                popups.background_effect = parse_background_effect_rule(&value, &section)?;
+            }
+            _ => unknown_key(&section, &ks)?,
+        }
+    }
+    Ok(popups)
 }
 
 fn parse_layer_match_entry(table: &LuaTable) -> Result<crate::layer_rule::Match, String> {
