@@ -4343,30 +4343,21 @@ fn parse_preset_size(table: LuaTable) -> Result<PresetSize, String> {
 }
 
 fn parse_cursor_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("cursor error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "xcursor_theme" | "xcursor-theme" => {
-                config.cursor.xcursor_theme = value_to_string(&value)?;
-            }
-            "xcursor_size" | "xcursor-size" => {
-                config.cursor.xcursor_size = value_to_u8(&value)?;
-            }
-            "hide_when_typing" | "hide-when-typing" => {
-                config.cursor.hide_when_typing = value_is_truthy(&value);
-            }
-            "hide_after_inactive_ms" | "hide-after-inactive-ms" => {
-                config.cursor.hide_after_inactive_ms = Some(value_to_u32(&value)?);
-            }
-            "shake_to_find" | "shake-to-find" => match value {
-                Value::Table(t) => parse_shake_to_find_table(t, &mut config.cursor.shake_to_find)?,
-                _ => config.cursor.shake_to_find.enable = value_is_truthy(&value),
-            },
-            _ => unknown_key("cursor", &ks)?,
-        }
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.cursor, &table, "cursor")
+}
+
+/// For `#[lua(with = …)]` on `cursor.shake_to_find`: a boolean turns it on or off, a table also
+/// sets its options.
+pub(crate) fn parse_shake_to_find(
+    value: &Value,
+    _path: &str,
+) -> Result<Option<ShakeToFind>, String> {
+    let mut shake = ShakeToFind::default();
+    match value {
+        Value::Table(t) => parse_shake_to_find_table(t.clone(), &mut shake)?,
+        _ => shake.enable = value_is_truthy(value),
     }
-    Ok(())
+    Ok(Some(shake))
 }
 
 fn parse_shake_to_find_table(table: LuaTable, shake: &mut ShakeToFind) -> Result<(), String> {
@@ -4434,189 +4425,43 @@ fn parse_shake_to_find_table(table: LuaTable, shake: &mut ShakeToFind) -> Result
 }
 
 fn parse_hotkey_overlay_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("hotkey-overlay error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "skip_at_startup" | "skip-at-startup" => {
-                config.hotkey_overlay.skip_at_startup = value_is_truthy(&value);
-            }
-            "hide_not_bound" | "hide-not-bound" => {
-                config.hotkey_overlay.hide_not_bound = value_is_truthy(&value);
-            }
-            _ => unknown_key("hotkey_overlay", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(
+        &mut config.hotkey_overlay,
+        &table,
+        "hotkey_overlay",
+    )
 }
 
 fn parse_config_notification_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("config-notification error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "disable_failed" | "disable-failed" => {
-                config.config_notification.disable_failed = value_is_truthy(&value);
-            }
-            _ => unknown_key("config_notification", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(
+        &mut config.config_notification,
+        &table,
+        "config_notification",
+    )
 }
 
 fn parse_clipboard_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("clipboard error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "disable_primary" | "disable-primary" => {
-                config.clipboard.disable_primary = value_is_truthy(&value);
-            }
-            _ => unknown_key("clipboard", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.clipboard, &table, "clipboard")
 }
 
 fn parse_blur_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("blur error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => config.blur.off = value_is_truthy(&value),
-            "passes" => {
-                if let Ok(v) = value_to_u32(&value) {
-                    config.blur.passes = v as u8;
-                }
-            }
-            "offset" => config.blur.offset = value_to_f64(&value)?,
-            "noise" => config.blur.noise = value_to_f64(&value)?,
-            "saturation" => config.blur.saturation = value_to_f64(&value)?,
-            _ => unknown_key("blur", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.blur, &table, "blur")
 }
 
 fn parse_gestures_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let gestures = &mut config.gestures;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("gestures error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "dnd_edge_view_scroll" | "dnd-edge-view-scroll" => {
-                if let Value::Table(t) = &value {
-                    gestures.dnd_edge_view_scroll.trigger_width = t
-                        .get("trigger_width")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(10.0);
-                    gestures.dnd_edge_view_scroll.delay_ms = t
-                        .get("delay_ms")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(100u16);
-                    gestures.dnd_edge_view_scroll.max_speed = t
-                        .get("max_speed")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(50.0);
-                }
-            }
-            "dnd_edge_workspace_switch" | "dnd-edge-workspace-switch" => {
-                if let Value::Table(t) = &value {
-                    gestures.dnd_edge_workspace_switch.trigger_height = t
-                        .get("trigger_height")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(50.0);
-                    gestures.dnd_edge_workspace_switch.delay_ms = t
-                        .get("delay_ms")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(100u16);
-                    gestures.dnd_edge_workspace_switch.max_speed = t
-                        .get("max_speed")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(1500.0);
-                }
-            }
-            "hot_corners" | "hot-corners" => {
-                if let Value::Table(t) = &value {
-                    gestures.hot_corners.off =
-                        t.get("off").map_err(|e| format!("{e}")).unwrap_or(false);
-                    gestures.hot_corners.top_left = t
-                        .get("top_left")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(false);
-                    gestures.hot_corners.top_right = t
-                        .get("top_right")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(false);
-                    gestures.hot_corners.bottom_left = t
-                        .get("bottom_left")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(false);
-                    gestures.hot_corners.bottom_right = t
-                        .get("bottom_right")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(false);
-                }
-            }
-            _ => unknown_key("gestures", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.gestures, &table, "gestures")
 }
 
 fn parse_overview_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let overview = &mut config.overview;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("overview error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "zoom" => overview.zoom = value_to_f64(&value)?,
-            "backdrop_color" | "backdrop-color" => {
-                overview.backdrop_color = parse_css_color(&value_to_string(&value)?)?;
-            }
-            "workspace_shadow" | "workspace-shadow" => {
-                if let Value::Table(t) = &value {
-                    parse_workspace_shadow(t, &mut overview.workspace_shadow)?;
-                }
-            }
-            _ => unknown_key("overview", &ks)?,
-        }
-    }
-    Ok(())
-}
-
-fn parse_workspace_shadow(table: &LuaTable, ws: &mut WorkspaceShadow) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("workspace-shadow error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => ws.off = value_is_truthy(&value),
-            "softness" => ws.softness = value_to_f64(&value)?,
-            "spread" => ws.spread = value_to_f64(&value)?,
-            "color" => ws.color = parse_css_color(&value_to_string(&value)?)?,
-            "offset" => {
-                if let Value::Table(t) = &value {
-                    ws.offset.x = FloatOrInt(t.get("x").unwrap_or(0.0f64));
-                    ws.offset.y = FloatOrInt(t.get("y").unwrap_or(0.0f64));
-                }
-            }
-            _ => unknown_key("workspaces.shadow", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.overview, &table, "overview")
 }
 
 fn parse_xwayland_satellite_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("xwayland-satellite error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => config.xwayland_satellite.off = value_is_truthy(&value),
-            "path" => config.xwayland_satellite.path = value_to_string(&value)?,
-            _ => unknown_key("xwayland_satellite", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(
+        &mut config.xwayland_satellite,
+        &table,
+        "xwayland_satellite",
+    )
 }
 
 fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
@@ -4721,64 +4566,11 @@ fn validate_recent_windows_bind(name: &str, bind: &Bind, previous: &[Bind]) -> R
 }
 
 fn parse_recent_windows_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let rw = &mut config.recent_windows;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("recent-windows error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => {
-                rw.on = false;
-            }
-            "debounce_ms" | "debounce-ms" => {
-                if let Ok(v) = value_to_u64(&value) {
-                    rw.debounce_ms = v as u16;
-                }
-            }
-            "open_delay_ms" | "open-delay-ms" => {
-                if let Ok(v) = value_to_u64(&value) {
-                    rw.open_delay_ms = v as u16;
-                }
-            }
-            "highlight" => {
-                if let Value::Table(t) = &value {
-                    if let Ok(s) = t
-                        .get::<String>("active_color")
-                        .or_else(|_| t.get("active-color"))
-                    {
-                        if let Ok(c) = parse_css_color(&s) {
-                            rw.highlight.active_color = c;
-                        }
-                    }
-                    rw.highlight.padding = t.get("padding").unwrap_or(rw.highlight.padding);
-                }
-            }
-            "previews" => {
-                if let Value::Table(t) = &value {
-                    rw.previews.max_height = t.get("max_height").unwrap_or(rw.previews.max_height);
-                }
-            }
-            "binds" => {
-                if let Value::Table(t) = &value {
-                    let mut binds: Vec<Bind> = Vec::new();
-                    for bpair in t.clone().pairs::<Value, Value>() {
-                        let (bk, bv) = bpair.map_err(|e| format!("{e}"))?;
-                        let bks = key_str(&bk)?;
-                        let Ok(bind) = parse_bind_entry(&bks, bv, None) else {
-                            continue;
-                        };
-                        if let Err(err) = validate_recent_windows_bind(&bks, &bind, &binds) {
-                            invalid_config(&err)?;
-                            continue;
-                        }
-                        binds.push(bind);
-                    }
-                    rw.binds = binds;
-                }
-            }
-            _ => unknown_key("recent_windows", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(
+        &mut config.recent_windows,
+        &table,
+        "recent_windows",
+    )
 }
 
 /// Parses the `modes` table, `{ <name> = <binds> }`, made by `neori.mode`.
@@ -6357,6 +6149,35 @@ fn parse_animation(
     }
 
     Ok(Animation { off, kind })
+}
+
+/// For `#[lua(with = …)]` on `recent_windows.binds`: key = action, like the binds section, for
+/// the binds active while the recent-windows switcher is open.
+pub(crate) fn parse_recent_windows_binds(
+    value: &Value,
+    path: &str,
+) -> Result<Option<Vec<Bind>>, String> {
+    let Value::Table(t) = value else {
+        invalid_config(&format!(
+            "{path} must be a table, got {}",
+            value.type_name()
+        ))?;
+        return Ok(None);
+    };
+    let mut binds: Vec<Bind> = Vec::new();
+    for bpair in t.clone().pairs::<Value, Value>() {
+        let (bk, bv) = bpair.map_err(|e| format!("{e}"))?;
+        let bks = key_str(&bk)?;
+        let Ok(bind) = parse_bind_entry(&bks, bv, None) else {
+            continue;
+        };
+        if let Err(err) = validate_recent_windows_bind(&bks, &bind, &binds) {
+            invalid_config(&err)?;
+            continue;
+        }
+        binds.push(bind);
+    }
+    Ok(Some(binds))
 }
 
 #[cfg(test)]

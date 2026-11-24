@@ -717,3 +717,18 @@ pub fn xkb_file(value: &Value, path: &str) -> Result<Option<Option<XkbFile>>, St
     let file = at(path, value_to_string(value))?;
     Ok(Some(Some(crate::parse_lua::read_xkb_file(&file))))
 }
+
+/// `#[lua(extra = …)]` for [`crate::RecentWindows`], which has an `on` field: `off = true` turns
+/// it off.
+pub fn recent_windows_off(
+    this: &mut crate::RecentWindows,
+    key: &str,
+    value: &Value,
+    _path: &str,
+) -> Result<bool, String> {
+    if key != "off" {
+        return Ok(false);
+    }
+    this.on = !value_is_truthy(value);
+    Ok(true)
+}

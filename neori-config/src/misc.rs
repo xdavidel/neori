@@ -1,13 +1,16 @@
+use neori_config_derive::LuaTable;
+
 use crate::appearance::{Color, WorkspaceShadow, WorkspaceShadowPart, DEFAULT_BACKDROP_COLOR};
 use crate::utils::Flag;
 use crate::FloatOrInt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, LuaTable)]
 pub struct Cursor {
     pub xcursor_theme: String,
     pub xcursor_size: u8,
     pub hide_when_typing: bool,
     pub hide_after_inactive_ms: Option<u32>,
+    #[lua(with = crate::parse_lua::parse_shake_to_find, lua_type = "boolean|table")]
     pub shake_to_find: ShakeToFind,
 }
 
@@ -117,7 +120,7 @@ impl Default for ScreenshotPath {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, LuaTable)]
 pub struct HotkeyOverlay {
     pub skip_at_startup: bool,
     pub hide_not_bound: bool,
@@ -130,7 +133,7 @@ pub struct HotkeyOverlayPart {
     pub hide_not_bound: Option<Flag>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, LuaTable)]
 pub struct ConfigNotification {
     pub disable_failed: bool,
 }
@@ -141,7 +144,7 @@ pub struct ConfigNotificationPart {
     pub disable_failed: Option<Flag>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, LuaTable)]
 pub struct Clipboard {
     pub disable_primary: bool,
 }
@@ -152,7 +155,7 @@ pub struct ClipboardPart {
     pub disable_primary: Option<Flag>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct Overview {
     pub zoom: f64,
     pub backdrop_color: Color,
@@ -186,7 +189,7 @@ pub struct EnvironmentVariable {
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, LuaTable)]
 pub struct XwaylandSatellite {
     pub off: bool,
     pub path: String,

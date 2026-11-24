@@ -392,7 +392,7 @@ pub struct ShadowOffset {
     pub y: FloatOrInt<-65535, 65535>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct WorkspaceShadow {
     pub off: bool,
     pub offset: ShadowOffset,
@@ -795,7 +795,7 @@ impl From<ColorRgba> for Color {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct Blur {
     pub off: bool,
     pub passes: u8,

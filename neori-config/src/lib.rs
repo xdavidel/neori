@@ -5516,6 +5516,58 @@ mod tests {
     }
 
     #[test]
+    fn misc_sections_parse_every_key() {
+        let config = Config::parse_mem(
+            r##"
+            neori.cursor { xcursor_size = 32, shake_to_find = { size_multiplier = 3 } }
+            neori.blur { passes = 3, noise = 0.02 }
+            neori.gestures { hot_corners = { top_right = true }, dnd_edge_view_scroll = { delay_ms = 50 } }
+            neori.overview { zoom = 0.4, workspace_shadow = { softness = 20, offset = { y = 4 } } }
+            neori.recent_windows {
+                off = true,
+                highlight = { urgent_color = "#ff0000", corner_radius = 8 },
+                previews = { max_scale = 0.75 },
+            }
+            neori.hotkey_overlay { skip_at_startup = true }
+            neori.clipboard { disable_primary = true }
+            neori.xwayland_satellite { path = "/usr/bin/xwayland-satellite" }
+            "##,
+        )
+        .unwrap();
+        let default = Config::default();
+        assert_eq!(config.cursor.xcursor_size, 32);
+        assert!(config.cursor.shake_to_find.enable);
+        assert_eq!(config.cursor.shake_to_find.size_multiplier, 3.);
+        assert_eq!(config.blur.passes, 3);
+        assert_eq!(config.blur.noise, 0.02);
+        assert!(config.gestures.hot_corners.top_right);
+        assert_eq!(config.gestures.dnd_edge_view_scroll.delay_ms, 50);
+        assert_eq!(
+            config.gestures.dnd_edge_view_scroll.max_speed,
+            default.gestures.dnd_edge_view_scroll.max_speed
+        );
+        assert_eq!(config.overview.zoom, 0.4);
+        assert_eq!(config.overview.workspace_shadow.softness, 20.);
+        assert_eq!(config.overview.workspace_shadow.offset.y, FloatOrInt(4.));
+        assert!(!config.recent_windows.on);
+        assert_eq!(config.recent_windows.highlight.corner_radius, 8.);
+        assert_ne!(
+            config.recent_windows.highlight.urgent_color,
+            default.recent_windows.highlight.urgent_color
+        );
+        assert_eq!(config.recent_windows.previews.max_scale, 0.75);
+        assert!(config.hotkey_overlay.skip_at_startup);
+        assert!(config.clipboard.disable_primary);
+        assert_eq!(
+            config.xwayland_satellite.path,
+            "/usr/bin/xwayland-satellite"
+        );
+
+        let config = Config::parse_mem("neori.cursor { shake_to_find = true }").unwrap();
+        assert!(config.cursor.shake_to_find.enable);
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

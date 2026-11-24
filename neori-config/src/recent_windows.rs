@@ -1,14 +1,17 @@
+use neori_config_derive::LuaTable;
 use smithay::input::keyboard::Keysym;
 
 use crate::{Action, Bind, BoundAction, Color, FloatOrInt, Key, Modifiers, Trigger};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::recent_windows_off)]
 pub struct RecentWindows {
     pub on: bool,
     pub debounce_ms: u16,
     pub open_delay_ms: u16,
     pub highlight: MruHighlight,
     pub previews: MruPreviews,
+    #[lua(with = crate::parse_lua::parse_recent_windows_binds, lua_type = "table")]
     pub binds: Vec<Bind>,
 }
 
@@ -37,7 +40,7 @@ pub struct RecentWindowsPart {
     pub binds: Option<MruBinds>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, LuaTable)]
 pub struct MruHighlight {
     pub active_color: Color,
     pub urgent_color: Color,
@@ -65,7 +68,7 @@ pub struct MruHighlightPart {
     pub corner_radius: Option<FloatOrInt<0, 65535>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct MruPreviews {
     pub max_height: f64,
     pub max_scale: f64,

@@ -1,6 +1,8 @@
+use neori_config_derive::LuaTable;
+
 use crate::FloatOrInt;
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct Gestures {
     pub dnd_edge_view_scroll: DndEdgeViewScroll,
     pub dnd_edge_workspace_switch: DndEdgeWorkspaceSwitch,
@@ -15,7 +17,7 @@ pub struct GesturesPart {
     pub hot_corners: Option<HotCorners>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct DndEdgeViewScroll {
     pub trigger_width: f64,
     pub delay_ms: u16,
@@ -40,7 +42,7 @@ pub struct DndEdgeViewScrollPart {
     pub max_speed: Option<FloatOrInt<0, 1_000_000>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct DndEdgeWorkspaceSwitch {
     pub trigger_height: f64,
     pub delay_ms: u16,
@@ -65,7 +67,7 @@ pub struct DndEdgeWorkspaceSwitchPart {
     pub max_speed: Option<FloatOrInt<0, 1_000_000>>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct HotCorners {
     pub off: bool,
     pub top_left: bool,
