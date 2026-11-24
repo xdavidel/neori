@@ -2148,6 +2148,7 @@ dependencies = [
  "csscolorparser",
  "diff",
  "insta",
+ "libc",
  "miette",
  "mlua",
  "neori-config-derive",

@@ -718,8 +718,167 @@ Each key reads or calls the method of the same name (`title` → `w:title()`, `f
 - `neori.rules.apply(object, rule)` applies a rule to an object now, if it matches, and returns
   whether it did.
 
-Rules run in the order they were added. A rule that raises an error is reported and the others
-still run.
+Rules run in the order they were added. A rule whose `set` or `run` raises an error is
+reported like any callback error, in the log and with the config error notification, and the
+other rules still run. A mistake in the rule itself (an unknown key, an invalid regex, an event
+that passes no object) is an error when the rule is added.
+
+Because a window rule checks `where` at both steps, a condition that its own `set` changes can
+stop the second step: `where = { floating = false }, set = { floating = true, opacity = 0.9 }`
+floats the window at `window-opening`, so it no longer matches at `window-opened`, and the
+opacity and `run` are skipped. Match on properties the rule doesn't set, like `app_id` and
+`title`, or give such a rule an explicit `when`.
+
+## Utilities (`neori.util`)
+
+Helpers ported from awesome's `gears` library, with the same function names as `gears.table`,
+`gears.string` and `gears.math`, so snippets written for awesome or cwc work after replacing
+`gears.` with `neori.util.`. The geometry functions drop the `rectangle.get_` prefix
+(`gears.geometry.rectangle.get_in_direction` is `neori.util.geometry.in_direction`).
+
+```lua
+local util = neori.util
+
+-- Focus the nearest window to the left of the focused one, on its workspace.
+neori.bind("Mod+Alt+H", function()
+    local focused = neori.focused_window()
+    if not focused or not focused:geometry().x then return end
+    local geometries = {}
+    for _, w in ipairs(neori.windows()) do
+        local g = w:geometry()
+        if w:id() ~= focused:id() and g.x and w:workspace().idx == focused:workspace().idx then
+            geometries[w] = g
+        end
+    end
+    local target = util.geometry.in_direction("left", geometries, focused:geometry())
+    if target then target:focus() end
+end)
+
+-- Cycle through a fixed list of scales.
+neori.bind("Mod+Alt+S", function()
+    local out = neori.focused_output()
+    out:set_scale(util.table.cycle_value({ 1, 1.25, 1.5, 2 }, out:scale()) or 1)
+end)
+
+-- Keep state between sessions.
+local state_file = util.fs.cache_dir() .. "last-layout"
+
+-- Print the focused window's geometry, with `neori msg lua` or to the print log.
+neori.bind("Mod+Alt+D", function()
+    print(util.dump(neori.focused_window():geometry()))
+end)
+```
+
+What you get back, from `neori msg lua`:
+
+```sh
+neori msg lua 'neori.util.dump(neori.focused_window():geometry())'
+# table: 0x5b91794074c0
+#   x : 180.88888888889 (number)
+#   y : 44.444444444444 (number)
+#   height : 905 (number)
+#   width : 1516 (number)
+neori msg lua 'neori.util.table.cycle_value({ 1, 1.25, 1.5, 2 }, 1.25)'
+# 1.5
+# 3
+neori msg lua 'neori.util.string.split("a,b,c", ",")'
+# { "a", "b", "c" }
+neori msg lua 'neori.util.fs.cache_dir()'
+# /home/you/.cache/neori/
+```
+
+### `neori.util.table`
+
+| function | what it does |
+|---|---|
+| `join(t1, t2, …)` | A new table with the entries of every table: list items are appended, other keys are set, later tables winning. `nil` arguments are skipped. |
+| `crush(target, source, raw)` | Sets every key of `source` on `target` (with `rawset` when `raw` is true) and returns `target`. Nested tables are shared, not copied. |
+| `from_sparse(t)` | The values with number keys, in key order, as a list without holes. |
+| `hasitem(t, item)` | The key of `item` in `t`, or nil. |
+| `find_keys(t, matcher, ordered, max)` | The keys whose `matcher(key, value)` returns true, or nil if there are none. `ordered` looks only at the list part, in order; `max` stops after that many. |
+| `find_first_key(t, matcher, ordered)` | The first such key, or nil. |
+| `keys(t)` | The keys, sorted. |
+| `count_keys(t)` | The number of keys, list part included. |
+| `keys_filter(t, type, …)` | The sorted keys whose values have one of these types (`"number"`, `"table"`, …). |
+| `reverse(t)` | A copy with the list part reversed and the other keys kept. |
+| `clone(t, deep)` | A copy; nested tables are copied too, unless `deep` is false. |
+| `cycle_value(t, value, step, filter)` | The item `step` places after `value` in the list (1 by default; negative goes back), wrapping around, and its index. With `filter`, items it rejects are skipped. Nil when `value` isn't in the list. |
+| `iterate(t, filter, start)` | An iterator over the list items that `filter` accepts, starting at index `start` (1 by default) and wrapping around once: `for w in iterate(windows, is_floating, 3) do … end`. |
+| `merge(target, source)` | Appends the list items of `source` to `target` and returns `target`. |
+| `diff_merge(target, new, identifier, merger)` | Updates the list `target` in place to the items of `new`, matching items by `identifier(item)`, and merging matched ones with `merger(old, new)` if given. Returns `target` and the lists of added, removed and updated items. |
+| `map(f, t)` | A new table with `f(value)` at each key. |
+
+### `neori.util.string`
+
+| function | what it does |
+|---|---|
+| `xml_escape(text)` | Escapes `'`, `"`, `<`, `>` and `&` as entities, for Pango markup in notifications. |
+| `xml_unescape(text)` | Turns `&lt;`, `&gt;`, `&amp;`, `&quot;`, `&apos;`, `&nbsp;`, `&ndash;` and `&mdash;` back into characters. |
+| `linecount(text)` | The number of lines. |
+| `linewrap(text, width, indent)` | Wraps at `width` characters (72 by default), indenting the wrapped lines by `indent` spaces. |
+| `quote_pattern(s)` | Escapes the characters that Lua patterns treat specially, to find `s` literally with `string.find` or `match`. |
+| `query_to_pattern(q)` | A Lua pattern that finds `q` literally, ignoring case. |
+| `split(str, delimiter)` | Splits at a delimiter character (newline by default). Empty parts between two delimiters are skipped, but one at either end is kept: `split(",a,", ",")` is `{ "", "a", "" }`. |
+| `psplit(str, pattern)` | Splits at a Lua pattern (newline by default), keeping empty parts; an empty pattern splits into characters. |
+| `startswith(str, sub)`, `endswith(str, sub)` | Whether `str` starts or ends with `sub`; false when `str` is nil. |
+
+### `neori.util.math`
+
+| function | what it does |
+|---|---|
+| `cycle(n, i)` | Wraps the index `i` into `1..n`, for stepping through a list of `n` items: `cycle(3, 4)` is 1, `cycle(3, 0)` is 3. Nil when `n` is less than 1. |
+| `round(x)` | Rounds half up: `round(1.5)` is 2, `round(-1.5)` is -1. |
+| `sign(x)` | 1, -1 or 0. |
+| `subsets(list)` | Every subset of the list, the empty one first. |
+
+### `neori.util.geometry`
+
+Each function takes `{ x, y, width, height }` tables, and the ones that take a list return the
+**key** of the rectangle they pick, so a table keyed by `Window` gives back the window.
+
+| function | what it does |
+|---|---|
+| `square_distance(rect, x, y)` | The squared distance from the point to the nearest pixel of the rectangle; 0 inside it. |
+| `closest_by_coord(list, x, y)` | The key of the rectangle closest to the point. |
+| `by_coord(list, x, y)` | The key of a rectangle that contains the point, or nil. |
+| `in_direction(dir, list, cur)` | The key of the rectangle nearest to `cur` in `"up"`, `"down"`, `"left"` or `"right"`, or nil. |
+| `are_equal(a, b)` | Whether the rectangles are the same. |
+| `is_inside(a, b)` | Whether `a` lies entirely within `b`, edges included. |
+| `intersects(a, b)` | Whether the rectangles overlap. |
+| `intersection(a, b)` | The overlap, with a width and height of 0 when there is none. |
+| `area_remove(areas, rect)` | Removes `rect` from the list of areas, splitting each area it overlaps into the parts around it (which can overlap each other). Changes and returns `areas`. |
+
+### `neori.util.fs`
+
+The directories end with `/`, so file names can be appended with `..`.
+
+| function | what it does |
+|---|---|
+| `xdg_config_home()`, `xdg_cache_home()`, `xdg_data_home()` | `$XDG_CONFIG_HOME`, `$XDG_CACHE_HOME` and `$XDG_DATA_HOME`, or `~/.config/`, `~/.cache/` and `~/.local/share/` when they're unset. |
+| `xdg_data_dirs()` | The list in `$XDG_DATA_DIRS`, or `/usr/local/share/` and `/usr/share/`. |
+| `config_dir()` | The directory of the config file. |
+| `cache_dir()` | `neori/` in the cache directory, made when it's missing: a place for scripts to keep files. |
+| `file_readable(path)`, `file_executable(path)` | Whether `path` is a file (not a directory) that you can read, or run. |
+| `dir_readable(path)`, `dir_writable(path)` | Whether `path` is a directory that you can read, or write to. |
+| `is_dir(path)` | Whether `path` is a directory. |
+| `mkdir(dir)` | Makes the directory and its missing parents. Returns true, or false and an error message; a directory that already exists counts as made. |
+
+### `neori.util.dump(value, tag, depth)`
+
+A readable, multi-line description of a value and the tables inside it, each line with the key,
+the value and its type. `tag` names the value on the first line, and `depth` (10 by default)
+limits how deep it goes into nested tables, marking the cut with `[…]`. It returns the text, so
+use `print(neori.util.dump(t))` in the config; `neori msg lua` prints it for you.
+
+### Notes
+
+- The geometry functions take `{ x, y, width, height }` tables, as `w:geometry()` and
+  `out:geometry()` return. A window's `x` and `y` are nil while it's off screen, so leave such
+  windows out.
+- The type definitions describe every function, for editors and `neori msg lua` completion.
+
+The Lua code comes from awesome (GPL-2.0-or-later) by way of cwc, and keeps its copyright
+notices; `neori.util.fs` is written in Rust, because awesome's needs GLib.
 
 ## Pointer & keyboard
 
@@ -1143,14 +1302,36 @@ prints its values; statements can `return` values. What the code `print`s comes 
 terminal instead of the Lua log, and an error is reported with a non-zero exit code. `--json`
 prints `{ "printed": …, "values": [ … ] }`.
 
-In zsh, Tab completes the code: `neori.` names, methods after `:` (`neori.focused_window():ti`
-completes to `title`), and global names, including your config's own. The types come from the
-[editor definitions](#editor-support), and nothing you typed is run to work them out.
+In zsh, Tab completes the code. It knows:
 
-Binds, handlers and timers that the code sets up stay until the next config reload, which
-rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
-handler before putting it in the config; what the handler prints later goes to the
-[Lua log](#print-output), since the command has returned by then:
+- `neori.` names and namespaces: `neori.focused_w` offers `focused_window` and
+  `focused_workspace`, and `neori.util.table.cl` completes to `clone`.
+- methods after `:`, from what each function returns: `neori.focused_window():ti` completes to
+  `title`.
+- variables, from what they were assigned: `local w = neori.focused_window(); w:ti`, loop
+  variables (`for _, w in ipairs(neori.windows()) do w:`), and the parameters of handlers
+  (`neori.on("window-opened", function(w) w:`).
+- the keys of tables passed to neori: `neori.layout { focus_ring = { act`,
+  `neori.window_rule { match = { app`, `neori.rules.add { where = { app`.
+- global names and the keys of other global tables, including your config's own:
+  `string.fo`, `my_helpers.`.
+
+The types come from the [editor definitions](#editor-support), and nothing you typed is run to
+work them out; the keys of other global tables are read from the running compositor without
+calling anything. With fzf-tab, the list shows the names (`focused_window`) and inserts the whole
+code.
+
+Binds, handlers, rules and timers that the code sets up stay until the next config reload,
+which rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
+bind, handler or rule before putting it in the config:
+
+```sh
+neori msg lua 'neori.rules.add { where = { app_id = "kitty" }, set = { floating = true }, run = function(w) w:center() end }'
+neori msg lua 'neori.bind("Mod+Alt+D", function() print(neori.util.dump(neori.focused_window():geometry())) end)'
+```
+
+What a handler prints later goes to the [Lua log](#print-output), since the command has returned
+by then:
 
 ```sh
 neori msg lua 'neori.on("pointer-button", function(e) print(e.name, e.pressed) end)'
@@ -1164,7 +1345,8 @@ it, through the IPC socket, like `neori msg action spawn`.
 
 neori ships type definitions of this API for [lua-language-server](https://luals.github.io/)
 (LuaLS), which most editors use for Lua. With them, the editor completes `neori.*` functions and
-the methods of `Window`, `Output`, `Workspace` and `Device`, knows what each event handler
+the methods of `Window`, `Output`, `Workspace`, `Device` and `LayerSurface`, the
+`neori.rules` rule tables and every `neori.util` function, knows what each event handler
 receives (`neori.on("window-closed", function(w) … end)` knows `w` is a `Window`), and warns
 about typos like `neori.fucused_window()`.
 
@@ -1256,6 +1438,27 @@ end)
 neori.on("lid-closed", function()
     -- Blank the internal panel and move its workspaces to the HDMI output.
     neori.action("power-off-monitors")
+end)
+
+-- Rules: Firefox opens on the "web" workspace; Picture-in-Picture floats, centred.
+neori.rules.add { where = { app_id = "^firefox$" }, set = { workspace = "web" } }
+neori.rules.add {
+    where = { title = "^Picture-in-Picture$" },
+    set = { floating = true, opacity = 0.9 },
+    run = function(w) w:center() end,
+}
+
+-- Utilities: step through output scales, and keep a note in the cache directory.
+neori.bind("Mod+Alt+S", function()
+    local out = neori.focused_output()
+    out:set_scale(neori.util.table.cycle_value({ 1, 1.25, 1.5, 2 }, out:scale()) or 1)
+end)
+neori.on("window-opened", function(w)
+    local file = io.open(neori.util.fs.cache_dir() .. "last-window", "w")
+    if file then
+        file:write(w:app_id() or "", "\n")
+        file:close()
+    end
 end)
 
 -- A tiny "scratchpad"-ish pattern: toggle a named kitty.

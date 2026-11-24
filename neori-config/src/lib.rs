@@ -34,6 +34,7 @@ pub mod keycode;
 pub mod layer_rule;
 pub mod layout;
 pub mod lua_table;
+pub mod lua_util;
 pub mod misc;
 pub mod output;
 pub mod parse_lua;

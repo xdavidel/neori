@@ -2661,6 +2661,12 @@ fn setup_neori_api(
         neori.set("misc", misc).map_err(err)?;
     }
 
+    // neori.util: table, string, math, geometry and file system helpers.
+    {
+        let util = crate::lua_util::load_util(lua, &search_dir).map_err(err)?;
+        neori.set("util", util).map_err(err)?;
+    }
+
     // neori.rules: match objects when an event fires, then set properties and run a function.
     {
         let (rules, _classes) = load_rules(lua, &neori).map_err(err)?;

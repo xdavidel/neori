@@ -66,8 +66,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 ### Phase 3: libraries and developer experience
 
-- `neori.util`: table, string and geometry helpers ported from awesome's `gears`
-  (GPL-2.0-or-later, notices kept).
+- **Utilities (done):** `neori.util.table`, `.string`, `.math`, `.geometry` and `neori.util.dump`
+  ported from awesome's `gears` (GPL-2.0-or-later, notices kept), and `neori.util.fs` after
+  `gears.filesystem`, in Rust.
 - **Rules (done):** `neori.rules.add { where, where_any, where_not, where_not_any, set, run,
   when }`, after cwc's `cuteful.rules`, for windows, outputs, workspaces, devices and layer
   surfaces. Window rules set what they can at `window-opening`, before the first frame.

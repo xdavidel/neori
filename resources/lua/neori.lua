@@ -653,6 +653,295 @@ neori.misc = {}
 ---`window-opened`.
 ---@field when neori.Signal|neori.Signal[]?
 
+---A rectangle, like `w:geometry()` and `out:geometry()` return.
+---@class neori.Rect
+---@field x number
+---@field y number
+---@field width number
+---@field height number
+
+---Helpers ported from awesome's `gears`: `neori.util.table`, `.string`, `.math`, `.geometry`,
+---`.fs` and `neori.util.dump`.
+---@class neori.Util
+neori.util = {}
+---Returns a readable, multi-line description of a value and, for a table, its contents, from
+---awesome's `gears.debug.dump_return`. `print(neori.util.dump(t))` shows it.
+---@param data any
+---@param tag? string A name to show before the value.
+---@param depth? integer How deep to go into nested tables; 10 by default.
+---@return string
+function neori.util.dump(data, tag, depth) end
+
+---Table helpers, from awesome's `gears.table`.
+---@class neori.UtilTable
+neori.util.table = {}
+---A new table with the entries of every table: list items are appended, other keys are set,
+---later tables winning.
+---@param ... table?
+---@return table
+function neori.util.table.join(...) end
+---Sets every key of `source` on `target` (with `rawset` if `raw`), and returns `target`.
+---@generic T: table
+---@param target T
+---@param source table
+---@param raw? boolean
+---@return T
+function neori.util.table.crush(target, source, raw) end
+---The values with number keys, in key order, as a list without holes.
+---@param t table
+---@return table
+function neori.util.table.from_sparse(t) end
+---The key of `item` in `t`, or nil.
+---@param t table
+---@param item any
+---@return any
+function neori.util.table.hasitem(t, item) end
+---The keys whose `matcher(key, value)` is true, or nil if there are none.
+---@param t table
+---@param matcher fun(key: any, value: any): boolean
+---@param ordered? boolean Only look at the list part, in order.
+---@param max? integer Stop after this many.
+---@return any[]?
+function neori.util.table.find_keys(t, matcher, ordered, max) end
+---The first key whose `matcher(key, value)` is true, or nil.
+---@param t table
+---@param matcher fun(key: any, value: any): boolean
+---@param ordered? boolean Only look at the list part, in order.
+---@return any
+function neori.util.table.find_first_key(t, matcher, ordered) end
+---The keys of `t`, sorted.
+---@param t table
+---@return any[]
+function neori.util.table.keys(t) end
+---The number of keys of `t`, list part included.
+---@param t table
+---@return integer
+function neori.util.table.count_keys(t) end
+---The sorted keys of `t` whose values have one of these types (`"number"`, `"table"`, …).
+---@param t table
+---@param ... string
+---@return any[]
+function neori.util.table.keys_filter(t, ...) end
+---A copy with the list part reversed and the other keys kept.
+---@param t table
+---@return table
+function neori.util.table.reverse(t) end
+---A copy of `t`; nested tables are copied too unless `deep` is false.
+---@generic T: table
+---@param t T
+---@param deep? boolean
+---@return T
+function neori.util.table.clone(t, deep) end
+---The value `step_size` places after `value` in the list `t` (1 by default, negative goes back),
+---wrapping around, and its index. With `filter`, values it rejects are skipped.
+---@param t any[]
+---@param value any
+---@param step_size? integer
+---@param filter? fun(value: any): boolean
+---@return any value
+---@return integer? index
+function neori.util.table.cycle_value(t, value, step_size, filter) end
+---An iterator over the items of the list `t` that `filter` accepts, starting at `start` (1 by
+---default) and wrapping around once.
+---@param t any[]
+---@param filter fun(item: any): boolean
+---@param start? integer
+---@return fun(): any
+function neori.util.table.iterate(t, filter, start) end
+---Appends the list items of `source` to `target`, and returns `target`.
+---@generic T: table
+---@param target T
+---@param source table
+---@return T
+function neori.util.table.merge(target, source) end
+---Updates the list `target` to the items of `new`, matching them by `identifier`, and merging
+---matched items with `merger` if given. Returns `target` and the added, removed and updated items.
+---@param target table
+---@param new table
+---@param identifier fun(item: any): any
+---@param merger? fun(old: any, new: any): any
+---@return table target
+---@return table added
+---@return table removed
+---@return table updated
+function neori.util.table.diff_merge(target, new, identifier, merger) end
+---A new table with `f(value)` for every value of `tbl`, at the same keys.
+---@param f fun(value: any): any
+---@param tbl table
+---@return table
+function neori.util.table.map(f, tbl) end
+
+---String helpers, from awesome's `gears.string`.
+---@class neori.UtilString
+neori.util.string = {}
+---Escapes `'`, `"`, `<`, `>` and `&` as XML entities, for Pango markup.
+---@param text string
+---@return string
+function neori.util.string.xml_escape(text) end
+---Turns XML entities back into characters.
+---@param text string
+---@return string
+function neori.util.string.xml_unescape(text) end
+---The number of lines.
+---@param text string
+---@return integer
+function neori.util.string.linecount(text) end
+---Wraps lines at `width` characters (72 by default), indenting wrapped lines by `indent` spaces.
+---@param text string
+---@param width? integer
+---@param indent? integer
+---@return string
+function neori.util.string.linewrap(text, width, indent) end
+---Escapes the characters that Lua patterns treat specially.
+---@param s string
+---@return string
+function neori.util.string.quote_pattern(s) end
+---A Lua pattern that finds `q` literally, ignoring case.
+---@param q string
+---@return string
+function neori.util.string.query_to_pattern(q) end
+---Splits at a delimiter character (`"\n"` by default), skipping empty parts between two
+---delimiters but keeping one at either end.
+---@param str string
+---@param delimiter? string
+---@return string[]
+function neori.util.string.split(str, delimiter) end
+---Splits at a Lua pattern (`"\n"` by default); an empty pattern splits into characters.
+---@param str string
+---@param pattern? string
+---@return string[]
+function neori.util.string.psplit(str, pattern) end
+---@param str string?
+---@param sub string
+---@return boolean
+function neori.util.string.startswith(str, sub) end
+---@param str string?
+---@param sub string
+---@return boolean
+function neori.util.string.endswith(str, sub) end
+
+---Math helpers, from awesome's `gears.math`.
+---@class neori.UtilMath
+neori.util.math = {}
+---Every subset of the list `set`, the empty one first.
+---@param set any[]
+---@return any[][]
+function neori.util.math.subsets(set) end
+---Wraps the index `i` into 1..`t`, for cycling through a list of `t` items; nil if `t` < 1.
+---@param t integer
+---@param i integer
+---@return integer?
+function neori.util.math.cycle(t, i) end
+---Rounds half up to an integer.
+---@param x number
+---@return integer
+function neori.util.math.round(x) end
+---1, -1 or 0.
+---@param x number
+---@return integer
+function neori.util.math.sign(x) end
+
+---Rectangle helpers, from awesome's `gears.geometry.rectangle`. A window's `x` and `y` are nil
+---while it's off screen, so check them before passing its geometry.
+---@class neori.UtilGeometry
+neori.util.geometry = {}
+---The squared distance from the point to the nearest pixel of the rectangle; 0 inside it.
+---@param geom neori.Rect
+---@param x number
+---@param y number
+---@return number
+function neori.util.geometry.square_distance(geom, x, y) end
+---The key of the rectangle in `list` closest to the point.
+---@param list table<any, neori.Rect>
+---@param x number
+---@param y number
+---@return any
+function neori.util.geometry.closest_by_coord(list, x, y) end
+---The key of a rectangle in `list` that contains the point, or nil.
+---@param list table<any, neori.Rect>
+---@param x number
+---@param y number
+---@return any
+function neori.util.geometry.by_coord(list, x, y) end
+---The key of the rectangle in `list` nearest to `cur` in a direction, or nil.
+---@param dir "up"|"down"|"left"|"right"
+---@param list table<any, neori.Rect>
+---@param cur neori.Rect
+---@return any
+function neori.util.geometry.in_direction(dir, list, cur) end
+---@param a neori.Rect
+---@param b neori.Rect
+---@return boolean
+function neori.util.geometry.are_equal(a, b) end
+---Whether `a` lies entirely within `b`, edges included.
+---@param a neori.Rect
+---@param b neori.Rect
+---@return boolean
+function neori.util.geometry.is_inside(a, b) end
+---Whether the rectangles overlap.
+---@param a neori.Rect
+---@param b neori.Rect
+---@return boolean
+function neori.util.geometry.intersects(a, b) end
+---The overlap of the rectangles, with a width and height of 0 when there is none.
+---@param a neori.Rect
+---@param b neori.Rect
+---@return neori.Rect
+function neori.util.geometry.intersection(a, b) end
+---Removes `elem` from the list of areas, splitting the areas it overlaps into the parts around
+---it (which can overlap each other). Changes and returns `areas`.
+---@param areas neori.Rect[]
+---@param elem neori.Rect
+---@return neori.Rect[]
+function neori.util.geometry.area_remove(areas, elem) end
+
+---File system helpers, after awesome's `gears.filesystem`. Directories end with `/`.
+---@class neori.UtilFs
+neori.util.fs = {}
+---`$XDG_CONFIG_HOME`, or `~/.config/`.
+---@return string
+function neori.util.fs.xdg_config_home() end
+---`$XDG_CACHE_HOME`, or `~/.cache/`.
+---@return string
+function neori.util.fs.xdg_cache_home() end
+---`$XDG_DATA_HOME`, or `~/.local/share/`.
+---@return string
+function neori.util.fs.xdg_data_home() end
+---`$XDG_DATA_DIRS`, or `/usr/local/share/` and `/usr/share/`.
+---@return string[]
+function neori.util.fs.xdg_data_dirs() end
+---The directory of the config file.
+---@return string
+function neori.util.fs.config_dir() end
+---`neori/` in the cache directory, made if it's missing: a place for scripts to keep files.
+---@return string
+function neori.util.fs.cache_dir() end
+---Whether `path` is a file (not a directory) that you can read.
+---@param path string
+---@return boolean
+function neori.util.fs.file_readable(path) end
+---Whether `path` is a file (not a directory) that you can run.
+---@param path string
+---@return boolean
+function neori.util.fs.file_executable(path) end
+---Whether `path` is a directory that you can read.
+---@param path string
+---@return boolean
+function neori.util.fs.dir_readable(path) end
+---Whether `path` is a directory that you can write to.
+---@param path string
+---@return boolean
+function neori.util.fs.dir_writable(path) end
+---@param path string
+---@return boolean
+function neori.util.fs.is_dir(path) end
+---Makes a directory and its missing parents. Returns true, or false and an error; a directory
+---that already exists counts as made.
+---@param dir string
+---@return boolean ok
+---@return string? error
+function neori.util.fs.mkdir(dir) end
+
 ---Rules: match windows, outputs, workspaces, devices or layer surfaces when an event fires, and
 ---set their properties or run a function.
 ---

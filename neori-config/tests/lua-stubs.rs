@@ -91,6 +91,7 @@ fn stubs_declare_every_neori_function_and_namespace() {
     let mut expected = sections.clone();
     expected.insert("misc".to_owned());
     expected.insert("rules".to_owned());
+    expected.insert("util".to_owned());
     assert_eq!(names("namespaces"), expected);
 }
 
@@ -230,4 +231,45 @@ fn stubs_declare_neori_rules() {
         &get_keys,
     );
     assert_same("neori.RuleSet", &class_fields("neori.RuleSet"), &set_keys);
+}
+
+#[test]
+fn stubs_declare_neori_util() {
+    // Every function under neori.util, as `table.join`, `dump`, …
+    let (_config, host) = Config::parse_with_host(
+        Path::new("test.lua"),
+        r#"
+        functions = {}
+        local function walk(prefix, t)
+            for name, value in pairs(t) do
+                if type(value) == "function" then
+                    functions[#functions + 1] = prefix .. name
+                elseif type(value) == "table" then
+                    walk(prefix .. name .. ".", value)
+                end
+            end
+        end
+        walk("", neori.util)
+        "#,
+    )
+    .config
+    .unwrap();
+    let mlua::Value::Table(list) = host.read_global("functions").unwrap() else {
+        panic!("functions is not a table");
+    };
+    let api: BTreeSet<String> = list
+        .sequence_values::<String>()
+        .map(Result::unwrap)
+        .collect();
+    let re = Regex::new(r"(?m)^function neori\.util\.([\w.]+)\(").unwrap();
+    let declared: BTreeSet<String> = re.captures_iter(STUBS).map(|c| c[1].to_owned()).collect();
+    assert_same("neori.util functions", &declared, &api);
+
+    // Each module is declared as a namespace.
+    for module in ["table", "string", "math", "geometry", "fs"] {
+        assert!(
+            STUBS.contains(&format!("\nneori.util.{module} = {{}}\n")),
+            "neori.util.{module} = {{}} is missing from the stubs"
+        );
+    }
 }

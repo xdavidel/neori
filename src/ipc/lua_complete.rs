@@ -139,6 +139,26 @@ fn event_name(overload: &str) -> Option<String> {
     Some(name.to_owned())
 }
 
+/// The class of the namespace at `path` under `neori` (`util.table`), if it is one.
+fn namespace_class(
+    neori: &HashMap<String, Type>,
+    members: &HashMap<String, HashMap<String, Type>>,
+    path: &str,
+) -> Option<String> {
+    let mut parts = path.split('.');
+    let mut ty = neori.get(parts.next()?)?;
+    for part in parts {
+        let Type::Namespace(class) = ty else {
+            return None;
+        };
+        ty = members.get(class)?.get(part)?;
+    }
+    match ty {
+        Type::Namespace(class) => Some(class.clone()),
+        _ => None,
+    }
+}
+
 impl Api {
     fn parse() -> Self {
         let mut neori = HashMap::new();
@@ -224,10 +244,10 @@ impl Api {
                 let name = rest.split('(').next().unwrap();
                 let ret = std::mem::replace(&mut last_return, Type::Unknown);
                 // `function neori.rules.add(…)`: a function of a namespace.
-                if let Some((namespace, name)) = name.split_once('.') {
-                    if let Some(Type::Namespace(class)) = neori.get(namespace) {
+                if let Some((namespace, name)) = name.rsplit_once('.') {
+                    if let Some(class) = namespace_class(&neori, &members, namespace) {
                         members
-                            .entry(class.clone())
+                            .entry(class)
                             .or_default()
                             .insert(name.to_owned(), function(ret));
                     }
@@ -252,7 +272,17 @@ impl Api {
                             ty = Type::Namespace(class);
                         }
                     }
-                    neori.insert(name.to_owned(), ty);
+                    // `neori.util.table = {}`: a namespace inside a namespace.
+                    if let Some((namespace, name)) = name.rsplit_once('.') {
+                        if let Some(class) = namespace_class(&neori, &members, namespace) {
+                            members
+                                .entry(class)
+                                .or_default()
+                                .insert(name.to_owned(), ty);
+                        }
+                    } else {
+                        neori.insert(name.to_owned(), ty);
+                    }
                 }
             }
             if !line.is_empty() {
@@ -954,6 +984,16 @@ mod tests {
             ["neori.rules.add", "neori.rules.apply"]
         );
         assert!(!offers("neori.ru", "neori.rules.add"));
+        assert!(offers("neori.util.", "neori.util.table"));
+        assert!(offers("neori.util.", "neori.util.dump"));
+        assert_eq!(
+            complete_names("neori.util.table.cl"),
+            ["neori.util.table.clone"]
+        );
+        assert!(offers(
+            "local t = neori.util.geometry; t.in_d",
+            "local t = neori.util.geometry; t.in_direction"
+        ));
         assert!(offers(
             "neori.rules.add { wh",
             "neori.rules.add { where_not"
