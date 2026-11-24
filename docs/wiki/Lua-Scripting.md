@@ -1066,9 +1066,15 @@ the methods of `Window`, `Output`, `Workspace` and `Device`, knows what each eve
 receives (`neori.on("window-closed", function(w) … end)` knows `w` is a `Window`), and warns
 about typos like `neori.fucused_window()`.
 
-The definitions are installed to `share/neori/lua/neori.lua` (on NixOS,
-`/run/current-system/sw/share/neori/lua`), and live in `resources/lua/neori.lua` in the source
-tree. Point LuaLS at that directory with a `.luarc.json` next to your config:
+They type the config tables too: `neori.layout { … }`, `neori.window_rule { … }`,
+`neori.output("DP-1", { … })` and the rest complete their keys and check their values, like
+`center_focused_column = "on-overflow"`. Those definitions, `neori.config.*`, are generated from
+neori's config structs, so they list every key the config accepts.
+
+The definitions are installed to `share/neori/lua/` (on NixOS,
+`/run/current-system/sw/share/neori/lua`): `neori.lua` for the API and `neori-config.lua` for the
+config tables. In the source tree they live in `resources/lua/`. Point LuaLS at that directory
+with a `.luarc.json` next to your config:
 
 ```json
 {

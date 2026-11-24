@@ -41,6 +41,11 @@ pub trait FromLuaConfig: Sized {
     /// The type, as LuaLS writes it, for the editor definitions.
     fn lua_type() -> String;
 
+    /// The LuaLS class this type is a table of, for a [`LuaTable`] struct.
+    fn lua_class() -> Option<LuaClass> {
+        None
+    }
+
     /// Sets `self` from `value`. Replaces it, except for [`LuaTable`] structs, which only change
     /// the keys `value` has.
     fn merge_from_lua(&mut self, value: &Value, path: &str) -> Result<(), String> {
@@ -73,11 +78,21 @@ pub trait LuaTable: Default {
 }
 
 /// A key of a [`LuaTable`] struct.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct LuaField {
     pub name: &'static str,
     pub lua_type: String,
+    /// The class of a table value, to define it too.
+    pub class: fn() -> Option<LuaClass>,
     pub doc: &'static str,
+}
+
+/// A [`LuaTable`] struct as a LuaLS class.
+#[derive(Debug, Clone)]
+pub struct LuaClass {
+    /// Like `neori.config.Layout`.
+    pub name: String,
+    pub fields: Vec<LuaField>,
 }
 
 /// Parses a [`LuaTable`] struct from a table value, starting from its defaults.
@@ -230,6 +245,10 @@ impl<T: FromLuaConfig> FromLuaConfig for Vec<T> {
     fn lua_type() -> String {
         let item = T::lua_type();
         format!("{item}|{item}[]")
+    }
+
+    fn lua_class() -> Option<LuaClass> {
+        T::lua_class()
     }
 }
 
@@ -809,4 +828,83 @@ impl FromLuaConfig for crate::workspace::WorkspaceLayoutPart {
     fn lua_type() -> String {
         "table".to_owned()
     }
+}
+
+/// The config sections that are [`LuaTable`] structs, by their `neori.<name>` table.
+fn sections() -> Vec<(&'static str, Option<LuaClass>)> {
+    vec![
+        ("input", crate::Input::lua_class()),
+        ("layout", crate::Layout::lua_class()),
+        ("cursor", crate::Cursor::lua_class()),
+        ("gestures", crate::Gestures::lua_class()),
+        ("recent_windows", crate::RecentWindows::lua_class()),
+        ("hotkey_overlay", crate::HotkeyOverlay::lua_class()),
+        ("overview", crate::Overview::lua_class()),
+        ("blur", crate::appearance::Blur::lua_class()),
+        ("clipboard", crate::Clipboard::lua_class()),
+        (
+            "config_notification",
+            crate::ConfigNotification::lua_class(),
+        ),
+        ("xwayland_satellite", crate::XwaylandSatellite::lua_class()),
+        ("debug", crate::Debug::lua_class()),
+    ]
+}
+
+/// The LuaLS definitions of the config tables, from the [`LuaTable`] structs: the sections
+/// (`neori.layout { … }`), the rules, outputs, workspaces and scratchpads, and the tables in them.
+///
+/// `resources/lua/neori-config.lua` holds them; a test checks that it's current.
+pub fn lua_definitions() -> String {
+    let sections = sections();
+    let mut roots: Vec<LuaClass> = sections.iter().filter_map(|(_, c)| c.clone()).collect();
+    roots.extend(
+        [
+            crate::WindowRule::lua_class(),
+            crate::LayerRule::lua_class(),
+            crate::Output::lua_class(),
+            crate::Workspace::lua_class(),
+            crate::Scratchpad::lua_class(),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    let section_classes: Vec<String> = roots[..sections.len()]
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+
+    // Every class reachable from the roots, each once, in the order they're found.
+    let mut classes: Vec<LuaClass> = Vec::new();
+    let mut queue: std::collections::VecDeque<LuaClass> = roots.into();
+    while let Some(class) = queue.pop_front() {
+        if classes.iter().any(|c| c.name == class.name) {
+            continue;
+        }
+        queue.extend(class.fields.iter().filter_map(|f| (f.class)()));
+        classes.push(class);
+    }
+
+    let mut out = String::from(
+        "---@meta\n\
+         -- The config tables, generated from neori-config's config structs. Don't edit it: change\n\
+         -- the structs, then regenerate it with\n\
+         --   NEORI_UPDATE_LUA_DEFINITIONS=1 cargo test -p neori-config --test lua-definitions\n",
+    );
+    for class in &classes {
+        out.push('\n');
+        out.push_str(&format!("---@class {}\n", class.name));
+        if section_classes.contains(&class.name) {
+            out.push_str(&format!("---@overload fun(config: {})\n", class.name));
+        }
+        for field in &class.fields {
+            out.push_str(&format!("---@field {}? {}", field.name, field.lua_type));
+            if !field.doc.is_empty() {
+                out.push(' ');
+                out.push_str(field.doc);
+            }
+            out.push('\n');
+        }
+    }
+    out
 }

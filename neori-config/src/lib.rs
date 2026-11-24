@@ -5318,7 +5318,10 @@ mod tests {
         let field = |name: &str| fields.iter().find(|f| f.name == name).unwrap();
         assert_eq!(field("opacity").lua_type, "number");
         assert_eq!(field("open_on_output").lua_type, "string|string[]");
-        assert_eq!(field("matches").lua_type, "table|table[]");
+        assert_eq!(
+            field("matches").lua_type,
+            "neori.config.Match|neori.config.Match[]"
+        );
         assert_eq!(
             field("variable_refresh_rate").lua_type,
             "boolean|\"fullscreen-only\""

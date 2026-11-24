@@ -7,10 +7,12 @@
 //! merged into its current value, so a nested table only changes the keys it has. Keys the
 //! struct doesn't have are reported as unknown.
 //!
-//! Struct attribute:
+//! Struct attributes:
 //! - `#[lua(extra = path::to::fn)]`: handle keys that aren't fields (like `on` for a struct with an
 //!   `off` field) with `fn(&mut Self, &str, &Value, &str) -> Result<bool, String>`, which returns
 //!   whether it knew the key.
+//! - `#[lua(class = "LayerMatch")]`: the LuaLS class name, `neori.config.<class>`, when the
+//!   struct's own name is taken by another struct.
 //!
 //! Field attributes:
 //! - `#[lua(rename = "in")]`: use this key instead of the field name.
@@ -109,9 +111,10 @@ fn option_inner(ty: &Type) -> Option<&Type> {
     }
 }
 
-/// The struct's `#[lua(extra = …)]` function, if any.
-fn struct_extra(input: &DeriveInput) -> syn::Result<Option<Expr>> {
+/// The struct's `#[lua(extra = …)]` function and `#[lua(class = …)]` name, if any.
+fn struct_attrs(input: &DeriveInput) -> syn::Result<(Option<Expr>, Option<String>)> {
     let mut extra = None;
+    let mut class = None;
     for attr in &input.attrs {
         if !attr.path().is_ident("lua") {
             continue;
@@ -120,17 +123,21 @@ fn struct_extra(input: &DeriveInput) -> syn::Result<Option<Expr>> {
             if meta.path.is_ident("extra") {
                 extra = Some(meta.value()?.parse::<Expr>()?);
                 Ok(())
+            } else if meta.path.is_ident("class") {
+                class = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+                Ok(())
             } else {
                 Err(meta.error("unknown lua attribute"))
             }
         })?;
     }
-    Ok(extra)
+    Ok((extra, class))
 }
 
 fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
-    let extra = struct_extra(input)?;
+    let (extra, class) = struct_attrs(input)?;
+    let class = format!("neori.config.{}", class.unwrap_or_else(|| name.to_string()));
     let Data::Struct(data) = &input.data else {
         return Err(syn::Error::new_spanned(input, "LuaTable needs a struct"));
     };
@@ -161,7 +168,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
         keys.extend(attrs.aliases.iter().cloned());
 
         let ty = &field.ty;
-        let (parse, lua_type) = if let Some(with) = &attrs.with {
+        let (parse, lua_type, lua_class) = if let Some(with) = &attrs.with {
             let lua_type = attrs.lua_type.clone().unwrap_or_else(|| "any".to_owned());
             (
                 quote! {
@@ -170,6 +177,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     }
                 },
                 quote! { ::std::string::String::from(#lua_type) },
+                quote! { || None },
             )
         } else if let Some(inner) = option_inner(ty) {
             (
@@ -179,6 +187,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     }
                 },
                 quote! { <#inner as crate::lua_table::FromLuaConfig>::lua_type() },
+                quote! { <#inner as crate::lua_table::FromLuaConfig>::lua_class },
             )
         } else {
             (
@@ -186,6 +195,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
                     crate::lua_table::FromLuaConfig::merge_from_lua(&mut self.#ident, value, &path)?;
                 },
                 quote! { <#ty as crate::lua_table::FromLuaConfig>::lua_type() },
+                quote! { <#ty as crate::lua_table::FromLuaConfig>::lua_class },
             )
         };
 
@@ -200,6 +210,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
             crate::lua_table::LuaField {
                 name: #key,
                 lua_type: #lua_type,
+                class: #lua_class,
                 doc: #doc,
             }
         });
@@ -248,7 +259,14 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
 
             fn lua_type() -> ::std::string::String {
-                ::std::string::String::from("table")
+                ::std::string::String::from(#class)
+            }
+
+            fn lua_class() -> Option<crate::lua_table::LuaClass> {
+                Some(crate::lua_table::LuaClass {
+                    name: ::std::string::String::from(#class),
+                    fields: <Self as crate::lua_table::LuaTable>::lua_fields(),
+                })
             }
         }
     })

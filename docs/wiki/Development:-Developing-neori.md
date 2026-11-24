@@ -24,6 +24,16 @@ When adding new operations to the layout, add them to the `Op` enum at the botto
 
 When adding new config options, include them in the config parsing test.
 
+Config structs derive `LuaTable` (from the `neori-config-derive` crate), so a field added to one
+is a Lua config key right away, in snake_case and kebab-case, parsed by its type's
+`FromLuaConfig` implementation in `neori-config/src/lua_table.rs`. A new value type needs one
+there. The editor definitions of the config tables, `resources/lua/neori-config.lua`, are
+generated from the same structs; the `lua-definitions` test fails until you regenerate them:
+
+```sh
+NEORI_UPDATE_LUA_DEFINITIONS=1 cargo test -p neori-config --test lua-definitions
+```
+
 ### Running Tests
 
 Make sure to run `cargo test --all` to run tests from sub-crates too.

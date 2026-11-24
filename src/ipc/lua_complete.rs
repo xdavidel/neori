@@ -6,7 +6,11 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-const STUBS: &str = include_str!("../../resources/lua/neori.lua");
+const STUBS: &str = concat!(
+    include_str!("../../resources/lua/neori.lua"),
+    "\n",
+    include_str!("../../resources/lua/neori-config.lua"),
+);
 
 /// What a name in the stubs is.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,7 +42,12 @@ fn parse_type(ty: &str) -> Type {
         return Type::List(Box::new(parse_type(item)));
     }
     match ty.strip_prefix("neori.") {
-        Some(class) if class.chars().all(|c| c.is_alphanumeric() || c == '_') => {
+        // `neori.Window`, or `neori.config.Layout` for a config table.
+        Some(class)
+            if class
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '.') =>
+        {
             Type::Class(class.to_owned())
         }
         _ => Type::Unknown,
@@ -333,6 +342,16 @@ mod tests {
         // Arguments with brackets of their own.
         assert!(complete_names("neori.window_at(f(1), 2):ti")
             .contains(&"neori.window_at(f(1), 2):title".to_owned()));
+    }
+
+    #[test]
+    fn completes_config_section_keys() {
+        // From neori-config.lua, generated from the config structs.
+        assert!(complete_names("neori.layout.ga").contains(&"neori.layout.gaps".to_owned()));
+        assert!(complete_names("neori.layout.focus_ring.active_")
+            .contains(&"neori.layout.focus_ring.active_gradient".to_owned()));
+        assert!(complete_names("neori.input.touchpad.accel_")
+            .contains(&"neori.input.touchpad.accel_profile".to_owned()));
     }
 
     #[test]

@@ -439,7 +439,8 @@ function neori.keyboard_layout() end
 --     print(neori.layout.gaps) --> 16
 --
 -- A read returns what the config has set so far, or nil. See the Configuration pages of the
--- wiki for the fields.
+-- wiki for the fields. Their types, `neori.config.*`, are in neori-config.lua, generated from the
+-- config structs.
 
 ---A config section: callable with a table to merge into it, and indexable for its fields.
 ---@class neori.Section
@@ -447,49 +448,49 @@ function neori.keyboard_layout() end
 ---@field [string] any
 
 ---Input devices: keyboard, touchpad, mouse, tablet, touch. See the Configuration: Input wiki page.
----@type neori.Section
+---@type neori.config.Input
 neori.input = {}
 ---Layout: gaps, focus ring, border, shadow, column widths. See the Configuration: Layout wiki page.
----@type neori.Section
+---@type neori.config.Layout
 neori.layout = {}
 ---Cursor theme, size, hiding, shake-to-find.
----@type neori.Section
+---@type neori.config.Cursor
 neori.cursor = {}
 ---Animations. See the Configuration: Animations wiki page.
 ---@type neori.Section
 neori.animations = {}
 ---Gestures and hot corners. See the Configuration: Gestures wiki page.
----@type neori.Section
+---@type neori.config.Gestures
 neori.gestures = {}
 ---Actions for lid and tablet-mode switches. See the Configuration: Switch Events wiki page.
 ---@type neori.Section
 neori.switch_events = {}
 ---The recent windows switcher. See the Configuration: Recent Windows wiki page.
----@type neori.Section
+---@type neori.config.RecentWindows
 neori.recent_windows = {}
 ---The hotkey overlay.
----@type neori.Section
+---@type neori.config.HotkeyOverlay
 neori.hotkey_overlay = {}
 ---The overview.
----@type neori.Section
+---@type neori.config.Overview
 neori.overview = {}
 ---Background blur.
----@type neori.Section
+---@type neori.config.Blur
 neori.blur = {}
 ---Clipboard settings.
----@type neori.Section
+---@type neori.config.Clipboard
 neori.clipboard = {}
 ---The config error notification.
----@type neori.Section
+---@type neori.config.ConfigNotification
 neori.config_notification = {}
 ---Xwayland through xwayland-satellite.
----@type neori.Section
+---@type neori.config.XwaylandSatellite
 neori.xwayland_satellite = {}
 ---Environment variables for programs spawned by neori; `false` unsets a variable.
 ---@type neori.Section
 neori.environment = {}
 ---Debug options.
----@type neori.Section
+---@type neori.config.Debug
 neori.debug = {}
 
 ---The options that aren't sections: call it with a table, or read and assign them.
@@ -516,39 +517,39 @@ function neori.screenshot_path(path) end
 ---@param binds table
 function neori.binds(binds) end
 ---Replaces all window rules.
----@param rules table[]
+---@param rules neori.config.WindowRule[]
 function neori.window_rules(rules) end
 ---Replaces all layer rules.
----@param rules table[]
+---@param rules neori.config.LayerRule[]
 function neori.layer_rules(rules) end
 ---Replaces all scratchpads.
----@param scratchpads table[]
+---@param scratchpads (string|neori.config.Scratchpad)[]
 function neori.scratchpads(scratchpads) end
 
 ---Adds a window rule.
----@param rule table
+---@param rule neori.config.WindowRule
 function neori.window_rule(rule) end
 
 ---Adds a layer rule.
----@param rule table
+---@param rule neori.config.LayerRule
 function neori.layer_rule(rule) end
 
 ---Configures an output, by connector name or `"make model serial"`.
----@overload fun(config: table)
+---@overload fun(config: neori.config.Output)
 ---@param name string
----@param config table
+---@param config neori.config.Output
 function neori.output(name, config) end
 
 ---Declares a named workspace.
----@overload fun(config: table)
+---@overload fun(config: neori.config.Workspace)
 ---@param name string
----@param config? table
+---@param config? neori.config.Workspace
 function neori.workspace(name, config) end
 
 ---Declares a named scratchpad.
----@overload fun(config: table)
+---@overload fun(config: neori.config.Scratchpad)
 ---@param name string
----@param config table
+---@param config neori.config.Scratchpad
 function neori.scratchpad(name, config) end
 
 -- Environment

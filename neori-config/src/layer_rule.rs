@@ -22,6 +22,7 @@ pub struct LayerRule {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, LuaTable)]
+#[lua(class = "LayerMatch")]
 pub struct Match {
     pub namespace: Option<RegexEq>,
     pub at_startup: Option<bool>,

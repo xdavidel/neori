@@ -46,6 +46,7 @@
             root = ./.;
             fileset = lib.fileset.unions [
               ./neori-config
+              ./neori-config-derive
               ./neori-ipc
               ./neori-visual-tests
               ./resources
@@ -125,6 +126,7 @@
             install -Dm644 resources/neori.desktop -t $out/share/wayland-sessions
             install -Dm644 resources/neori-portals.conf -t $out/share/xdg-desktop-portal
             install -Dm644 resources/lua/neori.lua -t $out/share/neori/lua
+            install -Dm644 resources/lua/neori-config.lua -t $out/share/neori/lua
           ''
           + lib.optionalString withSystemd ''
             install -Dm755 resources/neori-session $out/bin/neori-session
