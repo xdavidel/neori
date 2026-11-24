@@ -286,10 +286,20 @@ goes more than 16 levels deep, the next signal is dropped, a warning is logged a
 error notification appears, so handlers that keep causing each other's signals can't hang the
 compositor.
 
-This only covers signals caused while Lua runs. Most built-in signals fire on the next frame
-instead (focus, workspace and output changes are noticed once per frame), and each frame starts
-over. So two `window-focused` handlers that keep focusing each other's window don't hit the
-limit: they bounce focus back and forth on every frame until one of them stops.
+Most built-in signals fire on the next frame instead: focus, workspace and output changes and the
+property signals are noticed once per frame, after the callback that caused them returned. A
+change made from Lua is remembered, and the signals it can cause continue its chain on the next
+frame. So two `window-focused` handlers that keep focusing each other's window stop at the same
+limit, within a fraction of a second, with the same warning.
+
+These signals continue the chain: `window-focused`, `workspace-focused`, `output-focused`,
+`window-fullscreen-changed`, `window-floating-changed`, `window-workspace-changed`,
+`workspace-added`, `workspace-removed`, `workspace-name-changed`, `output-mode-changed` and
+`layout-changed`. The others start over: titles and urgency only change because of the app, so a
+handler that does something every time a title changes is never cut off, however often it
+changes. A key press, a click, a touch or the start of a gesture also starts over, because what
+changes next is the user's doing: holding a key that moves focus, with a handler that changes
+something on each focus change, keeps working.
 
 `neori.emit` is different: it calls the handlers of your own signals directly, like a function
 call.
@@ -1369,8 +1379,6 @@ with a `.luarc.json` next to your config:
 
 ## Known limitations (today)
 
-- Handlers that keep undoing each other across frames aren't stopped: a `window-focused`
-  handler that always focuses another window makes focus bounce on every frame.
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for
   function binds (the compositor can't inspect what the function does).

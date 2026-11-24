@@ -208,6 +208,21 @@ impl State {
         let hide_exit_confirm_dialog =
             self.neori.exit_confirm_dialog.is_open() && should_hide_exit_confirm_dialog(&event);
 
+        // A key press or click is the user acting, so what changes next isn't caused by Lua.
+        if matches!(
+            event,
+            InputEvent::Keyboard { .. }
+                | InputEvent::PointerButton { .. }
+                | InputEvent::TouchDown { .. }
+                | InputEvent::TabletToolTip { .. }
+                | InputEvent::TabletToolButton { .. }
+                | InputEvent::GestureSwipeBegin { .. }
+                | InputEvent::GesturePinchBegin { .. }
+                | InputEvent::GestureHoldBegin { .. }
+        ) {
+            self.lua_events.user_input();
+        }
+
         let mut consumed_by_a11y = false;
         use InputEvent::*;
         match event {

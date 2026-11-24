@@ -10,6 +10,12 @@
 //! done. Events
 //! caused by a queued event are queued one level deeper; past [`MAX_LUA_EVENT_DEPTH`] levels they
 //! are dropped, so handlers that keep triggering each other can't loop forever.
+//!
+//! Some events are found by comparing the state at each refresh instead (`window-focused`, the
+//! property signals, …), so they fire after the callback that caused them returned. A change made
+//! from Lua is remembered with its depth, and those events fire one level deeper than it during
+//! the next refresh ([`LUA_CAUSED_SIGNALS`]). Handlers that keep undoing each other across
+//! refreshes hit the same limit.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::Duration;
@@ -309,6 +315,24 @@ fn placement_of(layout: &Layout<Mapped>, window: &Mapped) -> Option<Placement> {
 /// How many levels deep an event may be caused by other events before it is dropped.
 pub const MAX_LUA_EVENT_DEPTH: u32 = 16;
 
+/// The events found by comparing the state at each refresh that a change made from Lua can
+/// cause. During the refresh after such a change, they continue its depth (see the module docs).
+/// Title and urgency changes come only from clients, so they always start at depth 0, and a
+/// handler that reacts to a title changing on every frame isn't mistaken for a loop.
+const LUA_CAUSED_SIGNALS: &[&str] = &[
+    "window-focused",
+    "workspace-focused",
+    "output-focused",
+    "window-fullscreen-changed",
+    "window-floating-changed",
+    "window-workspace-changed",
+    "workspace-added",
+    "workspace-removed",
+    "workspace-name-changed",
+    "output-mode-changed",
+    "layout-changed",
+];
+
 /// A Lua event waiting to be delivered.
 struct DeferredLua {
     label: String,
@@ -335,6 +359,11 @@ pub struct LuaEventQueue {
     /// The callback being delivered, or `None` when no Lua is running.
     current: Option<Running>,
     queue: VecDeque<DeferredLua>,
+    /// The depth of an event caused by a change Lua made since the current refresh started:
+    /// one more than the deepest callback that made one.
+    changed: Option<u32>,
+    /// `changed` as it was when the current refresh started, for the changes Lua made before it.
+    carried: Option<u32>,
 }
 
 impl LuaEventQueue {
@@ -346,6 +375,39 @@ impl LuaEventQueue {
     /// The depth of an event caused by the running callback.
     fn next_depth(&self) -> u32 {
         self.current.map_or(0, |r| r.depth + 1)
+    }
+
+    /// Remembers that the running callback changed the compositor state.
+    fn note_change(&mut self) {
+        let depth = self.next_depth().max(1);
+        self.changed = Some(self.changed.map_or(depth, |d| d.max(depth)));
+    }
+
+    /// Forgets the changes Lua made: the user acted, so what changes next is their doing. Without
+    /// this, holding a key that moves focus, with a handler that changes something on each focus
+    /// change, would look like handlers causing each other.
+    pub fn user_input(&mut self) {
+        self.changed = None;
+        self.carried = None;
+    }
+
+    /// Starts a refresh: the changes Lua made before it are carried into the events it fires.
+    pub fn begin_refresh(&mut self) {
+        self.carried = self.changed.take();
+    }
+
+    /// Ends a refresh. The changes Lua made during it carry into the next one.
+    pub fn end_refresh(&mut self) {
+        self.carried = None;
+    }
+
+    /// The depth of `event` fired while no Lua is running: a [`LUA_CAUSED_SIGNALS`] event
+    /// continues the depth of a change Lua made, other events start at 0.
+    fn event_depth(&self, event: &str) -> u32 {
+        if !LUA_CAUSED_SIGNALS.contains(&event) {
+            return 0;
+        }
+        self.carried.max(self.changed).unwrap_or(0)
     }
 
     /// Queues an event fired while Lua is running, one level deeper than the current one.
@@ -723,6 +785,7 @@ impl ScriptContext for State {
     // module docs), so Lua is never re-entered from here.
 
     fn do_action(&mut self, action: neori_config::Action) {
+        self.lua_events.note_change();
         let running = self.lua_events.current;
         let allow_when_locked = running.is_some_and(|r| r.allow_when_locked);
         let time = running.map_or_else(InputTime::now, |r| r.time);
@@ -730,10 +793,13 @@ impl ScriptContext for State {
     }
 
     fn output_action(&mut self, output: &str, action: neori_ipc::OutputAction) {
+        self.lua_events.note_change();
         self.apply_transient_output_config(output, action);
     }
 
     fn warp(&mut self, x: f64, y: f64) {
+        // Moving the pointer can focus another output.
+        self.lua_events.note_change();
         self.move_cursor(smithay::utils::Point::from((x, y)));
     }
 
@@ -801,6 +867,19 @@ impl State {
         allow_when_locked: bool,
         time: InputTime,
     ) {
+        self.run_lua_at(0, label, call, args, allow_when_locked, time);
+    }
+
+    /// [`State::run_lua`] for a callback `depth` levels deep, when Lua isn't running.
+    fn run_lua_at<A: IntoLuaMulti + Clone + 'static>(
+        &mut self,
+        depth: u32,
+        label: &str,
+        call: LuaCall,
+        args: A,
+        allow_when_locked: bool,
+        time: InputTime,
+    ) {
         let event = DeferredLua {
             label: label.to_owned(),
             run: Box::new(move || call.run(args)),
@@ -810,16 +889,16 @@ impl State {
         };
         if self.lua_events.is_running() {
             if let Err(depth) = self.lua_events.defer(event) {
-                warn!(
-                    "Lua {label} callback dropped: Lua events caused each other {depth} levels \
-                     deep; do handlers keep triggering each other?"
-                );
-                self.neori.config_error_notification.show();
+                self.report_lua_loop(label, depth);
             }
             return;
         }
+        if depth > MAX_LUA_EVENT_DEPTH {
+            self.report_lua_loop(label, depth);
+            return;
+        }
         let running = Running {
-            depth: 0,
+            depth,
             allow_when_locked,
             time,
         };
@@ -860,6 +939,15 @@ impl State {
             };
             self.with_lua_running(running, |state| state.deliver(event));
         }
+    }
+
+    /// Reports a callback dropped because Lua events caused each other too many levels deep.
+    fn report_lua_loop(&mut self, label: &str, depth: u32) {
+        warn!(
+            "Lua {label} callback dropped: Lua events caused each other {depth} levels deep; do \
+             handlers keep triggering each other?"
+        );
+        self.neori.config_error_notification.show();
     }
 
     /// Reports a Lua callback error: logged, and shown as the config error notification.
@@ -1070,7 +1158,8 @@ impl State {
     ) {
         if let Some(call) = self.scripting.event_call(event, target.as_ref()) {
             let args = args(self);
-            self.run_lua(event, call, args, false, InputTime::now());
+            let depth = self.lua_events.event_depth(event);
+            self.run_lua_at(depth, event, call, args, false, InputTime::now());
         }
     }
 
@@ -1474,5 +1563,52 @@ mod tests {
         queue.current = running(MAX_LUA_EVENT_DEPTH);
         assert_eq!(queue.defer(event("dropped")), Err(MAX_LUA_EVENT_DEPTH + 1));
         assert_eq!(queue.queue.len(), 1);
+    }
+
+    #[test]
+    fn events_after_a_lua_change_continue_its_depth() {
+        let mut queue = LuaEventQueue::default();
+        assert_eq!(queue.event_depth("window-focused"), 0);
+
+        // A callback 3 levels deep changes something, during a refresh.
+        queue.begin_refresh();
+        queue.current = running(3);
+        queue.note_change();
+        queue.current = None;
+        // Events later in the same refresh continue it, but only those Lua can cause.
+        assert_eq!(queue.event_depth("window-focused"), 4);
+        assert_eq!(queue.event_depth("window-floating-changed"), 4);
+        assert_eq!(queue.event_depth("window-title-changed"), 0);
+        assert_eq!(queue.event_depth("window-urgent-changed"), 0);
+        assert_eq!(queue.event_depth("pointer-button"), 0);
+        queue.end_refresh();
+
+        // And so do events in the next refresh.
+        queue.begin_refresh();
+        assert_eq!(queue.event_depth("window-focused"), 4);
+        queue.end_refresh();
+
+        // A refresh without a change ends it.
+        queue.begin_refresh();
+        assert_eq!(queue.event_depth("window-focused"), 0);
+        queue.end_refresh();
+    }
+
+    #[test]
+    fn user_input_ends_the_depth_of_lua_changes() {
+        let mut queue = LuaEventQueue {
+            current: running(5),
+            ..Default::default()
+        };
+        queue.note_change();
+        queue.current = None;
+        queue.begin_refresh();
+        queue.current = running(2);
+        queue.note_change();
+        queue.current = None;
+        assert_eq!(queue.event_depth("window-focused"), 6);
+
+        queue.user_input();
+        assert_eq!(queue.event_depth("window-focused"), 0);
     }
 }

@@ -3825,3 +3825,102 @@ fn begin_move_from_a_mouse_bind_ends_on_release() {
     send_button(&mut f, 0x110, false);
     assert!(!f.neori().seat.get_pointer().unwrap().is_grabbed());
 }
+
+/// Presses and releases an unbound key, like the user typing.
+fn type_key(f: &mut Fixture) {
+    use smithay::backend::input::{InputEvent, Keycode};
+
+    use crate::tests::test_input_backend::{TestInputBackend, TestKeyboardKeyEvent};
+
+    for state in [KeyState::Pressed, KeyState::Released] {
+        f.neori_state()
+            .process_input_event(InputEvent::<TestInputBackend>::Keyboard {
+                event: TestKeyboardKeyEvent {
+                    time: InputTime::from_micros(0),
+                    // F12, which no bind uses.
+                    code: Keycode::new(96),
+                    state,
+                    count: 1,
+                },
+            });
+    }
+}
+
+#[test]
+fn handlers_that_keep_undoing_each_other_across_refreshes_are_stopped() {
+    // window-focused fires from the per-refresh focus check, after the handler that moved focus
+    // returned, so the queue depth alone never saw this loop: focus bounced on every refresh.
+    let mut f = fixture_from_lua(
+        r#"
+        runs = 0
+        neori.on("window-focused", function(w)
+            runs = runs + 1
+            for _, other in ipairs(neori.windows()) do
+                if other:id() ~= w:id() then
+                    other:focus()
+                    return
+                end
+            end
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "a");
+    map_window(&mut f, id, "b");
+    for _ in 0..100 {
+        refresh(&mut f);
+    }
+    let runs = read_global_int(&f, "runs");
+    assert!(
+        runs <= i64::from(crate::script::MAX_LUA_EVENT_DEPTH) + 2,
+        "the loop should stop at the depth limit, ran {runs} times"
+    );
+
+    // It stays stopped.
+    for _ in 0..20 {
+        refresh(&mut f);
+    }
+    assert_eq!(read_global_int(&f, "runs"), runs);
+}
+
+#[test]
+fn a_handler_that_changes_something_on_every_focus_change_isnt_a_loop() {
+    // The user moves focus on every refresh (holding a key), and the handler changes something
+    // each time. Each focus change follows a key press, so it starts over at depth 0.
+    let mut f = fixture_from_lua(
+        r#"
+        runs = 0
+        neori.on("window-focused", function(w)
+            runs = runs + 1
+            neori.action("center-column")
+        end)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let id = f.add_client();
+    map_window(&mut f, id, "a");
+    map_window(&mut f, id, "b");
+    refresh(&mut f);
+    let ids: Vec<u64> = f
+        .neori()
+        .layout
+        .windows()
+        .map(|(_, w)| w.id().get())
+        .collect();
+    let before = read_global_int(&f, "runs");
+
+    // One refresh per focus change, as when a held key repeats.
+    for i in 0..40 {
+        type_key(&mut f);
+        f.neori_state().do_action(
+            Action::FocusWindow {
+                id: ids[i % ids.len()],
+            },
+            false,
+            InputTime::now(),
+        );
+        f.state.server.dispatch();
+    }
+    assert_eq!(read_global_int(&f, "runs"), before + 40);
+}

@@ -1010,6 +1010,7 @@ impl State {
 
     fn refresh(&mut self) {
         let _span = tracy_client::span!("State::refresh");
+        self.lua_events.begin_refresh();
 
         // Handle commits for surfaces whose blockers cleared this cycle. This should happen before
         // layout.refresh() since this is where these surfaces handle commits.
@@ -1054,6 +1055,8 @@ impl State {
         // Needs to be called after updating the keyboard focus.
         #[cfg(feature = "dbus")]
         self.neori.refresh_a11y();
+
+        self.lua_events.end_refresh();
     }
 
     /// Stop sessions whose source is gone and sync buffer constraints. Runs as
