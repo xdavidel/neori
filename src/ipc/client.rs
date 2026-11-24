@@ -15,20 +15,34 @@ use serde_json::json;
 use crate::cli::Msg;
 use crate::utils::version;
 
-/// The names of the global variables in the running compositor's Lua state, for completion, or
-/// none if it can't be reached.
-fn lua_globals() -> Vec<String> {
-    let code = "local names = {} \
-        for name in pairs(_G) do \
-            if type(name) == 'string' then names[#names + 1] = name end \
-        end \
-        return table.concat(names, '\\n')";
+/// The string keys of the global table at `path` in the running compositor's Lua state (the
+/// globals for an empty path), for completing `neori msg lua`. Only walks tables with `rawget`,
+/// so no metamethod or other code of the config runs. Nothing if neori isn't reachable.
+fn lua_table_keys(path: &[String]) -> Vec<String> {
+    let path: Vec<String> = path
+        .iter()
+        // Names only, so they're safe to put in the code.
+        .filter(|name| name.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        .map(|name| format!("\"{name}\""))
+        .collect();
+    let code = format!(
+        "local t = _G \
+         for _, key in ipairs({{ {} }}) do \
+             if type(t) ~= 'table' then return '' end \
+             t = rawget(t, key) \
+         end \
+         if type(t) ~= 'table' then return '' end \
+         local names = {{}} \
+         for name in next, t do \
+             if type(name) == 'string' then names[#names + 1] = name end \
+         end \
+         return table.concat(names, '\\n')",
+        path.join(", ")
+    );
     let Ok(mut socket) = Socket::connect() else {
         return Vec::new();
     };
-    match socket.send(Request::Lua {
-        code: code.to_owned(),
-    }) {
+    match socket.send(Request::Lua { code }) {
         Ok(Ok(Response::LuaEvaluated(result))) => result
             .values
             .first()
@@ -89,7 +103,7 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
             ..
         } => {
             // Shell completion: print the candidates and nothing else, even on errors.
-            for candidate in crate::ipc::lua_complete::complete(text, &lua_globals()) {
+            for candidate in crate::ipc::lua_complete::complete(text, &lua_table_keys) {
                 println!("{candidate}");
             }
             return Ok(());

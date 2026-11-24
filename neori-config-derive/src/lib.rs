@@ -206,14 +206,17 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
             }
         });
         let doc = doc_comment(field);
-        infos.push(quote! {
-            crate::lua_table::LuaField {
-                name: #key,
-                lua_type: #lua_type,
-                class: #lua_class,
-                doc: #doc,
-            }
-        });
+        // Aliases are listed too: `match` is how the docs write `matches`.
+        for name in std::iter::once(&key).chain(&attrs.aliases) {
+            infos.push(quote! {
+                crate::lua_table::LuaField {
+                    name: #name,
+                    lua_type: #lua_type,
+                    class: #lua_class,
+                    doc: #doc,
+                }
+            });
+        }
     }
 
     let fallback = match &extra {

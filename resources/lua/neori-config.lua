@@ -139,6 +139,7 @@
 ---@field force_disable_connectors_on_resume? boolean
 ---@field render_drm_device? string
 ---@field ignore_drm_device? string|string[]
+---@field ignored_drm_devices? string|string[]
 ---@field force_pipewire_invalid_modifier? boolean
 ---@field disable_pipewire_dmabuf? boolean
 ---@field emulate_zero_presentation_time? boolean
@@ -155,7 +156,9 @@
 
 ---@class neori.config.WindowRule
 ---@field matches? neori.config.Match|neori.config.Match[]
+---@field match? neori.config.Match|neori.config.Match[]
 ---@field excludes? neori.config.Match|neori.config.Match[]
+---@field exclude? neori.config.Match|neori.config.Match[]
 ---@field default_column_width? table
 ---@field default_window_height? table
 ---@field open_on_output? string|string[] Outputs to open the window on, in preference order.
@@ -191,7 +194,9 @@
 
 ---@class neori.config.LayerRule
 ---@field matches? neori.config.LayerMatch|neori.config.LayerMatch[]
+---@field match? neori.config.LayerMatch|neori.config.LayerMatch[]
 ---@field excludes? neori.config.LayerMatch|neori.config.LayerMatch[]
+---@field exclude? neori.config.LayerMatch|neori.config.LayerMatch[]
 ---@field opacity? number
 ---@field block_out_from? string|table
 ---@field shadow? neori.config.ShadowRule
