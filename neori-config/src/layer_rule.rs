@@ -1,10 +1,14 @@
+use neori_config_derive::LuaTable;
+
 use crate::appearance::{BackgroundEffectRule, BlockOutFrom, CornerRadius, ShadowRule};
 use crate::utils::RegexEq;
 use crate::window_rule::PopupsRule;
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct LayerRule {
+    #[lua(alias = "match")]
     pub matches: Vec<Match>,
+    #[lua(alias = "exclude")]
     pub excludes: Vec<Match>,
     pub opacity: Option<f32>,
     pub block_out_from: Option<BlockOutFrom>,
@@ -17,7 +21,7 @@ pub struct LayerRule {
     pub popups: PopupsRule,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Match {
     pub namespace: Option<RegexEq>,
     pub at_startup: Option<bool>,

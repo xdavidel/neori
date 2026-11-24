@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "neori-config",
+    "neori-config-derive",
     "neori-ipc",
     "neori-visual-tests",
 ]

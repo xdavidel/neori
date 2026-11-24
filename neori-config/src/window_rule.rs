@@ -1,3 +1,4 @@
+use neori_config_derive::LuaTable;
 use neori_ipc::ColumnDisplay;
 
 use crate::appearance::{
@@ -8,9 +9,11 @@ use crate::layout::DefaultPresetSize;
 use crate::utils::{MergeWith, RegexEq};
 use crate::FloatOrInt;
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct WindowRule {
+    #[lua(alias = "match")]
     pub matches: Vec<Match>,
+    #[lua(alias = "exclude")]
     pub excludes: Vec<Match>,
     pub default_column_width: Option<DefaultPresetSize>,
     pub default_window_height: Option<DefaultPresetSize>,
@@ -57,7 +60,7 @@ pub enum VrrRule {
     FullscreenOnly,
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct PopupsRule {
     pub opacity: Option<f32>,
     pub geometry_corner_radius: Option<CornerRadius>,
@@ -83,7 +86,7 @@ impl ResolvedPopupsRules {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Match {
     pub app_id: Option<RegexEq>,
     pub title: Option<RegexEq>,
@@ -96,7 +99,7 @@ pub struct Match {
     pub at_startup: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct FloatingPosition {
     pub x: FloatOrInt<-65535, 65535>,
     pub y: FloatOrInt<-65535, 65535>,

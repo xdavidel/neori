@@ -2150,12 +2150,22 @@ dependencies = [
  "insta",
  "miette",
  "mlua",
+ "neori-config-derive",
  "neori-ipc",
  "pretty_assertions",
  "regex",
  "smithay",
  "tracing",
  "tracy-client",
+]
+
+[[package]]
+name = "neori-config-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

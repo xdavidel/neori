@@ -2,6 +2,7 @@ use std::ops::{Mul, MulAssign};
 use std::str::FromStr;
 
 use miette::{miette, IntoDiagnostic as _};
+use neori_config_derive::LuaTable;
 use smithay::backend::renderer::Color32F;
 
 use crate::utils::{Flag, MergeWith};
@@ -382,7 +383,7 @@ impl MergeWith<ShadowRule> for Shadow {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct ShadowOffset {
     pub x: FloatOrInt<-65535, 65535>,
     pub y: FloatOrInt<-65535, 65535>,
@@ -624,7 +625,7 @@ pub enum BlockOutKind {
     Hide,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct BorderRule {
     pub off: bool,
     pub on: bool,
@@ -637,7 +638,7 @@ pub struct BorderRule {
     pub urgent_gradient: Option<Gradient>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct ShadowRule {
     pub off: bool,
     pub on: bool,
@@ -649,7 +650,7 @@ pub struct ShadowRule {
     pub inactive_color: Option<Color>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct TabIndicatorRule {
     pub active_color: Option<Color>,
     pub inactive_color: Option<Color>,
@@ -841,7 +842,7 @@ impl MergeWith<BlurPart> for Blur {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct BackgroundEffectRule {
     pub xray: Option<bool>,
     pub blur: Option<bool>,

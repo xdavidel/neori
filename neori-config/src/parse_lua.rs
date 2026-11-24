@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mlua::prelude::*;
 use mlua::Value;
-use neori_ipc::{ColumnDisplay, ConfiguredMode, Layer, SizeChange, Transform};
+use neori_ipc::{ColumnDisplay, ConfiguredMode, SizeChange, Transform};
 
 use crate::animations::*;
 use crate::appearance::*;
@@ -23,7 +23,7 @@ use crate::signals::{
     builtin_object_signals, builtin_signal, builtin_signal_names, ends_target, find_builtin,
     object_signal, BuiltinSignal, SharedSignals, SignalTarget, BUILTIN_SIGNALS,
 };
-use crate::utils::{Flag, Percent, RegexEq};
+use crate::utils::{Flag, Percent};
 use crate::window_rule::*;
 use crate::workspace::*;
 use crate::*;
@@ -3442,7 +3442,7 @@ fn set_strict_config(value: bool) {
 /// Reports an unknown key in a config section.
 ///
 /// Emits a warning by default, or an error when strict config parsing is enabled.
-fn unknown_key(section: &str, key: &str) -> Result<(), String> {
+pub(crate) fn unknown_key(section: &str, key: &str) -> Result<(), String> {
     if strict_config() {
         Err(format!("unknown key `{key}` in {section}"))
     } else {
@@ -3454,7 +3454,7 @@ fn unknown_key(section: &str, key: &str) -> Result<(), String> {
 /// Reports a known config key used with a value type it does not accept.
 ///
 /// Emits a warning by default, or an error when strict config parsing is enabled.
-fn invalid_config(message: &str) -> Result<(), String> {
+pub(crate) fn invalid_config(message: &str) -> Result<(), String> {
     if strict_config() {
         Err(message.to_string())
     } else {
@@ -3552,14 +3552,14 @@ fn parse_event_actions(t: &LuaTable) -> Result<Vec<Action>, String> {
     Ok(actions)
 }
 
-fn key_str(val: &Value) -> Result<String, String> {
+pub(crate) fn key_str(val: &Value) -> Result<String, String> {
     match val {
         Value::String(s) => Ok(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
         _ => Err(format!("expected string key, got {:?}", val.type_name())),
     }
 }
 
-fn value_is_truthy(val: &Value) -> bool {
+pub(crate) fn value_is_truthy(val: &Value) -> bool {
     match val {
         Value::Nil => false,
         Value::Boolean(b) => *b,
@@ -3567,7 +3567,7 @@ fn value_is_truthy(val: &Value) -> bool {
     }
 }
 
-fn value_to_string(val: &Value) -> Result<String, String> {
+pub(crate) fn value_to_string(val: &Value) -> Result<String, String> {
     match val {
         Value::String(s) => Ok(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
         Value::Integer(i) => Ok(i.to_string()),
@@ -3576,7 +3576,7 @@ fn value_to_string(val: &Value) -> Result<String, String> {
     }
 }
 
-fn value_to_f64(val: &Value) -> Result<f64, String> {
+pub(crate) fn value_to_f64(val: &Value) -> Result<f64, String> {
     match val {
         Value::Integer(i) => Ok(*i as f64),
         Value::Number(f) => Ok(*f),
@@ -3588,7 +3588,7 @@ fn value_to_f64(val: &Value) -> Result<f64, String> {
     }
 }
 
-fn value_to_i64(val: &Value) -> Result<i64, String> {
+pub(crate) fn value_to_i64(val: &Value) -> Result<i64, String> {
     match val {
         Value::Integer(i) => Ok(*i),
         Value::Number(f) => Ok(*f as i64),
@@ -3611,7 +3611,7 @@ fn value_to_u16(val: &Value) -> Result<u16, String> {
     u16::try_from(i).map_err(|_| format!("value out of range for u16: {i}"))
 }
 
-fn value_to_default_preset_size(val: &Value) -> Result<DefaultPresetSize, String> {
+pub(crate) fn value_to_default_preset_size(val: &Value) -> Result<DefaultPresetSize, String> {
     match val {
         Value::Table(t) => {
             if let Ok(v) = t.get::<f64>("proportion") {
@@ -3640,7 +3640,7 @@ fn value_to_u64(val: &Value) -> Result<u64, String> {
     u64::try_from(i).map_err(|_| format!("value out of range for u64: {i}"))
 }
 
-fn parse_css_color(s: &str) -> Result<Color, String> {
+pub(crate) fn parse_css_color(s: &str) -> Result<Color, String> {
     csscolorparser::parse(s)
         .map(|c| Color {
             r: c.r,
@@ -4026,7 +4026,7 @@ fn parse_touch(table: &LuaTable, touch: &mut Touch) -> Result<(), String> {
 
 /// Parses `block_out_from`: a target string (`"screencast"` or `"screen-capture"`), or a table
 /// with the target and how to block out, like `{ "screencast", kind = "hide" }`.
-fn parse_block_out_from(value: &Value) -> Result<Option<BlockOutFrom>, String> {
+pub(crate) fn parse_block_out_from(value: &Value) -> Result<Option<BlockOutFrom>, String> {
     let (target, kind) = match value {
         Value::Table(t) => {
             let target: Value = t.get(1).map_err(|e| format!("block_out_from: {e}"))?;
@@ -4333,170 +4333,11 @@ fn parse_window_rules(table: LuaTable, config: &mut Config) -> Result<(), String
 
 fn parse_window_rule(table: LuaTable) -> Result<WindowRule, String> {
     let mut rule = WindowRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("window-rule field error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "match" | "matches" => {
-                if let Value::Table(t) = &value {
-                    let mut has_seq = false;
-                    for v in t.clone().sequence_values::<LuaTable>() {
-                        has_seq = true;
-                        let mt = v.map_err(|e| format!("{e}"))?;
-                        rule.matches.push(parse_match_entry(&mt)?);
-                    }
-                    if !has_seq {
-                        rule.matches.push(parse_match_entry(t)?);
-                    }
-                }
-            }
-            "exclude" | "excludes" => {
-                if let Value::Table(t) = &value {
-                    let mut has_seq = false;
-                    for v in t.clone().sequence_values::<LuaTable>() {
-                        has_seq = true;
-                        let mt = v.map_err(|e| format!("{e}"))?;
-                        rule.excludes.push(parse_match_entry(&mt)?);
-                    }
-                    if !has_seq {
-                        rule.excludes.push(parse_match_entry(t)?);
-                    }
-                }
-            }
-            "open_on_output" | "open-on-output" => {
-                rule.open_on_output = parse_open_on_output(&value)?;
-            }
-            "open_on_workspace" | "open-on-workspace" => {
-                rule.open_on_workspace = Some(value_to_string(&value)?);
-            }
-            "open_maximized" | "open-maximized" => {
-                rule.open_maximized = Some(value_is_truthy(&value));
-            }
-            "open_maximized_to_edges" | "open-maximized-to-edges" => {
-                rule.open_maximized_to_edges = Some(value_is_truthy(&value));
-            }
-            "open_fullscreen" | "open-fullscreen" => {
-                rule.open_fullscreen = Some(value_is_truthy(&value));
-            }
-            "open_floating" | "open-floating" => {
-                rule.open_floating = Some(value_is_truthy(&value));
-            }
-            "open_focused" | "open-focused" => {
-                rule.open_focused = Some(value_is_truthy(&value));
-            }
-            "on_xdg_activate" | "on-xdg-activate" => {
-                let s = value_to_string(&value)?;
-                rule.on_xdg_activate = match s.as_str() {
-                    "ignore" => Some(OnXdgActivate::Ignore),
-                    "set-urgent" | "set_urgent" => Some(OnXdgActivate::SetUrgent),
-                    "focus" => Some(OnXdgActivate::Focus),
-                    other => {
-                        invalid_config(&format!(
-                            "invalid on_xdg_activate `{other}`, expected \"ignore\", \"set-urgent\" or \"focus\""
-                        ))?;
-                        None
-                    }
-                };
-            }
-            "min_width" | "min-width" => {
-                rule.min_width = Some(value_to_u16(&value)?);
-            }
-            "min_height" | "min-height" => {
-                rule.min_height = Some(value_to_u16(&value)?);
-            }
-            "max_width" | "max-width" => {
-                rule.max_width = Some(value_to_u16(&value)?);
-            }
-            "max_height" | "max-height" => {
-                rule.max_height = Some(value_to_u16(&value)?);
-            }
-            "default_column_width" | "default-column-width" => {
-                if let Value::Table(_) = &value {
-                    rule.default_column_width = Some(value_to_default_preset_size(&value)?);
-                }
-            }
-            "default_window_height" | "default-window-height" => {
-                if let Value::Table(_) = &value {
-                    rule.default_window_height = Some(value_to_default_preset_size(&value)?);
-                }
-            }
-            "default_column_display" | "default-column-display" => {
-                let s = value_to_string(&value)?;
-                rule.default_column_display = Some(
-                    s.parse::<ColumnDisplay>()
-                        .map_err(|e| format!("invalid default-column-display: {e}"))?,
-                );
-            }
-            "focus_ring" | "focus-ring" => {
-                if let Value::Table(t) = &value {
-                    rule.focus_ring = parse_border_rule(t)?;
-                }
-            }
-            "border" => {
-                if let Value::Table(t) = &value {
-                    rule.border = parse_border_rule(t)?;
-                }
-            }
-            "shadow" => {
-                if let Value::Table(t) = &value {
-                    rule.shadow = parse_shadow_rule(t)?;
-                }
-            }
-            "draw_border_with_background" | "draw-border-with-background" => {
-                rule.draw_border_with_background = Some(value_is_truthy(&value));
-            }
-            "opacity" => {
-                rule.opacity = Some(value_to_f64(&value)? as f32);
-            }
-            "pinch_sensitivity" | "pinch-sensitivity" => {
-                rule.pinch_sensitivity = parse_pinch_sensitivity(&value, "window_rule")?;
-            }
-            "block_out_from" | "block-out-from" => {
-                rule.block_out_from = parse_block_out_from(&value)?;
-            }
-            "geometry_corner_radius" | "geometry-corner-radius" => {
-                rule.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
-            }
-            "clip_to_geometry" | "clip-to-geometry" => {
-                rule.clip_to_geometry = Some(value_is_truthy(&value));
-            }
-            "baba_is_float" | "baba-is-float" => {
-                rule.baba_is_float = Some(value_is_truthy(&value));
-            }
-            "variable_refresh_rate" | "variable-refresh-rate" => {
-                rule.variable_refresh_rate = match &value {
-                    Value::Boolean(true) => Some(VrrRule::On),
-                    Value::Boolean(false) => Some(VrrRule::Off),
-                    _ => match value_to_string(&value)?.as_str() {
-                        // Also accept bool strings to reduce confusion.
-                        "true" => Some(VrrRule::On),
-                        "false" => Some(VrrRule::Off),
-                        "fullscreen-only" | "fullscreen_only" => Some(VrrRule::FullscreenOnly),
-                        other => {
-                            invalid_config(&format!(
-                                "invalid variable_refresh_rate `{other}`, expected true, \"fullscreen-only\", or false"
-                            ))?;
-                            None
-                        }
-                    },
-                };
-            }
-            "tiled_state" | "tiled-state" => {
-                rule.tiled_state = Some(value_is_truthy(&value));
-            }
-            "background_effect" | "background-effect" => {
-                rule.background_effect = parse_background_effect_rule(&value, "window_rule")?;
-            }
-            "popups" => {
-                rule.popups = parse_popups_rule(&value, "window_rule")?;
-            }
-            _ => unknown_key("window_rule", &ks)?,
-        }
-    }
+    crate::lua_table::LuaTable::merge_lua_table(&mut rule, &table, "window_rule")?;
     Ok(rule)
 }
 
-fn value_to_corner_radius(val: &Value) -> Result<CornerRadius, String> {
+pub(crate) fn value_to_corner_radius(val: &Value) -> Result<CornerRadius, String> {
     match val {
         Value::Integer(_) | Value::Number(_) | Value::String(_) => {
             Ok(CornerRadius::from(value_to_f64(val)? as f32))
@@ -4541,34 +4382,6 @@ fn value_to_corner_radius(val: &Value) -> Result<CornerRadius, String> {
     }
 }
 
-fn str_to_regex(s: &str) -> Option<RegexEq> {
-    std::str::FromStr::from_str(s).ok().map(RegexEq)
-}
-
-fn parse_match_entry(table: &LuaTable) -> Result<Match, String> {
-    let app_id: Option<String> = table
-        .get("app_id")
-        .map_err(|e| format!("{e}"))
-        .ok()
-        .or_else(|| {
-            let v: Result<String, _> = table.get("app-id");
-            v.ok()
-        });
-    let title: Option<String> = table.get("title").map_err(|e| format!("{e}")).ok();
-
-    Ok(Match {
-        app_id: app_id.as_deref().and_then(str_to_regex),
-        title: title.as_deref().and_then(str_to_regex),
-        is_active: table.get("is_active").unwrap_or(None),
-        is_focused: table.get("is_focused").unwrap_or(None),
-        is_active_in_column: table.get("is_active_in_column").unwrap_or(None),
-        is_floating: table.get("is_floating").unwrap_or(None),
-        is_window_cast_target: table.get("is_window_cast_target").unwrap_or(None),
-        is_urgent: table.get("is_urgent").unwrap_or(None),
-        at_startup: table.get("at_startup").unwrap_or(None),
-    })
-}
-
 fn parse_layer_rules(table: LuaTable, config: &mut Config) -> Result<(), String> {
     for item in table.sequence_values::<LuaTable>() {
         let t = item.map_err(|e| format!("layer-rule error: {e}"))?;
@@ -4579,149 +4392,8 @@ fn parse_layer_rules(table: LuaTable, config: &mut Config) -> Result<(), String>
 
 fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
     let mut rule = LayerRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("layer-rule error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "match" | "matches" => {
-                if let Value::Table(t) = &value {
-                    let mut has_seq = false;
-                    for v in t.clone().sequence_values::<LuaTable>() {
-                        has_seq = true;
-                        let mt = v.map_err(|e| format!("{e}"))?;
-                        rule.matches.push(parse_layer_match_entry(&mt)?);
-                    }
-                    if !has_seq {
-                        rule.matches.push(parse_layer_match_entry(t)?);
-                    }
-                }
-            }
-            "exclude" | "excludes" => {
-                if let Value::Table(t) = &value {
-                    let mut has_seq = false;
-                    for v in t.clone().sequence_values::<LuaTable>() {
-                        has_seq = true;
-                        let mt = v.map_err(|e| format!("{e}"))?;
-                        rule.excludes.push(parse_layer_match_entry(&mt)?);
-                    }
-                    if !has_seq {
-                        rule.excludes.push(parse_layer_match_entry(t)?);
-                    }
-                }
-            }
-            "opacity" => {
-                rule.opacity = Some(value_to_f64(&value)? as f32);
-            }
-            "block_out_from" | "block-out-from" => {
-                rule.block_out_from = parse_block_out_from(&value)?;
-            }
-            "shadow" => {
-                if let Value::Table(t) = &value {
-                    rule.shadow = parse_shadow_rule(t)?;
-                }
-            }
-            "geometry_corner_radius" | "geometry-corner-radius" => {
-                rule.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
-            }
-            "place_within_backdrop" | "place-within-backdrop" => {
-                rule.place_within_backdrop = Some(value_is_truthy(&value));
-            }
-            "focus_on_type_in_overview" | "focus-on-type-in-overview" => {
-                rule.focus_on_type_in_overview = Some(value_is_truthy(&value));
-            }
-            "baba_is_float" | "baba-is-float" => {
-                rule.baba_is_float = Some(value_is_truthy(&value));
-            }
-            "background_effect" | "background-effect" => {
-                rule.background_effect = parse_background_effect_rule(&value, "layer_rule")?;
-            }
-            "popups" => {
-                rule.popups = parse_popups_rule(&value, "layer_rule")?;
-            }
-            _ => unknown_key("layer_rule", &ks)?,
-        }
-    }
+    crate::lua_table::LuaTable::merge_lua_table(&mut rule, &table, "layer_rule")?;
     Ok(rule)
-}
-
-/// Parses a rule's `background_effect = { xray, blur, noise, saturation }`.
-fn parse_background_effect_rule(val: &Value, rule: &str) -> Result<BackgroundEffectRule, String> {
-    let section = format!("{rule}.background_effect");
-    let Value::Table(table) = val else {
-        invalid_config(&format!("{section} must be a table"))?;
-        return Ok(BackgroundEffectRule::default());
-    };
-    let mut effect = BackgroundEffectRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("{section} error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "xray" => effect.xray = Some(value_is_truthy(&value)),
-            "blur" => effect.blur = Some(value_is_truthy(&value)),
-            "noise" | "saturation" => {
-                let v = value_to_f64(&value)?;
-                if !(0. ..=1000.).contains(&v) {
-                    invalid_config(&format!(
-                        "{section}: {ks} must be between 0 and 1000, got {v}"
-                    ))?;
-                    continue;
-                }
-                if ks == "noise" {
-                    effect.noise = Some(FloatOrInt(v));
-                } else {
-                    effect.saturation = Some(FloatOrInt(v));
-                }
-            }
-            _ => unknown_key(&section, &ks)?,
-        }
-    }
-    Ok(effect)
-}
-
-/// Parses a rule's `popups = { opacity, geometry_corner_radius, background_effect }`.
-fn parse_popups_rule(val: &Value, rule: &str) -> Result<PopupsRule, String> {
-    let section = format!("{rule}.popups");
-    let Value::Table(table) = val else {
-        invalid_config(&format!("{section} must be a table"))?;
-        return Ok(PopupsRule::default());
-    };
-    let mut popups = PopupsRule::default();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("{section} error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "opacity" => popups.opacity = Some(value_to_f64(&value)? as f32),
-            "geometry_corner_radius" | "geometry-corner-radius" => {
-                popups.geometry_corner_radius = Some(value_to_corner_radius(&value)?);
-            }
-            "background_effect" | "background-effect" => {
-                popups.background_effect = parse_background_effect_rule(&value, &section)?;
-            }
-            _ => unknown_key(&section, &ks)?,
-        }
-    }
-    Ok(popups)
-}
-
-fn parse_layer_match_entry(table: &LuaTable) -> Result<crate::layer_rule::Match, String> {
-    let ns: Option<String> = table.get("namespace").map_err(|e| format!("{e}")).ok();
-    let layer_str: Option<String> = table.get("layer").map_err(|e| format!("{e}")).ok();
-    let layer = layer_str.as_deref().and_then(|s| match s {
-        "background" | "Background" => Some(Layer::Background),
-        "bottom" | "Bottom" => Some(Layer::Bottom),
-        "top" | "Top" => Some(Layer::Top),
-        "overlay" | "Overlay" => Some(Layer::Overlay),
-        _ => None,
-    });
-    Ok(crate::layer_rule::Match {
-        namespace: ns.as_deref().and_then(str_to_regex),
-        at_startup: table
-            .get("at_startup")
-            .map_err(|e| format!("{e}"))
-            .ok()
-            .flatten(),
-        layer,
-    })
 }
 
 /// Parses a named workspace's `open_on_output`: a single output name, or a list of output

@@ -33,6 +33,7 @@ pub mod input;
 pub mod keycode;
 pub mod layer_rule;
 pub mod layout;
+pub mod lua_table;
 pub mod misc;
 pub mod output;
 pub mod parse_lua;
@@ -5198,7 +5199,7 @@ mod tests {
         for (rule, error) in [
             (
                 "neori.layer_rule { background_effect = { noise = 2000 } }",
-                "layer_rule.background_effect: noise must be between 0 and 1000, got 2000",
+                "layer_rule.background_effect.noise: must be between 0 and 1000, got 2000",
             ),
             (
                 "neori.window_rule { popups = { background_effect = { glow = true } } }",
@@ -5212,6 +5213,121 @@ mod tests {
             let err = Config::parse_mem(&format!("neori.strict(true)\n{rule}")).unwrap_err();
             assert!(format!("{err:?}").contains(error), "{rule}: {err:?}");
         }
+    }
+
+    #[test]
+    fn window_rule_parses_keys_the_hand_written_parser_dropped() {
+        let config = Config::parse_mem(
+            r##"
+            neori.window_rule {
+                match = { app_id = "firefox$", title = "^Picture-in-Picture$" },
+                default_floating_position = { x = 32, y = 32, relative_to = "bottom-left" },
+                scroll_factor = 0.75,
+                tab_indicator = { active_color = "#f38ba8" },
+                border = {
+                    width = 2,
+                    active_gradient = { from = "#80c8ff", to = "#bbddff", angle = 45 },
+                },
+            }
+            "##,
+        )
+        .unwrap();
+        let rule = &config.window_rules[0];
+        let pos = rule.default_floating_position.unwrap();
+        assert_eq!((pos.x, pos.y), (FloatOrInt(32.), FloatOrInt(32.)));
+        assert_eq!(pos.relative_to, crate::window_rule::RelativeTo::BottomLeft);
+        assert_eq!(rule.scroll_factor, Some(FloatOrInt(0.75)));
+        assert!(rule.tab_indicator.active_color.is_some());
+        assert_eq!(rule.border.width, Some(FloatOrInt(2.)));
+        let gradient = rule.border.active_gradient.unwrap();
+        assert_eq!(gradient.angle, 45);
+        assert_eq!(
+            gradient.relative_to,
+            crate::appearance::GradientRelativeTo::Window
+        );
+    }
+
+    #[test]
+    fn rule_keys_take_kebab_case_and_aliases() {
+        let config = Config::parse_mem(
+            r#"
+            neori.window_rule {
+                matches = { { ["app-id"] = "^a$" }, { app_id = "^b$", ["is-floating"] = true } },
+                excludes = { title = "x" },
+                ["open-on-output"] = { "DP-1", "HDMI-A-1" },
+                ["on-xdg-activate"] = "set-urgent",
+                variable_refresh_rate = "fullscreen-only",
+            }
+            "#,
+        )
+        .unwrap();
+        let rule = &config.window_rules[0];
+        assert_eq!(rule.matches.len(), 2);
+        assert_eq!(rule.matches[1].is_floating, Some(true));
+        assert_eq!(rule.excludes.len(), 1);
+        assert_eq!(rule.open_on_output, ["DP-1", "HDMI-A-1"]);
+        assert_eq!(
+            rule.on_xdg_activate,
+            Some(crate::window_rule::OnXdgActivate::SetUrgent)
+        );
+        assert_eq!(
+            rule.variable_refresh_rate,
+            Some(crate::window_rule::VrrRule::FullscreenOnly)
+        );
+    }
+
+    #[test]
+    fn rule_values_are_checked() {
+        // An invalid regex used to be dropped, leaving a match that matches every window.
+        for (rule, error) in [
+            (
+                r#"neori.window_rule { match = { app_id = "(" } }"#,
+                "window_rule.matches.app_id: invalid regex `(`",
+            ),
+            (
+                r#"neori.window_rule { match = { app = "x" } }"#,
+                "unknown key `app` in window_rule.matches",
+            ),
+            (
+                r##"neori.window_rule { border = { active_gradient = { from = "#fff" } } }"##,
+                "window_rule.border.active_gradient: a gradient needs both `from` and `to`",
+            ),
+            (
+                r#"neori.window_rule { default_floating_position = { relative_to = "middle" } }"#,
+                "window_rule.default_floating_position.relative_to: invalid value `middle`",
+            ),
+            (
+                r#"neori.layer_rule { match = { layer = "sky" } }"#,
+                "layer_rule.matches.layer: invalid value `sky`",
+            ),
+        ] {
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{rule}")).unwrap_err();
+            assert!(format!("{err:?}").contains(error), "{rule}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn derived_rules_list_their_keys_with_lua_types() {
+        use crate::lua_table::LuaTable as _;
+
+        let fields = crate::window_rule::WindowRule::lua_fields();
+        let field = |name: &str| fields.iter().find(|f| f.name == name).unwrap();
+        assert_eq!(field("opacity").lua_type, "number");
+        assert_eq!(field("open_on_output").lua_type, "string|string[]");
+        assert_eq!(field("matches").lua_type, "table|table[]");
+        assert_eq!(
+            field("variable_refresh_rate").lua_type,
+            "boolean|\"fullscreen-only\""
+        );
+        assert_eq!(
+            field("open_on_output").doc,
+            "Outputs to open the window on, in preference order."
+        );
+        let layer = crate::layer_rule::Match::lua_fields();
+        assert_eq!(
+            layer.iter().find(|f| f.name == "layer").unwrap().lua_type,
+            "\"background\"|\"bottom\"|\"top\"|\"overlay\""
+        );
     }
 
     #[test]
