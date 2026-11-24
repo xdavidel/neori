@@ -40,6 +40,10 @@ in
       cfg.package
     ];
 
+    # The LuaLS definitions of the Lua API (share/neori/lua), so that editors find them at
+    # /run/current-system/sw/share/neori/lua.
+    environment.pathsToLink = [ "/share/neori" ];
+
     # Required for xdg-desktop-portal-gnome's FileChooser to work properly.
     services.dbus.packages = lib.mkIf cfg.useNautilus [
       pkgs.nautilus
