@@ -3,8 +3,14 @@
 //!
 //! Each named field becomes a key, accepted in snake_case and kebab-case
 //! (`active_color` and `active-color`), and is parsed by its type's `FromLuaConfig`
-//! implementation. An `Option<T>` field is parsed as a `T` and set to `Some`. Keys the struct
-//! doesn't have are reported as unknown.
+//! implementation. An `Option<T>` field is parsed as a `T` and set to `Some`; any other field is
+//! merged into its current value, so a nested table only changes the keys it has. Keys the
+//! struct doesn't have are reported as unknown.
+//!
+//! Struct attribute:
+//! - `#[lua(extra = path::to::fn)]`: handle keys that aren't fields (like `on` for a struct with an
+//!   `off` field) with `fn(&mut Self, &str, &Value, &str) -> Result<bool, String>`, which returns
+//!   whether it knew the key.
 //!
 //! Field attributes:
 //! - `#[lua(rename = "in")]`: use this key instead of the field name.
@@ -103,8 +109,28 @@ fn option_inner(ty: &Type) -> Option<&Type> {
     }
 }
 
+/// The struct's `#[lua(extra = …)]` function, if any.
+fn struct_extra(input: &DeriveInput) -> syn::Result<Option<Expr>> {
+    let mut extra = None;
+    for attr in &input.attrs {
+        if !attr.path().is_ident("lua") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("extra") {
+                extra = Some(meta.value()?.parse::<Expr>()?);
+                Ok(())
+            } else {
+                Err(meta.error("unknown lua attribute"))
+            }
+        })?;
+    }
+    Ok(extra)
+}
+
 fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
     let name = &input.ident;
+    let extra = struct_extra(input)?;
     let Data::Struct(data) = &input.data else {
         return Err(syn::Error::new_spanned(input, "LuaTable needs a struct"));
     };
@@ -157,9 +183,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
         } else {
             (
                 quote! {
-                    if let Some(v) = <#ty as crate::lua_table::FromLuaConfig>::from_lua_config(value, &path)? {
-                        self.#ident = v;
-                    }
+                    crate::lua_table::FromLuaConfig::merge_from_lua(&mut self.#ident, value, &path)?;
                 },
                 quote! { <#ty as crate::lua_table::FromLuaConfig>::lua_type() },
             )
@@ -181,6 +205,11 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
         });
     }
 
+    let fallback = match &extra {
+        Some(extra) => quote! { (#extra)(self, key, value, path) },
+        None => quote! { Ok(false) },
+    };
+
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     Ok(quote! {
         impl #impl_generics crate::lua_table::LuaTable for #name #ty_generics #where_clause {
@@ -192,7 +221,7 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
             ) -> ::std::result::Result<bool, ::std::string::String> {
                 match key {
                     #(#arms)*
-                    _ => return Ok(false),
+                    _ => return #fallback,
                 }
                 Ok(true)
             }
@@ -208,6 +237,14 @@ fn expand(input: &DeriveInput) -> syn::Result<TokenStream2> {
                 path: &str,
             ) -> ::std::result::Result<Option<Self>, ::std::string::String> {
                 crate::lua_table::table_from_lua(value, path)
+            }
+
+            fn merge_from_lua(
+                &mut self,
+                value: &::mlua::Value,
+                path: &str,
+            ) -> ::std::result::Result<(), ::std::string::String> {
+                crate::lua_table::merge_table_from_lua(self, value, path)
             }
 
             fn lua_type() -> ::std::string::String {

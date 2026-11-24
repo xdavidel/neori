@@ -12,9 +12,10 @@ use std::str::FromStr;
 use mlua::Value;
 
 use crate::appearance::{
-    BlockOutFrom, Color, CornerRadius, Gradient, GradientInterpolation, GradientRelativeTo,
+    BlockOutFrom, Border, Color, CornerRadius, FocusRing, Gradient, GradientInterpolation,
+    GradientRelativeTo, InsertHint, Shadow, TabIndicator, TabIndicatorLength, TabIndicatorPosition,
 };
-use crate::layout::DefaultPresetSize;
+use crate::layout::{CenterFocusedColumn, DefaultPresetSize, PresetSize};
 use crate::parse_lua::{
     invalid_config, key_str, parse_block_out_from, parse_css_color, unknown_key, value_is_truthy,
     value_to_corner_radius, value_to_default_preset_size, value_to_f64, value_to_i64,
@@ -34,6 +35,15 @@ pub trait FromLuaConfig: Sized {
 
     /// The type, as LuaLS writes it, for the editor definitions.
     fn lua_type() -> String;
+
+    /// Sets `self` from `value`. Replaces it, except for [`LuaTable`] structs, which only change
+    /// the keys `value` has.
+    fn merge_from_lua(&mut self, value: &Value, path: &str) -> Result<(), String> {
+        if let Some(v) = Self::from_lua_config(value, path)? {
+            *self = v;
+        }
+        Ok(())
+    }
 }
 
 /// A config struct read from a Lua table key by key. Derived with `#[derive(LuaTable)]`.
@@ -77,6 +87,22 @@ pub fn table_from_lua<T: LuaTable>(value: &Value, path: &str) -> Result<Option<T
     let mut this = T::default();
     this.merge_lua_table(table, path)?;
     Ok(Some(this))
+}
+
+/// Sets the keys of a table value on a [`LuaTable`] struct, keeping the others.
+pub fn merge_table_from_lua<T: LuaTable>(
+    this: &mut T,
+    value: &Value,
+    path: &str,
+) -> Result<(), String> {
+    let Value::Table(table) = value else {
+        invalid_config(&format!(
+            "{path} must be a table, got {}",
+            value.type_name()
+        ))?;
+        return Ok(());
+    };
+    this.merge_lua_table(table, path)
 }
 
 /// Reports an invalid value at `path`, as a warning or a strict-mode error.
@@ -433,4 +459,133 @@ impl FromLuaConfig for DefaultPresetSize {
     fn lua_type() -> String {
         "table".to_owned()
     }
+}
+
+/// `{ proportion = 0.5 }` or `{ fixed = 800 }`.
+impl FromLuaConfig for PresetSize {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        match preset_size_or_none(value, path)? {
+            Some(Some(size)) => Ok(Some(size)),
+            Some(None) => invalid(path, "needs `proportion` or `fixed`"),
+            None => Ok(None),
+        }
+    }
+
+    fn lua_type() -> String {
+        "table".to_owned()
+    }
+}
+
+/// Like a [`PresetSize`], but `{}` means none.
+pub fn preset_size_or_none(
+    value: &Value,
+    path: &str,
+) -> Result<Option<Option<PresetSize>>, String> {
+    let Value::Table(table) = value else {
+        return invalid(path, format!("must be a table, got {}", value.type_name()));
+    };
+    let mut size = None;
+    for pair in table.pairs::<Value, Value>() {
+        let (key, value) = at(path, pair.map_err(|e| e.to_string()))?;
+        let key = at(path, key_str(&key))?;
+        let key_path = format!("{path}.{key}");
+        match key.as_str() {
+            "proportion" => {
+                if let Some(v) = f64::from_lua_config(&value, &key_path)? {
+                    size = Some(PresetSize::Proportion(v));
+                }
+            }
+            "fixed" => {
+                if let Some(v) = i32::from_lua_config(&value, &key_path)? {
+                    size = Some(PresetSize::Fixed(v));
+                }
+            }
+            _ => unknown_key(path, &key)?,
+        }
+    }
+    Ok(Some(size))
+}
+
+/// `0.5`, or `{ total_proportion = 0.5 }`.
+impl FromLuaConfig for TabIndicatorLength {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let Value::Table(table) = value else {
+            let total_proportion = f64::from_lua_config(value, path)?;
+            return Ok(total_proportion.map(|v| TabIndicatorLength {
+                total_proportion: Some(v),
+            }));
+        };
+        let mut length = TabIndicatorLength {
+            total_proportion: None,
+        };
+        for pair in table.pairs::<Value, Value>() {
+            let (key, value) = at(path, pair.map_err(|e| e.to_string()))?;
+            let key = at(path, key_str(&key))?;
+            match key.as_str() {
+                "total_proportion" | "total-proportion" => {
+                    let key_path = format!("{path}.total_proportion");
+                    if let Some(v) = f64::from_lua_config(&value, &key_path)? {
+                        length.total_proportion = Some(v);
+                    }
+                }
+                _ => unknown_key(path, &key)?,
+            }
+        }
+        Ok(Some(length))
+    }
+
+    fn lua_type() -> String {
+        "number|table".to_owned()
+    }
+}
+
+string_enum!(
+    TabIndicatorPosition,
+    &[
+        ("left", TabIndicatorPosition::Left),
+        ("right", TabIndicatorPosition::Right),
+        ("top", TabIndicatorPosition::Top),
+        ("bottom", TabIndicatorPosition::Bottom),
+    ]
+);
+string_enum!(
+    CenterFocusedColumn,
+    &[
+        ("never", CenterFocusedColumn::Never),
+        ("always", CenterFocusedColumn::Always),
+        ("on-overflow", CenterFocusedColumn::OnOverflow),
+    ]
+);
+
+/// `#[lua(extra = …)]` for structs with an `off` field, so that `on = true` turns them on.
+macro_rules! on_key {
+    ($($name:ident: $ty:ty),*) => {$(
+        pub fn $name(this: &mut $ty, key: &str, value: &Value, _path: &str) -> Result<bool, String> {
+            if key != "on" {
+                return Ok(false);
+            }
+            this.off = !value_is_truthy(value);
+            Ok(true)
+        }
+    )*};
+}
+on_key!(
+    focus_ring_on: FocusRing,
+    border_on: Border,
+    tab_indicator_on: TabIndicator,
+    insert_hint_on: InsertHint
+);
+
+/// `#[lua(extra = …)]` for [`Shadow`], which has an `on` field: `off = true` turns it off.
+pub fn shadow_off(
+    this: &mut Shadow,
+    key: &str,
+    value: &Value,
+    _path: &str,
+) -> Result<bool, String> {
+    if key != "off" {
+        return Ok(false);
+    }
+    this.on = !value_is_truthy(value);
+    Ok(true)
 }

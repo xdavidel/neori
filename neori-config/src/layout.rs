@@ -1,3 +1,4 @@
+use neori_config_derive::LuaTable;
 use neori_ipc::{ColumnDisplay, SizeChange};
 
 use crate::appearance::{
@@ -6,7 +7,7 @@ use crate::appearance::{
 use crate::utils::MergeWith;
 use crate::{BorderRule, Color, FloatOrInt, InsertHintPart, ShadowRule, TabIndicatorPart};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, LuaTable)]
 pub struct Layout {
     pub focus_ring: FocusRing,
     pub border: Border,
@@ -14,6 +15,8 @@ pub struct Layout {
     pub tab_indicator: TabIndicator,
     pub insert_hint: InsertHint,
     pub preset_column_widths: Vec<PresetSize>,
+    /// `{ proportion = 0.5 }` or `{ fixed = 800 }`; `{}` lets windows choose.
+    #[lua(with = crate::lua_table::preset_size_or_none, lua_type = "table")]
     pub default_column_width: Option<PresetSize>,
     pub preset_window_heights: Vec<PresetSize>,
     pub center_focused_column: CenterFocusedColumn,
@@ -149,7 +152,7 @@ impl From<PresetSize> for SizeChange {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DefaultPresetSize(pub Option<PresetSize>);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, LuaTable)]
 pub struct Struts {
     pub left: FloatOrInt<-65535, 65535>,
     pub right: FloatOrInt<-65535, 65535>,

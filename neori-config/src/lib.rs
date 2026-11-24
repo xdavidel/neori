@@ -5331,6 +5331,83 @@ mod tests {
     }
 
     #[test]
+    fn layout_parses_keys_the_hand_written_parser_dropped() {
+        let config = Config::parse_mem(
+            r##"
+            neori.layout {
+                focus_ring = {
+                    on = true,
+                    active_gradient = { from = "#80c8ff", to = "#bbddff", angle = 45 },
+                },
+                border = {
+                    on = true,
+                    inactive_gradient = {
+                        from = "#505050",
+                        to = "#808080",
+                        relative_to = "workspace-view",
+                        ["in"] = "oklch longer hue",
+                    },
+                },
+                tab_indicator = { on = true, place_within_column = true, length = 0.5 },
+                insert_hint = { gradient = { from = "#ffbb6680", to = "#ffc88080" } },
+                shadow = { off = true },
+            }
+            "##,
+        )
+        .unwrap();
+        let layout = &config.layout;
+        assert!(!layout.focus_ring.off);
+        assert_eq!(layout.focus_ring.active_gradient.unwrap().angle, 45);
+        assert!(!layout.border.off);
+        let gradient = layout.border.inactive_gradient.unwrap();
+        assert_eq!(
+            gradient.relative_to,
+            crate::appearance::GradientRelativeTo::WorkspaceView
+        );
+        assert_eq!(gradient.angle, 180);
+        assert!(!layout.tab_indicator.off);
+        assert!(layout.tab_indicator.place_within_column);
+        assert_eq!(layout.tab_indicator.length.total_proportion, Some(0.5));
+        assert!(layout.insert_hint.gradient.is_some());
+        assert!(!layout.shadow.on);
+    }
+
+    #[test]
+    fn layout_nested_tables_change_only_their_keys() {
+        let default = Config::default().layout;
+        let config = Config::parse_mem(
+            r#"
+            neori.layout {
+                border = { width = 7 },
+                struts = { left = 10 },
+                default_column_width = {},
+                preset_column_widths = { { proportion = 0.25 }, { fixed = 640 } },
+                center_focused_column = "on-overflow",
+            }
+            "#,
+        )
+        .unwrap();
+        let layout = &config.layout;
+        assert_eq!(layout.border.width, 7.);
+        assert_eq!(layout.border.active_color, default.border.active_color);
+        assert_eq!(layout.border.off, default.border.off);
+        assert_eq!(layout.struts.left, FloatOrInt(10.));
+        assert_eq!(layout.struts.right, default.struts.right);
+        assert_eq!(layout.default_column_width, None);
+        assert_eq!(
+            layout.preset_column_widths,
+            [
+                crate::layout::PresetSize::Proportion(0.25),
+                crate::layout::PresetSize::Fixed(640)
+            ]
+        );
+        assert_eq!(
+            layout.center_focused_column,
+            crate::layout::CenterFocusedColumn::OnOverflow
+        );
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

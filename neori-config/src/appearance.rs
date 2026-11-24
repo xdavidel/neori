@@ -223,7 +223,8 @@ impl CornerRadius {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::focus_ring_on)]
 pub struct FocusRing {
     pub off: bool,
     pub width: f64,
@@ -250,7 +251,8 @@ impl Default for FocusRing {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::border_on)]
 pub struct Border {
     pub off: bool,
     pub width: f64,
@@ -335,7 +337,8 @@ impl MergeWith<BorderRule> for FocusRing {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::shadow_off)]
 pub struct Shadow {
     pub on: bool,
     pub offset: ShadowOffset,
@@ -455,7 +458,8 @@ impl MergeWith<WorkspaceShadowPart> for WorkspaceShadow {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::tab_indicator_on)]
 pub struct TabIndicator {
     pub off: bool,
     pub hide_when_single_tab: bool,
@@ -569,7 +573,8 @@ pub enum TabIndicatorPosition {
     Bottom,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
+#[lua(extra = crate::lua_table::insert_hint_on)]
 pub struct InsertHint {
     pub off: bool,
     pub color: Color,
