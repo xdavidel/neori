@@ -941,6 +941,23 @@ impl State {
             };
             self.with_lua_running(running, |state| state.deliver(event));
         }
+        if let Err(err) = self.apply_lua_config_change() {
+            self.report_lua_error(err);
+        }
+    }
+
+    /// Applies the config again if Lua changed it after it loaded, with `neori.bind`,
+    /// `neori.layout { … }` and the other declarations. A change that doesn't parse is undone,
+    /// and its error returned.
+    fn apply_lua_config_change(&mut self) -> Result<(), String> {
+        match self.scripting.take_config_change() {
+            None => Ok(()),
+            Some(Ok(config)) => {
+                self.apply_config(config, true);
+                Ok(())
+            }
+            Some(Err(err)) => Err(format!("Lua config change undone: {err}")),
+        }
     }
 
     /// Reports a callback dropped because Lua events caused each other too many levels deep.
@@ -975,6 +992,16 @@ impl State {
         &mut self,
         code: &str,
     ) -> Result<neori_config::parse_lua::LuaEvalOutput, String> {
+        self.eval_lua_with(code, true)
+    }
+
+    /// [`State::eval_lua`], where `reparse` false relies on the declarations alone to note their
+    /// changes to the config, as for callbacks; the Lua tests use it to check that they do.
+    pub(crate) fn eval_lua_with(
+        &mut self,
+        code: &str,
+        reparse: bool,
+    ) -> Result<neori_config::parse_lua::LuaEvalOutput, String> {
         let eval = self.scripting.eval(code)?;
         // Like an IPC action, it runs as if it didn't come from an input.
         let running = Running {
@@ -984,8 +1011,15 @@ impl State {
         };
         let result =
             self.with_lua_running(running, |state| with_script_context(state, || eval.run()));
+        // The code can change the config table in any way, including through tables it got
+        // from it, so parse it again.
+        if reparse {
+            self.scripting.mark_config_changed();
+        }
+        let applied = self.apply_lua_config_change();
         self.deliver_queued_lua_events();
-        result
+        let output = result?;
+        applied.map(|()| output)
     }
 
     /// Switches the active keybinding mode (`None` for the normal binds), and fires

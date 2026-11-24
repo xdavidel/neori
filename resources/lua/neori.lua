@@ -172,7 +172,9 @@ neori = {}
 
 -- Binds and actions
 
----Binds a key to an action, a Lua function, or press and release actions.
+---Binds a key to an action, a Lua function, or press and release actions. In the config file a key
+---can be bound once; bound again later, from a callback or `neori msg lua`, the new bind replaces
+---the old one.
 ---
 ---```lua
 ---neori.bind("Mod+Q", "close-window")
@@ -225,6 +227,7 @@ function neori.warp(x, y) end
 
 ---Declares a keybinding mode: the binds made with `neori.bind` while `declare` runs belong to the
 ---mode. While the mode is active, they replace the normal binds; give it a bind that leaves it.
+---Declared again after the config loaded, the mode is replaced.
 ---
 ---```lua
 ---neori.mode("resize", function()
@@ -439,9 +442,10 @@ function neori.keyboard_layout() end
 --     neori.layout.gaps = 16
 --     print(neori.layout.gaps) --> 16
 --
--- A read returns what the config has set so far, or nil. See the Configuration pages of the
--- wiki for the fields. Their types, `neori.config.*`, are in neori-config.lua, generated from the
--- config structs.
+-- A read returns what the config has set so far, or nil. Changes made after the config loaded,
+-- from a callback or `neori msg lua`, apply to the running config. See the Configuration pages
+-- of the wiki for the fields. Their types, `neori.config.*`, are in neori-config.lua, generated
+-- from the config structs.
 
 ---Input devices: keyboard, touchpad, mouse, tablet, touch. See the Configuration: Input wiki page.
 ---@type neori.config.Input

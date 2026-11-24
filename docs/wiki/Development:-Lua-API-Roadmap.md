@@ -75,15 +75,11 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **Lua tests (done):** `src/tests/lua/*.lua` files, each loaded as a test compositor's config,
   with a `run()` function that drives it through a `test` table. The wiki test already checks
   every snippet in strict mode.
+- **Runtime config (done):** the declarations (`neori.bind`, `neori.mode`, the sections, …)
+  called after the config loaded change the running config, which is parsed again and applied
+  in place, keeping the Lua state. A change that doesn't parse is undone.
 - **API reference (done):** the wiki's [Lua API Reference](./Lua-API-Reference.md), generated
   from `resources/lua/neori.lua` by the `lua-reference` test, which fails when it's stale.
-
-### Later
-
-- **Runtime binds and sections:** `neori.bind`, `neori.mode` and the section calls only fill the
-  config table that is read when the config loads, so from `neori msg lua` they do nothing. Make
-  them apply to the running compositor until the next reload, like handlers do: parse the
-  changed table again and swap the binds (and the section's settings) in place.
 
 ### Known gaps to fold in
 

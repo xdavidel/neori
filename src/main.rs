@@ -172,7 +172,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let config_includes = config_load_result.includes;
 
-    *CHILD_ENV.write().unwrap() = mem::take(&mut config.environment);
+    let environment = mem::take(&mut config.environment);
+    *CHILD_ENV.write().unwrap() = environment.clone();
 
     store_and_increase_nofile_rlimit();
 
@@ -208,6 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         cli.session,
     )
     .unwrap();
+    state.neori.config_environment = environment;
     state.install_script_host(script_host);
 
     // Route Lua `print(...)` to a log file under the XDG state dir. If opening

@@ -442,6 +442,29 @@ wins per field. Entry-collections that take names use the singular form, listed 
 | `neori.output("name", { … })`                                  | [Configuration: Outputs](Configuration:-Outputs.md) |
 | `neori.workspace("name", { … })`                               | [Configuration: Named Workspaces](Configuration:-Named-Workspaces.md) |
 
+### Changing the config at runtime
+
+The declarations (`neori.bind`, `neori.mode`, `neori.layout { … }`, `neori.layout.gaps = 16`,
+`neori.window_rule { … }`, `neori.output("DP-1", { … })`, `neori.set`, …) keep working after the
+config file loaded. Called from a bind, a handler, a timer or `neori msg lua`, they change the
+running config, which applies once the callback or command is done, the way a reload applies the
+config file, but keeping the Lua state: handlers, timers and variables stay.
+
+- Binding a key again replaces its bind, and declaring a mode again replaces the mode. In the
+  config file itself, a key bound twice is still an error.
+- A change that doesn't parse (in strict mode, for example `neori.layout { gaps = "wide" }`) is
+  undone, and its error is [reported](#print-output) like a callback error; from `neori msg lua`,
+  the command fails with it.
+- Variables set with `neori.setenv` stay, unless the change is to `neori.environment`.
+- The changes last until the config file is reloaded, which starts again from the file.
+
+```lua
+-- Switch between two gap sizes.
+neori.bind("Mod+Alt+G", function()
+    neori.layout.gaps = neori.layout.gaps == 16 and 4 or 16
+end)
+```
+
 ### Sections as namespaces
 
 The sections above that take a table (`input`, `layout`, `cursor`, `animations`, `gestures`,
@@ -1349,19 +1372,19 @@ work them out; the keys of other global tables are read from the running composi
 calling anything. With fzf-tab, the list shows the names (`focused_window`) and inserts the whole
 code.
 
-Handlers, rules and timers that the code sets up stay until the next config reload, which
-rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
-handler or rule before putting it in the config:
+Binds, handlers, rules, timers and config changes that the code makes stay until the next config
+reload, which rebuilds the Lua state from the config file. That makes `neori msg lua` handy for
+trying something before putting it in the config:
 
 ```sh
+neori msg lua 'neori.bind("Mod+Alt+D", function() print(neori.util.dump(neori.focused_window():geometry())) end)'
+neori msg lua 'neori.layout { gaps = 24 }'
+neori msg lua 'neori.layout.focus_ring.width = 6'
 neori msg lua 'neori.rules.add { where = { app_id = "kitty" }, set = { floating = true }, run = function(w) w:center() end }'
-neori msg lua 'neori.on("window-focused", function(w) print(neori.util.dump(w:geometry())) end)'
 ```
 
-Binds and config sections are different: `neori.bind`, `neori.mode`, `neori.layout { … }` and
-the other declarations are read once, when the config file loads, so calling them from
-`neori msg lua` has no effect yet. Put them in the config and save it; the config reloads by
-itself.
+See [Changing the config at runtime](#changing-the-config-at-runtime) for how the declarations
+apply.
 
 What a handler prints later goes to the [Lua log](#print-output), since the command has returned
 by then:
@@ -1402,8 +1425,6 @@ with a `.luarc.json` next to your config:
 
 ## Known limitations (today)
 
-- Binds and config sections declared from `neori msg lua` (`neori.bind`, `neori.layout { … }`,
-  …) have no effect; they only apply from the config file.
 
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for

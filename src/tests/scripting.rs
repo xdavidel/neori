@@ -3982,3 +3982,37 @@ fn a_handler_that_changes_something_on_every_focus_change_isnt_a_loop() {
     }
     assert_eq!(read_global_int(&f, "runs"), before + 40);
 }
+
+#[test]
+fn neori_msg_lua_applies_config_changes_and_reports_bad_ones() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.strict(true)
+        layout = { gaps = 8 }
+        neori.set("layout", layout)
+        "#,
+    );
+    f.add_output(1, (1920, 1080));
+    let gaps = |f: &mut Fixture| f.neori().config.borrow().layout.gaps;
+    assert_eq!(gaps(&mut f), 8.);
+
+    // A write into a table that the config holds, which no declaration sees: `neori msg lua`
+    // parses the config again after any code.
+    f.neori_state().eval_lua("layout.gaps = 20").unwrap();
+    assert_eq!(gaps(&mut f), 20.);
+
+    // A change that doesn't parse is an error of the command, and is undone.
+    let err = f
+        .neori_state()
+        .eval_lua(r#"neori.layout { gaps = "wide" }"#)
+        .unwrap_err();
+    assert!(err.contains("Lua config change undone: "), "{err}");
+    assert_eq!(gaps(&mut f), 20.);
+    assert_eq!(
+        f.neori_state()
+            .eval_lua("neori.layout.gaps")
+            .unwrap()
+            .values,
+        ["20"]
+    );
+}

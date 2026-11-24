@@ -70,6 +70,11 @@ function test.refresh(times)
     yield({ op = "refresh", times = times or 1 })
 end
 
+-- Finishes the running animations, so positions are where they end up.
+function test.settle()
+    yield({ op = "settle" })
+end
+
 -- Presses and releases the bind for this key, like the user would.
 function test.press(key)
     yield({ op = "press", key = key })
@@ -162,7 +167,8 @@ impl Harness {
             .state
             .server
             .state
-            .eval_lua(code)
+            // Like a callback: only the declarations note their changes to the config.
+            .eval_lua_with(code, false)
             .map(|output| output.values)
     }
 
@@ -294,6 +300,11 @@ impl Harness {
                 let state = &mut self.f.state.server.state;
                 state.handle_bind(bind.clone(), true, InputTime::now());
                 state.handle_bind(bind, false, InputTime::now());
+                self.refresh();
+                Ok(Reply::Nil)
+            }
+            "settle" => {
+                self.f.neori_complete_animations();
                 self.refresh();
                 Ok(Reply::Nil)
             }

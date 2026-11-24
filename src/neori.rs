@@ -406,6 +406,9 @@ pub struct Neori {
     pub last_focused_window_id: Option<u64>,
     /// The last state of objects that went away, for the Lua values that outlive them.
     pub lua_removed: neori_config::RemovedObjects,
+    /// The environment section of the config as last applied, to tell whether a runtime change
+    /// of the config changed it.
+    pub config_environment: neori_config::Environment,
     /// Fallback for the `layout-changed` Lua diff when `ipc_server` is `None`
     /// (IPC server failed to start). In the happy path IPC's own
     /// `state.keyboard_layouts.current_idx` is the source of truth.
@@ -2010,7 +2013,7 @@ impl State {
 
         let _span = tracy_client::span!("State::reload_config");
 
-        let (mut config, script_host) = match config {
+        let (config, script_host) = match config {
             Ok((config, script_host)) => (config, script_host),
             Err(()) => {
                 self.neori.config_error_notification.show();
@@ -2027,6 +2030,15 @@ impl State {
 
         self.neori.config_error_notification.hide();
 
+        self.apply_config(config, false);
+
+        // Last, so that its handlers see the new config applied.
+        self.fire_lua_lifecycle_event("config-reloaded");
+    }
+
+    /// Applies a newly parsed config: a reloaded config file (`runtime` false), or the running
+    /// config after Lua changed it with `neori.bind`, `neori.layout { … }`, … (`runtime` true).
+    pub fn apply_config(&mut self, mut config: Config, runtime: bool) {
         // Find & orphan removed named workspaces.
         let mut removed_workspaces: Vec<String> = vec![];
         for ws in &self.neori.config.borrow().workspaces {
@@ -2054,7 +2066,13 @@ impl State {
             .clock
             .set_complete_instantly(config.animations.off);
 
-        *CHILD_ENV.write().unwrap() = mem::take(&mut config.environment);
+        // A runtime change keeps the variables set with `neori.setenv`, unless it changed the
+        // environment section itself.
+        let environment = mem::take(&mut config.environment);
+        if !runtime || self.neori.config_environment != environment {
+            *CHILD_ENV.write().unwrap() = environment.clone();
+        }
+        self.neori.config_environment = environment;
 
         let mut reload_xkb = false;
         let mut libinput_config_changed = false;
@@ -2227,8 +2245,10 @@ impl State {
             self.load_configured_keymap();
         }
 
-        // Mappings set from Lua belong to the old Lua state.
-        self.neori.device_output_maps.clear();
+        // Mappings set from Lua belong to the old Lua state. A runtime change keeps the state.
+        if !runtime {
+            self.neori.device_output_maps.clear();
+        }
 
         if libinput_config_changed {
             let config = self.neori.config.borrow();
@@ -2321,9 +2341,6 @@ impl State {
         if mode_gone {
             self.set_bind_mode(None);
         }
-
-        // Last, so that its handlers see the new config applied.
-        self.fire_lua_lifecycle_event("config-reloaded");
     }
 
     pub fn reload_output_config(&mut self) {
@@ -3298,6 +3315,7 @@ impl Neori {
             layer_shell_on_demand_focus: None,
             last_focused_window_id: None,
             lua_removed: Default::default(),
+            config_environment: Default::default(),
             last_keyboard_layout_idx_fallback: None,
             idle_inhibiting_surfaces: HashSet::new(),
             is_fdo_idle_inhibited: Arc::new(AtomicBool::new(false)),

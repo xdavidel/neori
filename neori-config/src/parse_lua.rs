@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -348,6 +348,86 @@ pub struct OpenOverrides {
 }
 
 type SharedOpenOverrides = Arc<Mutex<Option<OpenOverrides>>>;
+
+/// Whether the config table changed since the config loaded: the declarations (`neori.bind`,
+/// `neori.layout { … }`, …) keep writing to it when called later, from a callback or
+/// `neori msg lua`, and the compositor then applies the changed config.
+#[derive(Debug, Default)]
+struct ConfigChanges {
+    /// Set once the config file has loaded; changes before that are the config itself.
+    loaded: AtomicBool,
+    changed: AtomicBool,
+}
+
+type SharedConfigChanges = Arc<ConfigChanges>;
+
+/// Notes that a declaration changed the config table.
+fn mark_config_changed(lua: &Lua) {
+    if let Some(changes) = lua.app_data_ref::<SharedConfigChanges>() {
+        changes.changed.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Whether the config file has loaded, so a declaration changes the running config.
+fn config_loaded(lua: &Lua) -> bool {
+    lua.app_data_ref::<SharedConfigChanges>()
+        .is_some_and(|changes| changes.loaded.load(Ordering::Relaxed))
+}
+
+/// The config table of a loaded config, kept to parse it again when it changes.
+struct ConfigSource {
+    /// What the declarations write to.
+    data: LuaTable,
+    /// A copy of the table the config file returned, if it returned one; the declarations are
+    /// merged into it.
+    returned: Option<LuaTable>,
+    /// A copy of `data` as it last parsed, to undo a change that doesn't.
+    last_good: LuaTable,
+    copy: mlua::Function,
+    restore: mlua::Function,
+    equal: mlua::Function,
+    search_dir: PathBuf,
+    includes: WatchedFiles,
+}
+
+/// Copies config tables and puts a copy back, keeping the table itself: closures refer to it.
+const CONFIG_TABLE_LUA: &str = r#"
+local function copy(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = {}
+    for k, v in pairs(value) do
+        result[k] = copy(v)
+    end
+    return result
+end
+local function restore(data, good)
+    for k in pairs(data) do
+        data[k] = nil
+    end
+    for k, v in pairs(good) do
+        data[k] = copy(v)
+    end
+end
+local function equal(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then
+        return a == b
+    end
+    for k, v in pairs(a) do
+        if not equal(v, b[k]) then
+            return false
+        end
+    end
+    for k in pairs(b) do
+        if a[k] == nil then
+            return false
+        end
+    end
+    return true
+end
+return copy, restore, equal
+"#;
 
 /// Lua `Output` userdata: read-only accessors and mutation methods that apply
 /// `OutputAction`s to this output, by name.
@@ -1493,6 +1573,10 @@ pub struct ScriptHost {
     print_capture: PrintCapture,
     /// Whether this is the compositor's first config, still starting up.
     startup: StartupFlag,
+    /// Whether the config table changed since it loaded.
+    config_changes: SharedConfigChanges,
+    /// The config table, once the config has loaded.
+    config_source: Mutex<Option<ConfigSource>>,
 }
 
 impl ScriptHost {
@@ -1514,6 +1598,8 @@ impl ScriptHost {
         lua.set_app_data::<SharedTimers>(Arc::clone(&timers));
         lua.set_app_data::<StartupFlag>(Arc::clone(&startup));
         lua.set_app_data::<SharedOpenOverrides>(Arc::clone(&open_overrides));
+        let config_changes: SharedConfigChanges = Arc::default();
+        lua.set_app_data::<SharedConfigChanges>(Arc::clone(&config_changes));
 
         // Override Lua's default `print` so it routes to the installed sink
         // (set later via `set_print_log`) or falls back to stdout. Formats each
@@ -1565,6 +1651,8 @@ impl ScriptHost {
             print_sink,
             print_capture,
             startup,
+            config_changes,
+            config_source: Mutex::new(None),
         })
     }
 
@@ -1612,6 +1700,8 @@ impl ScriptHost {
         self.signals.lock().unwrap().clear();
         *self.timers.lock().unwrap() = Timers::default();
         self.bind_functions.lock().unwrap().clear();
+        self.config_changes.loaded.store(false, Ordering::Relaxed);
+        *self.config_source.lock().unwrap() = None;
 
         set_strict_config(matches!(
             std::env::var("NEORI_STRICT_CONFIG").ok().as_deref(),
@@ -1672,25 +1762,103 @@ impl ScriptHost {
             .and_then(|f| f.call(()))
             .map_err(|e| parse_err(format!("Lua error: {e}")))?;
 
-        let table = match result {
+        let (copy, restore, equal): (mlua::Function, mlua::Function, mlua::Function) = self
+            .lua
+            .load(CONFIG_TABLE_LUA)
+            .set_name("neori config table")
+            .call(())
+            .map_err(|e| parse_err(e.to_string()))?;
+        let lua_err = |e: LuaError| parse_err(e.to_string());
+
+        let (table, returned) = match result {
             Value::Table(t) => {
+                let returned: LuaTable = copy.call(&t).map_err(lua_err)?;
                 merge_api_data(&t, &api_data).map_err(&parse_err)?;
-                t
+                (t, Some(returned))
             }
-            Value::Nil => api_data,
+            Value::Nil => (api_data.clone(), None),
             _ => {
                 return Err(parse_err(format!("expected table or nil, got {result:?}")));
             }
         };
 
-        let mut config = Config::default();
-        PARSE_ENV.with(|env| *env.borrow_mut() = Some((search_dir, Arc::clone(&includes))));
-        let res = parse_table_into_config(table, &mut config)
-            .and_then(|()| check_mode_references(&config));
-        PARSE_ENV.with(|env| *env.borrow_mut() = None);
-        res.map_err(parse_err)?;
+        let config = parse_config_table(table, &search_dir, &includes).map_err(&parse_err)?;
+
+        // Keep the table: declarations called later change the running config.
+        let last_good: LuaTable = copy.call(&api_data).map_err(lua_err)?;
+        *self.config_source.lock().unwrap() = Some(ConfigSource {
+            data: api_data,
+            returned,
+            last_good,
+            copy,
+            restore,
+            equal,
+            search_dir,
+            includes: Arc::clone(&includes),
+        });
+        self.config_changes.changed.store(false, Ordering::Relaxed);
+        self.config_changes.loaded.store(true, Ordering::Relaxed);
+
         let includes = includes.lock().unwrap().clone();
         Ok((config, includes))
+    }
+
+    /// Notes that the config table may have changed, so that [`Self::take_config_change`] parses
+    /// it again: after `neori msg lua`, which can change it in any way.
+    pub fn mark_config_changed(&self) {
+        self.config_changes.changed.store(true, Ordering::Relaxed);
+    }
+
+    /// The config, parsed again, if a declaration changed the config table since the config
+    /// loaded or since the last call.
+    ///
+    /// A change that doesn't parse is undone, so the table stays what the running config was
+    /// made from, and its error is returned.
+    pub fn take_config_change(&self) -> Option<Result<Config, String>> {
+        if !self.config_changes.loaded.load(Ordering::Relaxed)
+            || !self.config_changes.changed.swap(false, Ordering::Relaxed)
+        {
+            return None;
+        }
+        let mut source = self.config_source.lock().unwrap();
+        let source = source.as_mut()?;
+        let err = |e: LuaError| e.to_string();
+
+        // Most code that runs changes nothing, and the running config may have changes of its
+        // own (output changes from IPC, …) that applying the config again would undo.
+        match source.equal.call::<bool>((&source.data, &source.last_good)) {
+            Ok(true) => return None,
+            Ok(false) => {}
+            Err(e) => return Some(Err(e.to_string())),
+        }
+
+        let parsed = (|| {
+            let table = match &source.returned {
+                Some(returned) => {
+                    let table: LuaTable = source.copy.call(returned).map_err(err)?;
+                    merge_api_data(&table, &source.data)?;
+                    table
+                }
+                None => source.data.clone(),
+            };
+            parse_config_table(table, &source.search_dir, &source.includes)
+        })();
+
+        Some(match parsed {
+            Ok(config) => {
+                match source.copy.call::<LuaTable>(&source.data) {
+                    Ok(copy) => source.last_good = copy,
+                    Err(e) => return Some(Err(e.to_string())),
+                }
+                Ok(config)
+            }
+            Err(message) => {
+                if let Err(e) = source.restore.call::<()>((&source.data, &source.last_good)) {
+                    return Some(Err(format!("{message}; undoing the change failed: {e}")));
+                }
+                Err(message)
+            }
+        })
     }
 
     /// Calls every Lua function registered for `event`, in registration order.
@@ -2258,8 +2426,9 @@ fn setup_neori_api(
     {
         let data = data.clone();
         let func = lua
-            .create_function(move |_, (key, value): (String, Value)| {
+            .create_function(move |lua, (key, value): (String, Value)| {
                 data.set(key, value)?;
+                mark_config_changed(lua);
                 Ok(())
             })
             .map_err(err)?;
@@ -2365,6 +2534,10 @@ fn setup_neori_api(
                             }
                         },
                     };
+                    // In the config file a key can only be bound once. Bound again later, from
+                    // a callback or `neori msg lua`, the new bind replaces the old one.
+                    let replace = config_loaded(lua);
+                    let mut replaced = Vec::new();
                     for pair in binds.clone().pairs::<Value, Value>() {
                         let (existing_key, existing_value) = pair?;
                         let existing = match &existing_key {
@@ -2377,7 +2550,18 @@ fn setup_neori_api(
                             _ => None,
                         };
                         if existing.as_deref() == Some(key.as_str()) {
-                            return Err(LuaError::runtime(format!("duplicate keybind: {key}")));
+                            if !replace {
+                                return Err(LuaError::runtime(format!("duplicate keybind: {key}")));
+                            }
+                            replaced.push(existing_key);
+                        }
+                    }
+                    // Remove from the end, so that list positions stay valid.
+                    replaced.sort_by_key(|k| std::cmp::Reverse(k.as_integer().unwrap_or(0)));
+                    for existing_key in replaced {
+                        match existing_key {
+                            Value::Integer(i) => binds.raw_remove(i)?,
+                            other => binds.set(other, Value::Nil)?,
                         }
                     }
                     let entry = lua.create_table()?;
@@ -2412,6 +2596,7 @@ fn setup_neori_api(
                         entry.set("options", options)?;
                     }
                     binds.push(entry)?;
+                    mark_config_changed(lua);
                     Ok(())
                 },
             )
@@ -2688,6 +2873,12 @@ fn setup_neori_api(
             .set_name("neori section")
             .into_function()
             .map_err(err)?;
+        let changed = lua
+            .create_function(|lua, ()| {
+                mark_config_changed(lua);
+                Ok(())
+            })
+            .map_err(err)?;
         for &name in CONFIG_SECTIONS {
             let replace = SECTION_REPLACE
                 .iter()
@@ -2697,7 +2888,7 @@ fn setup_neori_api(
                 .create_sequence_from(replace.iter().copied())
                 .map_err(err)?;
             let section: LuaTable = make_section
-                .call((data.clone(), name, replace))
+                .call((data.clone(), name, replace, changed.clone()))
                 .map_err(err)?;
             neori.set(name, section).map_err(err)?;
         }
@@ -2706,7 +2897,7 @@ fn setup_neori_api(
             .set_name("neori.misc")
             .into_function()
             .map_err(err)?;
-        let misc: LuaTable = make_misc.call(data.clone()).map_err(err)?;
+        let misc: LuaTable = make_misc.call((data.clone(), changed)).map_err(err)?;
         neori.set("misc", misc).map_err(err)?;
     }
 
@@ -2738,8 +2929,9 @@ fn setup_neori_api(
     ] {
         let data = data.clone();
         let func = lua
-            .create_function(move |_, value: Value| {
+            .create_function(move |lua, value: Value| {
                 data.set(name, value)?;
+                mark_config_changed(lua);
                 Ok(())
             })
             .map_err(err)?;
@@ -2854,6 +3046,7 @@ fn setup_neori_api(
                     }
                 };
                 push_section_entry(lua, &data, section, value)?;
+                mark_config_changed(lua);
                 Ok(())
             })
             .map_err(err)?;
@@ -2896,6 +3089,7 @@ fn setup_neori_api(
                             }
                         };
                         entries.push(handler)?;
+                        mark_config_changed(lua);
                         Ok(())
                     }
                     _ => Err(LuaError::runtime(
@@ -2986,7 +3180,8 @@ fn setup_neori_api(
                         modes
                     }
                 };
-                if modes.contains_key(name.as_str())? {
+                // Declared again later, from a callback or `neori msg lua`, a mode is replaced.
+                if modes.contains_key(name.as_str())? && !config_loaded(lua) {
                     return Err(LuaError::runtime(format!(
                         "mode {name:?} is declared twice"
                     )));
@@ -2996,6 +3191,7 @@ fn setup_neori_api(
                 *bind_mode.lock().unwrap() = Some(name);
                 let result = declare.call::<()>(());
                 *bind_mode.lock().unwrap() = None;
+                mark_config_changed(lua);
                 result
             })
             .map_err(err)?;
@@ -3129,7 +3325,7 @@ const SECTION_REPLACE: &[(&str, &[&str])] = &[
 /// Reading a field returns what the config has set so far (nil if unset), and assigning a field
 /// replaces just that field, creating the section if needed.
 const SECTION_LUA: &str = r#"
-local data, name, replace = ...
+local data, name, replace, changed = ...
 
 local function is_list(t)
     return t[1] ~= nil
@@ -3174,6 +3370,30 @@ local function merge(into, from, prefix)
     end
 end
 
+-- A table inside the section, read through the section: writes to it note the change, so that
+-- `neori.layout.focus_ring.width = 8` changes the running config too.
+local function view(t)
+    return setmetatable({}, {
+        __index = function(_, key)
+            local value = t[key]
+            if type(value) == "table" then
+                return view(value)
+            end
+            return value
+        end,
+        __newindex = function(_, key, value)
+            t[key] = value
+            changed()
+        end,
+        __pairs = function()
+            return next, t, nil
+        end,
+        __len = function()
+            return #t
+        end,
+    })
+end
+
 return setmetatable({}, {
     __call = function(_, value)
         local section = data[name]
@@ -3182,11 +3402,16 @@ return setmetatable({}, {
         else
             data[name] = copy(value)
         end
+        changed()
     end,
     __index = function(_, key)
         local section = data[name]
         if type(section) == "table" then
-            return section[key]
+            local value = section[key]
+            if type(value) == "table" then
+                return view(value)
+            end
+            return value
         end
     end,
     __newindex = function(_, key, value)
@@ -3199,6 +3424,7 @@ return setmetatable({}, {
             error("neori." .. name .. " was set to a " .. type(section) .. ", not a table", 2)
         end
         section[key] = value
+        changed()
     end,
     __pairs = function()
         local section = data[name]
@@ -3213,7 +3439,7 @@ return setmetatable({}, {
 /// Assigning nil to `screenshot_path` turns saving off: a nil value can't be stored in a table,
 /// so it's stored as false, which the parser reads as "don't save".
 const MISC_LUA: &str = r#"
-local data = ...
+local data, changed = ...
 local options = { prefer_no_csd = true, screenshot_path = true }
 local function check(key)
     if not options[key] then
@@ -3227,6 +3453,7 @@ local function set(key, value)
         value = false
     end
     data[key] = value
+    changed()
 end
 return setmetatable({}, {
     __index = function(_, key)
@@ -3366,6 +3593,22 @@ fn push_section_entry(
 ///
 /// Keys already present in the returned table take precedence, except for `binds`, which is
 /// merged bind-by-bind so that both styles can contribute binds.
+/// Parses a config table into a [`Config`], resolving paths against `search_dir`.
+fn parse_config_table(
+    table: LuaTable,
+    search_dir: &Path,
+    includes: &WatchedFiles,
+) -> Result<Config, String> {
+    let mut config = Config::default();
+    PARSE_ENV.with(|env| {
+        *env.borrow_mut() = Some((search_dir.to_path_buf(), Arc::clone(includes)));
+    });
+    let res =
+        parse_table_into_config(table, &mut config).and_then(|()| check_mode_references(&config));
+    PARSE_ENV.with(|env| *env.borrow_mut() = None);
+    res.map(|()| config)
+}
+
 fn merge_api_data(table: &LuaTable, data: &LuaTable) -> Result<(), String> {
     for pair in data.pairs::<Value, Value>() {
         let (key, value) = pair.map_err(|e| format!("{e}"))?;
