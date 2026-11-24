@@ -365,6 +365,27 @@ declare its static setup — they run at parse time, not during callbacks. The c
 accepts them anywhere in the script, so you can mix declarative blocks with Lua
 conditionals to build the config dynamically.
 
+### Keybinding modes
+
+`neori.mode("resize", function() … end)` declares a mode: binds made inside the function belong
+to it and are only active while it is. `neori.enter_mode("resize")` and `neori.exit_mode()`
+switch modes from a callback, like the `enter-mode` and `exit-mode` actions;
+`neori.current_mode()` returns the active mode's name or `nil`, and `mode-changed` fires on
+every switch. See [Configuration: Key Bindings](Configuration:-Key-Bindings.md#keybinding-modes).
+
+```lua
+neori.mode("resize", function()
+    neori.bind("Left", "set-column-width -10%")
+    neori.bind("Right", "set-column-width +10%")
+    neori.bind("Escape", function() neori.exit_mode() end)
+end)
+-- Leave the mode on its own after five seconds.
+neori.bind("Mod+Alt+R", function()
+    neori.enter_mode("resize")
+    neori.after(5, function() if neori.current_mode() == "resize" then neori.exit_mode() end end)
+end)
+```
+
 ### Action-builder helpers
 
 Return an action table suitable for `neori.bind`, `neori.on`, or `neori.action`:
@@ -402,6 +423,7 @@ wins per field. Entry-collections that take names use the singular form, listed 
 | `neori.prefer_no_csd(true)` / `neori.screenshot_path("…")`     | [Configuration: Miscellaneous](Configuration:-Miscellaneous.md) |
 | `neori.window_rule { … }` (per-rule)                           | [Configuration: Window Rules](Configuration:-Window-Rules.md) |
 | `neori.layer_rule { … }` (per-rule)                            | [Configuration: Layer Rules](Configuration:-Layer-Rules.md) |
+| `neori.window_rules { … }` / `neori.layer_rules { … }` (an array of rules; replaces all of them) | [Window Rules](Configuration:-Window-Rules.md), [Layer Rules](Configuration:-Layer-Rules.md) |
 | `neori.output("name", { … })`                                  | [Configuration: Outputs](Configuration:-Outputs.md) |
 | `neori.workspace("name", { … })`                               | [Configuration: Named Workspaces](Configuration:-Named-Workspaces.md) |
 
@@ -795,6 +817,14 @@ new config decides what that chord does now. Same for `neori.on` handlers.
 
 ## `print(...)` output
 
+Where output shows up:
+
+| What printed or failed | Where to see it |
+|---|---|
+| Code run with `neori msg lua` | Straight back in the terminal, with its values (see [Running Lua from a shell](#running-lua-from-a-shell)) |
+| `print` in a bind, handler or timer | The Lua log: `tail -f ~/.local/state/neori/lua.log` |
+| An error raised in a bind, handler or timer | neori's own log: `journalctl --user -u neori -f` when neori runs as the `neori.service` user unit, otherwise its stderr |
+
 Lua's built-in `print(...)` is overridden to append to a log file instead of the
 process's stdout (which in a Wayland compositor is usually invisible). The file lives at
 
@@ -1014,6 +1044,16 @@ prints `{ "printed": …, "values": [ … ] }`.
 In zsh, Tab completes the code: `neori.` names, methods after `:` (`neori.focused_window():ti`
 completes to `title`), and global names, including your config's own. The types come from the
 [editor definitions](#editor-support), and nothing you typed is run to work them out.
+
+Binds, handlers and timers that the code sets up stay until the next config reload, which
+rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
+handler before putting it in the config; what the handler prints later goes to the
+[Lua log](#print-output), since the command has returned by then:
+
+```sh
+neori msg lua 'neori.on("pointer-button", function(e) print(e.name, e.pressed) end)'
+tail -f ~/.local/state/neori/lua.log
+```
 
 The code can change anything a config callback can, so only processes of your own user can use
 it, through the IPC socket, like `neori msg action spawn`.
