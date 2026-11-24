@@ -1,6 +1,8 @@
+use neori_config_derive::LuaTable;
+
 use crate::LayoutPart;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct Workspace {
     pub name: WorkspaceName,
     /// Output names to open this workspace on, in preference order.
@@ -8,7 +10,7 @@ pub struct Workspace {
     pub layout: Option<WorkspaceLayoutPart>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WorkspaceName(pub String);
 
 #[derive(Debug, Clone, PartialEq)]

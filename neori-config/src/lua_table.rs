@@ -789,3 +789,24 @@ impl FromLuaConfig for crate::output::MaxBpc {
         "integer|string".to_owned()
     }
 }
+
+impl FromLuaConfig for crate::workspace::WorkspaceName {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        Ok(String::from_lua_config(value, path)?.map(crate::workspace::WorkspaceName))
+    }
+
+    fn lua_type() -> String {
+        "string".to_owned()
+    }
+}
+
+impl FromLuaConfig for crate::workspace::WorkspaceLayoutPart {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        Ok(table_from_lua::<crate::LayoutPart>(value, path)?
+            .map(crate::workspace::WorkspaceLayoutPart))
+    }
+
+    fn lua_type() -> String {
+        "table".to_owned()
+    }
+}

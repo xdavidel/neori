@@ -3873,42 +3873,13 @@ fn parse_layer_rule(table: LuaTable) -> Result<LayerRule, String> {
     Ok(rule)
 }
 
-/// Parses a named workspace's `open_on_output`: a single output name, or a list of output
-/// names in preference order.
-fn parse_open_on_output(value: &Value) -> Result<Vec<String>, String> {
-    match value {
-        Value::Nil => Ok(Vec::new()),
-        Value::String(_) => Ok(vec![value_to_string(value)?]),
-        Value::Table(t) => t
-            .clone()
-            .sequence_values::<Value>()
-            .map(|v| value_to_string(&v.map_err(|e| format!("open_on_output: {e}"))?))
-            .collect(),
-        other => Err(format!(
-            "open_on_output must be a string or a list of strings, got {}",
-            other.type_name()
-        )),
-    }
-}
-
 fn parse_workspaces(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    for item in table.sequence_values::<LuaTable>() {
-        let t = item.map_err(|e| format!("workspace error: {e}"))?;
-        let name: String = t.get("name").unwrap_or_default();
-        let open_on_output =
-            parse_open_on_output(&table_get_alias(&t, "open_on_output", "open-on-output")?)?;
-        let layout_table: Option<LuaTable> = t
-            .get("layout")
-            .map_err(|e| format!("workspace layout error: {e}"))?;
-        let layout = match layout_table {
-            Some(lt) => Some(WorkspaceLayoutPart(parse_layout_part(&lt)?)),
-            None => None,
-        };
-        config.workspaces.push(Workspace {
-            name: WorkspaceName(name),
-            open_on_output,
-            layout,
-        });
+    for item in table.sequence_values::<Value>() {
+        let item = item.map_err(|e| format!("workspace error: {e}"))?;
+        if let Some(workspace) = crate::lua_table::table_from_lua::<Workspace>(&item, "workspace")?
+        {
+            config.workspaces.push(workspace);
+        }
     }
     Ok(())
 }
@@ -3934,32 +3905,19 @@ fn parse_scratchpads(table: LuaTable, config: &mut Config) -> Result<(), String>
                 None,
                 None,
             ),
-            Value::Table(t) => {
-                let name: String = t.get("name").unwrap_or_default();
-                let spawn = t.get::<Value>("spawn").map_err(|e| format!("{e}"))?;
-                let spawn = match spawn {
-                    Value::Nil => None,
-                    v => {
-                        let args = parse_spawn_args(&v)?;
-                        if args.is_empty() {
-                            return Err(format!("scratchpad `{name}`: spawn requires a command"));
-                        }
-                        Some(args)
-                    }
+            Value::Table(_) => {
+                let Some(pad) =
+                    crate::lua_table::table_from_lua::<Scratchpad>(&item, "scratchpad")?
+                else {
+                    continue;
                 };
-                let spawn_sh = match table_get_alias(&t, "spawn_sh", "spawn-sh")? {
-                    Value::Nil => None,
-                    Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
-                    _ => {
-                        return Err(format!("scratchpad `{name}`: spawn_sh must be a string"));
-                    }
-                };
-                if spawn.is_some() && spawn_sh.is_some() {
+                let name = pad.name;
+                if pad.spawn.is_some() && pad.spawn_sh.is_some() {
                     return Err(format!(
                         "scratchpad `{name}`: set only one of `spawn` or `spawn_sh`"
                     ));
                 }
-                (name, spawn, spawn_sh)
+                (name, pad.spawn, pad.spawn_sh)
             }
             _ => {
                 return Err(
@@ -3982,13 +3940,6 @@ fn parse_scratchpads(table: LuaTable, config: &mut Config) -> Result<(), String>
 
 fn parse_layout_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
     crate::lua_table::LuaTable::merge_lua_table(&mut config.layout, &table, "layout")
-}
-
-/// Parses a `LayoutPart`, the partial layout overrides used by outputs and workspaces.
-fn parse_layout_part(table: &LuaTable) -> Result<LayoutPart, String> {
-    let mut part = LayoutPart::default();
-    crate::lua_table::LuaTable::merge_lua_table(&mut part, table, "layout")?;
-    Ok(part)
 }
 
 fn parse_cursor_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
@@ -4624,6 +4575,18 @@ fn parse_bind_slot_action(value: &Value) -> Result<Action, String> {
             other.type_name()
         )),
     }
+}
+
+/// For `#[lua(with = …)]` on a scratchpad's `spawn`: a command, as a string or a list.
+pub(crate) fn parse_scratchpad_spawn(
+    value: &Value,
+    path: &str,
+) -> Result<Option<Option<Vec<String>>>, String> {
+    let args = parse_spawn_args(value)?;
+    if args.is_empty() {
+        return Err(format!("{path} requires a command"));
+    }
+    Ok(Some(Some(args)))
 }
 
 fn parse_spawn_args(value: &Value) -> Result<Vec<String>, String> {

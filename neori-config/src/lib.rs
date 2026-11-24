@@ -4476,8 +4476,9 @@ mod tests {
         assert_eq!(config.workspaces[1].open_on_output, ["eDP-1"]);
         assert!(config.workspaces[2].open_on_output.is_empty());
 
-        let err = Config::parse_mem(r#"neori.workspace("x", { open_on_output = 5 })"#).unwrap_err();
-        assert!(err.main.contains("open_on_output must be"), "{err}");
+        let err =
+            Config::parse_mem(r#"neori.workspace("x", { open_on_output = true })"#).unwrap_err();
+        assert!(err.main.contains("workspace.open_on_output"), "{err}");
     }
 
     #[test]
@@ -5634,6 +5635,49 @@ mod tests {
             let err = Config::parse_mem(&format!("neori.strict(true)\n{code}")).unwrap_err();
             assert!(err.main.contains(error), "{code}: {err:?}");
         }
+    }
+
+    #[test]
+    fn workspaces_and_scratchpads_derive_their_keys() {
+        let config = Config::parse_mem(
+            r#"
+            neori.workspace("code", { layout = { gaps = 4, center_focused_column = "always" } })
+            neori.scratchpad({ name = "term", spawn = { "foot", "--app-id", "scratch" } })
+            neori.scratchpad("notes")
+            "#,
+        )
+        .unwrap();
+        let layout = &config.workspaces[0].layout.as_ref().unwrap().0;
+        assert_eq!(layout.gaps, Some(FloatOrInt(4.)));
+        assert_eq!(
+            layout.center_focused_column,
+            Some(crate::layout::CenterFocusedColumn::Always)
+        );
+        assert_eq!(config.scratchpads.len(), 2);
+        assert_eq!(
+            config.scratchpads[0].spawn.as_deref(),
+            Some(
+                &[
+                    "foot".to_owned(),
+                    "--app-id".to_owned(),
+                    "scratch".to_owned()
+                ][..]
+            )
+        );
+
+        let err =
+            Config::parse_mem(r#"neori.strict(true) neori.workspace("x", { open_on = "DP-1" })"#)
+                .unwrap_err();
+        assert!(
+            err.main.contains("unknown key `open_on` in workspace"),
+            "{err}"
+        );
+
+        let err = Config::parse_mem(
+            r#"neori.scratchpad({ name = "t", spawn = "foot", spawn_sh = "foot" })"#,
+        )
+        .unwrap_err();
+        assert!(err.main.contains("set only one of"), "{err}");
     }
 
     #[test]
