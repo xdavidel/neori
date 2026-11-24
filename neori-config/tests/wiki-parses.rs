@@ -90,6 +90,9 @@ fn wiki_docs_parses() {
         if code.contains("neori.include(") || code.contains("require(") {
             continue;
         }
+        // Strict, so that a key the parser doesn't know fails instead of being dropped with a
+        // warning.
+        let code = format!("neori.strict(true)\n{code}");
         if let Err(error) = neori_config::Config::parse(Path::new(&filename), &code).config {
             if !must_fail {
                 errors.push(format!(

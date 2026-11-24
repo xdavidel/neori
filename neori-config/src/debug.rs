@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
+use neori_config_derive::LuaTable;
+
 use crate::utils::Flag;
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, LuaTable)]
 pub struct Debug {
     pub preview_render: Option<PreviewRender>,
     pub dbus_interfaces_in_non_session_instances: bool,
@@ -13,6 +15,7 @@ pub struct Debug {
     pub restrict_primary_scanout_to_matching_format: bool,
     pub force_disable_connectors_on_resume: bool,
     pub render_drm_device: Option<PathBuf>,
+    #[lua(rename = "ignore_drm_device", alias = "ignored_drm_devices")]
     pub ignored_drm_devices: Vec<PathBuf>,
     pub force_pipewire_invalid_modifier: bool,
     pub disable_pipewire_dmabuf: bool,

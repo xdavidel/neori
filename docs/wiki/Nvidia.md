@@ -46,10 +46,10 @@ The fix shipped in the driver at the time of writing uses a value of 0, while th
 
 If you have screencast glitches or flickering on NVIDIA, you can set this debug flag:
 
-```lua
+```lua,must-fail
 neori.debug {
     wait_for_frame_completion_in_pipewire = true,
 }
 ```
 
-This debug flag has since been removed because the problem was properly fixed in neori, so newer versions ignore it.
+This debug flag has since been removed because the problem was properly fixed in neori, so newer versions ignore it with an "unknown key" warning.

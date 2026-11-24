@@ -5032,55 +5032,7 @@ fn parse_xwayland_satellite_section(table: LuaTable, config: &mut Config) -> Res
 }
 
 fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let debug = &mut config.debug;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("debug error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "render_drm_device" | "render-drm-device" => {
-                debug.render_drm_device = Some(value_to_string(&value)?.into());
-            }
-            "ignore_drm_device" | "ignore-drm-device" => {
-                if let Value::Table(t) = &value {
-                    let mut devices = Vec::new();
-                    for v in t.clone().sequence_values::<String>() {
-                        devices.push(v.map_err(|e| format!("{e}"))?.into());
-                    }
-                    debug.ignored_drm_devices = devices;
-                } else {
-                    debug
-                        .ignored_drm_devices
-                        .push(value_to_string(&value)?.into());
-                }
-            }
-            "enable_overlay_planes" | "enable-overlay-planes" => {
-                if let Value::Boolean(b) = &value {
-                    debug.enable_overlay_planes = *b;
-                }
-            }
-            "disable_cursor_plane" | "disable-cursor-plane" => {
-                if let Value::Boolean(b) = &value {
-                    debug.disable_cursor_plane = *b;
-                }
-            }
-            "disable_direct_scanout" | "disable-direct-scanout" => {
-                if let Value::Boolean(b) = &value {
-                    debug.disable_direct_scanout = *b;
-                }
-            }
-            "disable_10bit_output" | "disable-10bit-output" => {
-                debug.disable_10bit_output = value_is_truthy(&value);
-            }
-            "disable_pipewire_dmabuf" | "disable-pipewire-dmabuf" => {
-                debug.disable_pipewire_dmabuf = value_is_truthy(&value);
-            }
-            "nested_show_host_cursor" | "nested-show-host-cursor" => {
-                debug.nested_show_host_cursor = value_is_truthy(&value);
-            }
-            _ => unknown_key("debug", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.debug, &table, "debug")
 }
 
 fn parse_switch_events_section(table: LuaTable, config: &mut Config) -> Result<(), String> {

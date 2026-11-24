@@ -15,6 +15,7 @@ use crate::appearance::{
     BlockOutFrom, Border, Color, CornerRadius, FocusRing, Gradient, GradientInterpolation,
     GradientRelativeTo, InsertHint, Shadow, TabIndicator, TabIndicatorLength, TabIndicatorPosition,
 };
+use crate::debug::PreviewRender;
 use crate::layout::{CenterFocusedColumn, DefaultPresetSize, PresetSize};
 use crate::parse_lua::{
     invalid_config, key_str, parse_block_out_from, parse_css_color, unknown_key, value_is_truthy,
@@ -589,3 +590,21 @@ pub fn shadow_off(
     this.on = !value_is_truthy(value);
     Ok(true)
 }
+
+impl FromLuaConfig for std::path::PathBuf {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        Ok(Some(at(path, value_to_string(value))?.into()))
+    }
+
+    fn lua_type() -> String {
+        "string".to_owned()
+    }
+}
+
+string_enum!(
+    PreviewRender,
+    &[
+        ("screencast", PreviewRender::Screencast),
+        ("screen-capture", PreviewRender::ScreenCapture),
+    ]
+);

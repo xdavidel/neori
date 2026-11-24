@@ -5408,6 +5408,41 @@ mod tests {
     }
 
     #[test]
+    fn debug_parses_every_key() {
+        let config = Config::parse_mem(
+            r#"
+            neori.debug {
+                preview_render = "screen-capture",
+                disable_transactions = true,
+                ["keep-laptop-panel-on-when-lid-is-closed"] = true,
+                strict_new_window_focus_policy = true,
+                render_drm_device = "/dev/dri/renderD129",
+                ignore_drm_device = { "/dev/dri/renderD128", "/dev/dri/renderD130" },
+            }
+            "#,
+        )
+        .unwrap();
+        let debug = &config.debug;
+        assert_eq!(
+            debug.preview_render,
+            Some(crate::debug::PreviewRender::ScreenCapture)
+        );
+        assert!(debug.disable_transactions);
+        assert!(debug.keep_laptop_panel_on_when_lid_is_closed);
+        assert!(debug.strict_new_window_focus_policy);
+        assert_eq!(
+            debug.render_drm_device.as_deref(),
+            Some(std::path::Path::new("/dev/dri/renderD129"))
+        );
+        assert_eq!(debug.ignored_drm_devices.len(), 2);
+
+        let config =
+            Config::parse_mem(r#"neori.debug { ignore_drm_device = "/dev/dri/renderD128" }"#)
+                .unwrap();
+        assert_eq!(config.debug.ignored_drm_devices.len(), 1);
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

@@ -85,4 +85,5 @@ Configuration snippets use Lua, so open the code block with a `lua` fence:
     ```
 
 These `lua` blocks are validated by the `wiki-parses` test in the `neori-config` crate, so they must parse as real config.
+The test parses them in strict mode, so a key the parser doesn't know fails it rather than being dropped with a warning.
 Use `lua,must-fail` for a snippet that is deliberately invalid.
