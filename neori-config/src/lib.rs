@@ -5684,6 +5684,84 @@ mod tests {
     }
 
     #[test]
+    fn custom_sections_go_through_the_lua_table_parsers() {
+        let config = Config::parse_mem(
+            r#"
+            neori.animations {
+                slowdown = 2,
+                window_open = { duration_ms = 300, curve = "ease-out-cubic" },
+                workspace_switch = false,
+            }
+            neori.switch_events { lid_close = { spawn = { "systemctl", "suspend" } } }
+            neori.environment { QT_QPA_PLATFORM = "wayland", DISPLAY = false }
+            "#,
+        )
+        .unwrap();
+        let default = Config::default();
+        assert_eq!(config.animations.slowdown, 2.);
+        assert!(config.animations.workspace_switch.0.off);
+        assert_ne!(
+            config.animations.window_open,
+            default.animations.window_open
+        );
+        let config2 = Config::parse_mem(
+            "neori.animations { window_movement = { spring = { stiffness = 600 } } }",
+        )
+        .unwrap();
+        assert_eq!(
+            config2.animations.window_movement.0.kind,
+            crate::animations::Kind::Spring(crate::animations::SpringParams {
+                damping_ratio: 1.,
+                stiffness: 600,
+                epsilon: 0.0001,
+            })
+        );
+        // Animations not given keep their defaults.
+        assert_eq!(
+            config.animations.window_close,
+            default.animations.window_close
+        );
+        assert_eq!(
+            config.switch_events.lid_close.as_ref().unwrap().spawn,
+            ["systemctl", "suspend"]
+        );
+        assert_eq!(config.switch_events.lid_open, None);
+        let env = &config.environment.0;
+        assert_eq!(env.len(), 2);
+        let display = env.iter().find(|v| v.name == "DISPLAY").unwrap();
+        assert_eq!(display.value, None);
+
+        for (code, error) in [
+            (
+                r#"neori.animations { window_shake = false }"#,
+                "unknown key `window_shake` in animations",
+            ),
+            (
+                r#"neori.switch_events { lid_close = { run = "x" } }"#,
+                "unknown key `run` in switch_events.lid_close",
+            ),
+            (
+                r#"neori.animations { slowdown = "fast" }"#,
+                "animations.slowdown: invalid number: fast",
+            ),
+            (
+                r#"neori.animations { window_movement = { spring = { damping = 1 } } }"#,
+                "unknown key `damping` in animation.spring",
+            ),
+        ] {
+            let err = Config::parse_mem(&format!("neori.strict(true)\n{code}")).unwrap_err();
+            assert!(err.main.contains(error), "{code}: {err:?}");
+        }
+
+        // Binds keep their checks, now with the section's path.
+        let err = Config::parse_mem(
+            r#"neori.binds { ["Alt_L"] = "close-window", ["Alt+Alt_L"] = "close-window" }"#,
+        )
+        .unwrap_err();
+        assert!(err.main.starts_with("binds: duplicate keybind"), "{err}");
+    }
+
+    #[test]
     fn window_rule_geometry_corner_radius() {
         let config = Config::parse_mem(
             r#"

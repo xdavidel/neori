@@ -3,6 +3,17 @@
 -- the structs, then regenerate it with
 --   NEORI_UPDATE_LUA_DEFINITIONS=1 cargo test -p neori-config --test lua-definitions
 
+---Environment variables for programs neori spawns: name = value, `false` unsets one.
+---@class neori.config.Environment
+---@overload fun(config: table<string, string|false>)
+---@field [string] string|false
+
+---Binds: key = action, like `["Mod+T"] = "spawn foot"`.
+---@alias neori.config.Binds table<string, string|table|function>
+
+---Keybinding modes: name = binds.
+---@alias neori.config.Modes table<string, neori.config.Binds>
+
 ---@class neori.config.Input
 ---@overload fun(config: neori.config.Input)
 ---@field keyboard? neori.config.Keyboard
@@ -18,6 +29,29 @@
 ---@field workspace_auto_back_and_forth? boolean
 ---@field mod_key? "ctrl"|"shift"|"alt"|"super"|"iso_level3_shift"|"iso_level5_shift"
 ---@field mod_key_nested? "ctrl"|"shift"|"alt"|"super"|"iso_level3_shift"|"iso_level5_shift"
+
+---@class neori.config.Animations
+---@overload fun(config: neori.config.Animations)
+---@field off? boolean
+---@field slowdown? number
+---@field workspace_switch? boolean|table
+---@field window_open? boolean|table
+---@field window_close? boolean|table
+---@field horizontal_view_movement? boolean|table
+---@field window_movement? boolean|table
+---@field window_resize? boolean|table
+---@field config_notification_open_close? boolean|table
+---@field exit_confirmation_open_close? boolean|table
+---@field screenshot_ui_open? boolean|table
+---@field overview_open_close? boolean|table
+---@field recent_windows_close? boolean|table
+
+---@class neori.config.SwitchBinds
+---@overload fun(config: neori.config.SwitchBinds)
+---@field lid_open? neori.config.SwitchAction
+---@field lid_close? neori.config.SwitchAction
+---@field tablet_mode_on? neori.config.SwitchAction
+---@field tablet_mode_off? neori.config.SwitchAction
 
 ---@class neori.config.Layout
 ---@overload fun(config: neori.config.Layout)
@@ -270,6 +304,9 @@
 ---@field off? boolean
 ---@field calibration_matrix? number|number[]
 ---@field map_to_output? string
+
+---@class neori.config.SwitchAction
+---@field spawn? string|string[]
 
 ---@class neori.config.FocusRing
 ---@field off? boolean

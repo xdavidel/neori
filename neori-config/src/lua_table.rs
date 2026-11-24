@@ -834,6 +834,8 @@ impl FromLuaConfig for crate::workspace::WorkspaceLayoutPart {
 fn sections() -> Vec<(&'static str, Option<LuaClass>)> {
     vec![
         ("input", crate::Input::lua_class()),
+        ("animations", crate::Animations::lua_class()),
+        ("switch_events", crate::SwitchBinds::lua_class()),
         ("layout", crate::Layout::lua_class()),
         ("cursor", crate::Cursor::lua_class()),
         ("gestures", crate::Gestures::lua_class()),
@@ -891,6 +893,19 @@ pub fn lua_definitions() -> String {
          -- the structs, then regenerate it with\n\
          --   NEORI_UPDATE_LUA_DEFINITIONS=1 cargo test -p neori-config --test lua-definitions\n",
     );
+    // The tables keyed by names rather than fixed keys.
+    out.push_str(&format!(
+        "\n---Environment variables for programs neori spawns: name = value, `false` unsets one.\n\
+         ---@class neori.config.Environment\n\
+         ---@overload fun(config: {env})\n\
+         ---@field [string] string|false\n\
+         \n---Binds: key = action, like `[\"Mod+T\"] = \"spawn foot\"`.\n\
+         ---@alias neori.config.Binds {binds}\n\
+         \n---Keybinding modes: name = binds.\n\
+         ---@alias neori.config.Modes table<string, neori.config.Binds>\n",
+        env = crate::Environment::lua_type(),
+        binds = crate::Binds::lua_type(),
+    ));
     for class in &classes {
         out.push('\n');
         out.push_str(&format!("---@class {}\n", class.name));
@@ -907,4 +922,117 @@ pub fn lua_definitions() -> String {
         }
     }
     out
+}
+
+/// A plain animation: `false` turns it off, `true` on, and a table sets its curve, like
+/// `{ spring = { damping_ratio = 1, stiffness = 800 } }` or `{ duration_ms = 150, curve = … }`.
+/// Merges into the current animation.
+macro_rules! animation {
+    ($($ty:ident),*) => {$(
+        impl FromLuaConfig for crate::animations::$ty {
+            fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+                let mut anim = Self::default();
+                anim.merge_from_lua(value, path)?;
+                Ok(Some(anim))
+            }
+
+            fn merge_from_lua(&mut self, value: &Value, path: &str) -> Result<(), String> {
+                if let Some(anim) = at(path, crate::parse_lua::parse_animation_switch(value, self.0))? {
+                    self.0 = anim;
+                }
+                Ok(())
+            }
+
+            fn lua_type() -> String {
+                "boolean|table".to_owned()
+            }
+        }
+    )*};
+}
+animation!(
+    WorkspaceSwitchAnim,
+    HorizontalViewMovementAnim,
+    WindowMovementAnim,
+    ConfigNotificationOpenCloseAnim,
+    ExitConfirmationOpenCloseAnim,
+    ScreenshotUiOpenAnim,
+    OverviewOpenCloseAnim,
+    RecentWindowsCloseAnim
+);
+
+/// An animation that can also take a `custom_shader`, like `window_open`.
+macro_rules! animation_with_shader {
+    ($($ty:ident),*) => {$(
+        impl FromLuaConfig for crate::animations::$ty {
+            fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+                let mut anim = Self::default();
+                anim.merge_from_lua(value, path)?;
+                Ok(Some(anim))
+            }
+
+            fn merge_from_lua(&mut self, value: &Value, path: &str) -> Result<(), String> {
+                let mut shader = None;
+                let parsed = crate::parse_lua::parse_animation_switch_with_shader(
+                    value,
+                    self.anim,
+                    &mut shader,
+                );
+                if let Some(anim) = at(path, parsed)? {
+                    self.anim = anim;
+                }
+                if shader.is_some() {
+                    self.custom_shader = shader;
+                }
+                Ok(())
+            }
+
+            fn lua_type() -> String {
+                "boolean|table".to_owned()
+            }
+        }
+    )*};
+}
+animation_with_shader!(WindowOpenAnim, WindowCloseAnim, WindowResizeAnim);
+
+/// `{ NAME = "value" }`; `false` unsets a variable (a table can't hold nil). Replaces the
+/// variables set before.
+impl FromLuaConfig for crate::Environment {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let Value::Table(table) = value else {
+            return invalid(path, format!("must be a table, got {}", value.type_name()));
+        };
+        let mut vars = Vec::new();
+        for pair in table.pairs::<Value, Value>() {
+            let (key, value) = at(path, pair.map_err(|e| e.to_string()))?;
+            let name = at(path, key_str(&key))?;
+            let value = match &value {
+                Value::Boolean(false) => None,
+                _ => Some(at(&format!("{path}.{name}"), value_to_string(&value))?),
+            };
+            vars.push(crate::misc::EnvironmentVariable { name, value });
+        }
+        Ok(Some(crate::Environment(vars)))
+    }
+
+    fn lua_type() -> String {
+        "table<string, string|false>".to_owned()
+    }
+}
+
+/// `{ ["Mod+T"] = "spawn foot", … }`, or the entries `neori.bind` makes. Replaces the binds set
+/// before.
+impl FromLuaConfig for crate::Binds {
+    fn from_lua_config(value: &Value, path: &str) -> Result<Option<Self>, String> {
+        let Value::Table(table) = value else {
+            return invalid(path, format!("must be a table, got {}", value.type_name()));
+        };
+        Ok(Some(at(
+            path,
+            crate::parse_lua::parse_binds(table.clone()),
+        )?))
+    }
+
+    fn lua_type() -> String {
+        "table<string, string|table|function>".to_owned()
+    }
 }

@@ -4069,68 +4069,15 @@ fn parse_debug_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
 }
 
 fn parse_switch_events_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let se = &mut config.switch_events;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("switch-events error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "lid_open" | "lid-open" => {
-                if let Value::Table(t) = &value {
-                    let spawn: Vec<String> = t
-                        .get("spawn")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or_default();
-                    se.lid_open = Some(SwitchAction { spawn });
-                }
-            }
-            "lid_close" | "lid-close" => {
-                if let Value::Table(t) = &value {
-                    let spawn: Vec<String> = t
-                        .get("spawn")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or_default();
-                    se.lid_close = Some(SwitchAction { spawn });
-                }
-            }
-            "tablet_mode_on" | "tablet-mode-on" => {
-                if let Value::Table(t) = &value {
-                    let spawn: Vec<String> = t
-                        .get("spawn")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or_default();
-                    se.tablet_mode_on = Some(SwitchAction { spawn });
-                }
-            }
-            "tablet_mode_off" | "tablet-mode-off" => {
-                if let Value::Table(t) = &value {
-                    let spawn: Vec<String> = t
-                        .get("spawn")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or_default();
-                    se.tablet_mode_off = Some(SwitchAction { spawn });
-                }
-            }
-            _ => unknown_key("switch_events", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.switch_events, &table, "switch_events")
 }
 
 fn parse_environment_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let mut vars = Vec::new();
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("environment error: {e}"))?;
-        let name = key_str(&key)?;
-        // A nil value can't be stored in a Lua table, so `false` unsets the variable.
-        let val = match &value {
-            Value::String(s) => Some(s.to_str().map_err(|e| format!("{e}"))?.to_string()),
-            Value::Boolean(false) => None,
-            _ => Some(value_to_string(&value)?),
-        };
-        vars.push(EnvironmentVariable { name, value: val });
-    }
-    config.environment.0 = vars;
-    Ok(())
+    crate::lua_table::FromLuaConfig::merge_from_lua(
+        &mut config.environment,
+        &Value::Table(table),
+        "environment",
+    )
 }
 
 /// Checks that a recent windows switcher bind can work, and doesn't conflict with an earlier one.
@@ -4179,12 +4126,13 @@ fn parse_modes(table: LuaTable, config: &mut Config) -> Result<(), String> {
     for pair in table.pairs::<Value, LuaTable>() {
         let (name, binds) = pair.map_err(|e| format!("modes error: {e}"))?;
         let name = key_str(&name)?;
-        let mut parsed = Config::default();
-        parse_binds_section(binds, &mut parsed).map_err(|e| format!("mode {name}: {e}"))?;
-        modes.push(BindMode {
-            name,
-            binds: parsed.binds,
-        });
+        let path = format!("modes.{name}");
+        let Some(binds) =
+            crate::lua_table::FromLuaConfig::from_lua_config(&Value::Table(binds), &path)?
+        else {
+            continue;
+        };
+        modes.push(BindMode { name, binds });
     }
     modes.sort_by(|a, b| a.name.cmp(&b.name));
     config.modes = modes;
@@ -4216,7 +4164,9 @@ fn check_mode_references(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
+/// Parses a table of binds: key = action, or the `{ key, action, options }` entries `neori.bind`
+/// makes. Duplicate and conflicting keys are errors.
+pub(crate) fn parse_binds(table: LuaTable) -> Result<Binds, String> {
     let mut bvec = Vec::new();
     let mut seen_keys: Vec<(String, Key)> = Vec::new();
     for pair in table.pairs::<Value, Value>() {
@@ -4262,8 +4212,15 @@ fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), Strin
         seen_keys.push((key_name, bind.key));
         bvec.push(bind);
     }
-    config.binds.0 = bvec;
-    Ok(())
+    Ok(Binds(bvec))
+}
+
+fn parse_binds_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
+    crate::lua_table::FromLuaConfig::merge_from_lua(
+        &mut config.binds,
+        &Value::Table(table),
+        "binds",
+    )
 }
 
 /// The canonical names of the bind options, as [`BindOptions::apply`] returns them.
@@ -5468,113 +5425,21 @@ fn parse_startup_action(value: &Value) -> Result<Action, String> {
 }
 
 fn parse_animations_section(table: LuaTable, config: &mut Config) -> Result<(), String> {
-    let anims = &mut config.animations;
-    for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|e| format!("animations error: {e}"))?;
-        let ks = key_str(&key)?;
-        match ks.as_str() {
-            "off" => anims.off = value_is_truthy(&value),
-            "slowdown" => {
-                if let Ok(v) = value_to_f64(&value) {
-                    anims.slowdown = v;
-                }
-            }
-            "workspace_switch" | "workspace-switch" => {
-                if let Some(a) = parse_animation_switch(&value, anims.workspace_switch.0)? {
-                    anims.workspace_switch = WorkspaceSwitchAnim(a);
-                }
-            }
-            "horizontal_view_movement" | "horizontal-view-movement" => {
-                if let Some(a) = parse_animation_switch(&value, anims.horizontal_view_movement.0)? {
-                    anims.horizontal_view_movement = HorizontalViewMovementAnim(a);
-                }
-            }
-            "window_movement" | "window-movement" => {
-                if let Some(a) = parse_animation_switch(&value, anims.window_movement.0)? {
-                    anims.window_movement = WindowMovementAnim(a);
-                }
-            }
-            "window_open" | "window-open" => {
-                let mut shader = None;
-                if let Some(a) =
-                    parse_animation_switch_with_shader(&value, anims.window_open.anim, &mut shader)?
-                {
-                    anims.window_open.anim = a;
-                }
-                if shader.is_some() {
-                    anims.window_open.custom_shader = shader;
-                }
-            }
-            "window_close" | "window-close" => {
-                let mut shader = None;
-                if let Some(a) = parse_animation_switch_with_shader(
-                    &value,
-                    anims.window_close.anim,
-                    &mut shader,
-                )? {
-                    anims.window_close.anim = a;
-                }
-                if shader.is_some() {
-                    anims.window_close.custom_shader = shader;
-                }
-            }
-            "window_resize" | "window-resize" => {
-                let mut shader = None;
-                if let Some(a) = parse_animation_switch_with_shader(
-                    &value,
-                    anims.window_resize.anim,
-                    &mut shader,
-                )? {
-                    anims.window_resize.anim = a;
-                }
-                if shader.is_some() {
-                    anims.window_resize.custom_shader = shader;
-                }
-            }
-            "config_notification_open_close" | "config-notification-open-close" => {
-                if let Some(a) =
-                    parse_animation_switch(&value, anims.config_notification_open_close.0)?
-                {
-                    anims.config_notification_open_close = ConfigNotificationOpenCloseAnim(a);
-                }
-            }
-            "exit_confirmation_open_close" | "exit-confirmation-open-close" => {
-                if let Some(a) =
-                    parse_animation_switch(&value, anims.exit_confirmation_open_close.0)?
-                {
-                    anims.exit_confirmation_open_close = ExitConfirmationOpenCloseAnim(a);
-                }
-            }
-            "screenshot_ui_open" | "screenshot-ui-open" => {
-                if let Some(a) = parse_animation_switch(&value, anims.screenshot_ui_open.0)? {
-                    anims.screenshot_ui_open = ScreenshotUiOpenAnim(a);
-                }
-            }
-            "overview_open_close" | "overview-open-close" => {
-                if let Some(a) = parse_animation_switch(&value, anims.overview_open_close.0)? {
-                    anims.overview_open_close = OverviewOpenCloseAnim(a);
-                }
-            }
-            "recent_windows_close" | "recent-windows-close" => {
-                if let Some(a) = parse_animation_switch(&value, anims.recent_windows_close.0)? {
-                    anims.recent_windows_close = RecentWindowsCloseAnim(a);
-                }
-            }
-            _ => unknown_key("animations", &ks)?,
-        }
-    }
-    Ok(())
+    crate::lua_table::LuaTable::merge_lua_table(&mut config.animations, &table, "animations")
 }
 
 /// Parses a single animation value, accepting either a table of animation settings or a
 /// bare boolean (`true` for on, `false` for off).
-fn parse_animation_switch(value: &Value, default: Animation) -> Result<Option<Animation>, String> {
+pub(crate) fn parse_animation_switch(
+    value: &Value,
+    default: Animation,
+) -> Result<Option<Animation>, String> {
     parse_animation_switch_inner(value, default, None)
 }
 
 /// Like [`parse_animation_switch`], but also accepts a `custom_shader` key in the table form,
 /// for the animations that support custom shaders.
-fn parse_animation_switch_with_shader(
+pub(crate) fn parse_animation_switch_with_shader(
     value: &Value,
     default: Animation,
     shader: &mut Option<String>,
@@ -5708,28 +5573,18 @@ fn parse_animation(
         match ks.as_str() {
             "off" => off = value_is_truthy(&value),
             "spring" => {
-                if let Value::Table(t) = &value {
-                    let damping_ratio: f64 = t
-                        .get("damping_ratio")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(1.0);
-                    let stiffness: u32 = t
-                        .get("stiffness")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(800);
-                    let epsilon: f64 = t
-                        .get("epsilon")
-                        .map_err(|e| format!("{e}"))
-                        .unwrap_or(0.0001);
-                    kind = Kind::Spring(SpringParams {
-                        damping_ratio,
-                        stiffness,
-                        epsilon,
-                    });
+                let spring =
+                    crate::lua_table::table_from_lua::<SpringParams>(&value, "animation.spring")?;
+                if let Some(spring) = spring {
+                    kind = Kind::Spring(spring);
                 }
             }
             "duration_ms" | "duration-ms" => {
-                if let Ok(ms) = value_to_u32(&value) {
+                let ms = crate::lua_table::FromLuaConfig::from_lua_config(
+                    &value,
+                    "animation.duration_ms",
+                )?;
+                if let Some(ms) = ms {
                     if let Kind::Easing(params) = &mut kind {
                         params.duration_ms = ms;
                     } else {

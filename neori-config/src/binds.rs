@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use bitflags::bitflags;
 use miette::miette;
+use neori_config_derive::LuaTable;
 use smithay::input::keyboard::keysyms::KEY_NoSymbol;
 use smithay::input::keyboard::xkb::{
     keysym_from_name, keysym_get_name, KEYSYM_CASE_INSENSITIVE, KEYSYM_NO_FLAGS,
@@ -265,7 +266,7 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct SwitchBinds {
     pub lid_open: Option<SwitchAction>,
     pub lid_close: Option<SwitchAction>,
@@ -273,7 +274,7 @@ pub struct SwitchBinds {
     pub tablet_mode_off: Option<SwitchAction>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, LuaTable)]
 pub struct SwitchAction {
     pub spawn: Vec<String>,
 }

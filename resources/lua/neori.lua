@@ -442,11 +442,6 @@ function neori.keyboard_layout() end
 -- wiki for the fields. Their types, `neori.config.*`, are in neori-config.lua, generated from the
 -- config structs.
 
----A config section: callable with a table to merge into it, and indexable for its fields.
----@class neori.Section
----@overload fun(config: table)
----@field [string] any
-
 ---Input devices: keyboard, touchpad, mouse, tablet, touch. See the Configuration: Input wiki page.
 ---@type neori.config.Input
 neori.input = {}
@@ -457,13 +452,13 @@ neori.layout = {}
 ---@type neori.config.Cursor
 neori.cursor = {}
 ---Animations. See the Configuration: Animations wiki page.
----@type neori.Section
+---@type neori.config.Animations
 neori.animations = {}
 ---Gestures and hot corners. See the Configuration: Gestures wiki page.
 ---@type neori.config.Gestures
 neori.gestures = {}
 ---Actions for lid and tablet-mode switches. See the Configuration: Switch Events wiki page.
----@type neori.Section
+---@type neori.config.SwitchBinds
 neori.switch_events = {}
 ---The recent windows switcher. See the Configuration: Recent Windows wiki page.
 ---@type neori.config.RecentWindows
@@ -487,7 +482,7 @@ neori.config_notification = {}
 ---@type neori.config.XwaylandSatellite
 neori.xwayland_satellite = {}
 ---Environment variables for programs spawned by neori; `false` unsets a variable.
----@type neori.Section
+---@type neori.config.Environment
 neori.environment = {}
 ---Debug options.
 ---@type neori.config.Debug
@@ -514,7 +509,7 @@ function neori.prefer_no_csd(prefer) end
 ---@param path string|false
 function neori.screenshot_path(path) end
 ---Sets the binds section, as a table of key = action. `neori.bind` is usually easier.
----@param binds table
+---@param binds neori.config.Binds
 function neori.binds(binds) end
 ---Replaces all window rules.
 ---@param rules neori.config.WindowRule[]

@@ -1,6 +1,8 @@
+use neori_config_derive::LuaTable;
+
 use crate::FloatOrInt;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, LuaTable)]
 pub struct Animations {
     pub off: bool,
     pub slowdown: f64,
@@ -83,11 +85,22 @@ pub enum Curve {
     CubicBezier(f64, f64, f64, f64),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, LuaTable)]
 pub struct SpringParams {
     pub damping_ratio: f64,
     pub stiffness: u32,
     pub epsilon: f64,
+}
+
+/// What a `spring = { … }` table starts from.
+impl Default for SpringParams {
+    fn default() -> Self {
+        Self {
+            damping_ratio: 1.,
+            stiffness: 800,
+            epsilon: 0.0001,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
