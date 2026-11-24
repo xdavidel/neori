@@ -75,6 +75,13 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - Lua-script-driven integration tests, and a strict-mode wiki test.
 - Generated API reference docs.
 
+### Later
+
+- **Runtime binds and sections:** `neori.bind`, `neori.mode` and the section calls only fill the
+  config table that is read when the config loads, so from `neori msg lua` they do nothing. Make
+  them apply to the running compositor until the next reload, like handlers do: parse the
+  changed table again and swap the binds (and the section's settings) in place.
+
 ### Known gaps to fold in
 
 These Lua config options are documented but not parsed yet, and get fixed along the way:

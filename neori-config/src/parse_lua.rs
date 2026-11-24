@@ -1495,16 +1495,13 @@ impl ScriptHost {
                         return Ok(());
                     }
 
-                    let ts = format_utc_timestamp(SystemTime::now());
-                    let line = format!("[{ts}] {body}\n");
-
                     let sink = sink_slot.lock().unwrap().clone();
-                    if let Some(sink) = sink {
-                        let mut w = sink.lock().unwrap();
-                        let _ = w.write_all(line.as_bytes());
-                        let _ = w.flush();
-                    } else {
-                        let _ = std::io::stdout().write_all(line.as_bytes());
+                    match sink {
+                        Some(sink) => write_log_line(&sink, &body),
+                        None => {
+                            let ts = format_utc_timestamp(SystemTime::now());
+                            let _ = writeln!(std::io::stdout(), "[{ts}] {body}");
+                        }
                     }
                     Ok(())
                 })
@@ -2001,6 +1998,14 @@ impl Default for ScriptHost {
 /// (<https://howardhinnant.github.io/date_algorithms.html>). Only used by the
 /// `print` override's timestamp prefix, so precision is capped at milliseconds
 /// and timezone is fixed to UTC.
+/// Writes a line to the Lua log with a UTC timestamp, the way `print` does.
+pub fn write_log_line(sink: &PrintSink, text: &str) {
+    let ts = format_utc_timestamp(SystemTime::now());
+    let mut w = sink.lock().unwrap();
+    let _ = writeln!(w, "[{ts}] {text}");
+    let _ = w.flush();
+}
+
 fn format_utc_timestamp(now: SystemTime) -> String {
     let d = now.duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO);
     let secs = d.as_secs() as i64;

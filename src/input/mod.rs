@@ -953,10 +953,7 @@ impl State {
     fn call_script_function(&mut self, id: u64, allow_when_locked: bool, time: InputTime) {
         match self.scripting.bind_call(id) {
             Ok(call) => self.run_lua("bind", call, (), allow_when_locked, time),
-            Err(err) => {
-                warn!("Lua bind callback error: {err}");
-                self.neori.config_error_notification.show();
-            }
+            Err(err) => self.report_lua_error(format!("Lua bind callback error: {err}")),
         }
     }
 

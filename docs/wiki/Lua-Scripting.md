@@ -231,8 +231,9 @@ neori.bind("Mod+Alt+H", function() quiet:again() end)
 
 Timers can be made anywhere, including at the top level of the config: they start once the
 config has loaded. A config reload drops the old config's timers. Timer callbacks run like any
-other Lua callback: their changes apply right away, an error shows the config error
-notification, and a repeating timer keeps running after an error.
+other Lua callback: their changes apply right away, an error is
+[reported](#print-output) like any callback error, and a repeating timer keeps running after an
+error.
 
 ## Signals
 
@@ -282,9 +283,9 @@ right after the callback, in the order the signals fired. `window-opening` is th
 exception: the window waits for its handlers, so they always run immediately.
 
 A signal delivered that way can cause more signals, which wait their turn too. If such a chain
-goes more than 16 levels deep, the next signal is dropped, a warning is logged and the config
-error notification appears, so handlers that keep causing each other's signals can't hang the
-compositor.
+goes more than 16 levels deep, the next signal is dropped and this is
+[reported](#print-output) like a callback error, so handlers that keep causing each other's
+signals can't hang the compositor.
 
 Most built-in signals fire on the next frame instead: focus, workspace and output changes and the
 property signals are noticed once per frame, after the callback that caused them returned. A
@@ -729,8 +730,7 @@ Each key reads or calls the method of the same name (`title` → `w:title()`, `f
   whether it did.
 
 Rules run in the order they were added. A rule whose `set` or `run` raises an error is
-reported like any callback error, in the log and with the config error notification, and the
-other rules still run. A mistake in the rule itself (an unknown key, an invalid regex, an event
+[reported](#print-output) like any callback error, and the other rules still run. A mistake in the rule itself (an unknown key, an invalid regex, an event
 that passes no object) is an error when the rule is added.
 
 Because a window rule checks `where` at both steps, a condition that its own `set` changes can
@@ -1094,7 +1094,22 @@ Where output shows up:
 |---|---|
 | Code run with `neori msg lua` | Straight back in the terminal, with its values (see [Running Lua from a shell](#running-lua-from-a-shell)) |
 | `print` in a bind, handler or timer | The Lua log: `tail -f ~/.local/state/neori/lua.log` |
-| An error raised in a bind, handler or timer | neori's own log: `journalctl --user -u neori -f` when neori runs as the `neori.service` user unit, otherwise its stderr |
+| An error raised in a bind, handler or timer | The Lua log too, after what the callback printed, and neori's own log (`journalctl --user -u neori -f` when neori runs as the `neori.service` user unit, otherwise its stderr) |
+
+When a bind, handler, rule or timer raises an error, or a chain of signals is
+[stopped](#delivery-order), a red notification says "A Lua callback failed. The error is in
+`~/.local/state/neori/lua.log`." The config itself is fine then, unlike with "Failed to parse the
+config file", which means the config didn't load and `neori validate` shows why. In the Lua log,
+the error is a line starting with `error:`, followed by its stack traceback:
+
+```
+[2026-11-24 21:21:51.785Z] before
+[2026-11-24 21:21:51.785Z] error: Lua bind callback error: runtime error: [string "config.lua"]:4: intentional
+stack traceback:
+	[C]: in ?
+	[C]: in function 'error'
+	[string "config.lua"]:4: in function <[string "config.lua"]:2>
+```
 
 Lua's built-in `print(...)` is overridden to append to a log file instead of the
 process's stdout (which in a Wayland compositor is usually invisible). The file lives at
@@ -1117,9 +1132,8 @@ is stable. If the file can't be opened at startup (missing state dir, permission
 error), neori logs one `WARN` and `print` falls back to stdout so you still see output
 somewhere. No rotation is done; delete or `truncate -s0` the file if it grows.
 
-For structured diagnostics, prefer `error("…")` from a handler — that path goes through
-neori's `tracing` log with severity and context attached, alongside the rest of the
-compositor's log stream.
+An `error("…")` from a handler goes to both logs: the Lua log, next to your prints, and neori's
+`tracing` log, with the rest of the compositor's messages.
 
 ## Outputs
 
@@ -1331,14 +1345,19 @@ work them out; the keys of other global tables are read from the running composi
 calling anything. With fzf-tab, the list shows the names (`focused_window`) and inserts the whole
 code.
 
-Binds, handlers, rules and timers that the code sets up stay until the next config reload,
-which rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
-bind, handler or rule before putting it in the config:
+Handlers, rules and timers that the code sets up stay until the next config reload, which
+rebuilds the Lua state from the config file. That makes `neori msg lua` handy for trying a
+handler or rule before putting it in the config:
 
 ```sh
 neori msg lua 'neori.rules.add { where = { app_id = "kitty" }, set = { floating = true }, run = function(w) w:center() end }'
-neori msg lua 'neori.bind("Mod+Alt+D", function() print(neori.util.dump(neori.focused_window():geometry())) end)'
+neori msg lua 'neori.on("window-focused", function(w) print(neori.util.dump(w:geometry())) end)'
 ```
+
+Binds and config sections are different: `neori.bind`, `neori.mode`, `neori.layout { … }` and
+the other declarations are read once, when the config file loads, so calling them from
+`neori msg lua` has no effect yet. Put them in the config and save it; the config reloads by
+itself.
 
 What a handler prints later goes to the [Lua log](#print-output), since the command has returned
 by then:
@@ -1378,6 +1397,9 @@ with a `.luarc.json` next to your config:
 ```
 
 ## Known limitations (today)
+
+- Binds and config sections declared from `neori msg lua` (`neori.bind`, `neori.layout { … }`,
+  …) have no effect; they only apply from the config file.
 
 - Function callbacks are synchronous on the compositor thread; don't block.
 - `allow_when_locked` and `allow_during_screenshot` opt-outs are off by default for

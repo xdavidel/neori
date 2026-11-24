@@ -335,7 +335,6 @@ const LUA_CAUSED_SIGNALS: &[&str] = &[
 
 /// A Lua event waiting to be delivered.
 struct DeferredLua {
-    label: String,
     run: Box<dyn FnOnce() -> Result<(), String>>,
     allow_when_locked: bool,
     time: InputTime,
@@ -854,8 +853,8 @@ impl State {
     /// Runs a prepared Lua call with `self` as its [`ScriptContext`]. `allow_when_locked` and
     /// `time` apply to the actions the callback runs.
     ///
-    /// `label` names the callback in error messages. Errors are warn!'d and flash the
-    /// config-error notification; they do not propagate.
+    /// `label` names the callback in the message about a dropped loop. Errors are reported with
+    /// [`State::report_lua_error`]; they do not propagate.
     ///
     /// If Lua is already running, the call is queued instead, and runs once the current callback
     /// is done (see the module docs).
@@ -881,7 +880,6 @@ impl State {
         time: InputTime,
     ) {
         let event = DeferredLua {
-            label: label.to_owned(),
             run: Box::new(move || call.run(args)),
             allow_when_locked,
             time,
@@ -921,7 +919,7 @@ impl State {
     /// Runs a Lua event and reports its error, if any.
     fn deliver(&mut self, event: DeferredLua) {
         let result = with_script_context(self, event.run);
-        self.report_lua_result(&event.label, result);
+        self.report_lua_result(result);
     }
 
     /// Delivers queued Lua events in order, including the ones they cause in turn.
@@ -943,18 +941,27 @@ impl State {
 
     /// Reports a callback dropped because Lua events caused each other too many levels deep.
     fn report_lua_loop(&mut self, label: &str, depth: u32) {
-        warn!(
+        self.report_lua_error(format!(
             "Lua {label} callback dropped: Lua events caused each other {depth} levels deep; do \
              handlers keep triggering each other?"
-        );
-        self.neori.config_error_notification.show();
+        ));
     }
 
-    /// Reports a Lua callback error: logged, and shown as the config error notification.
-    fn report_lua_result(&mut self, label: &str, result: Result<(), String>) {
+    /// Reports a Lua error: logged, written to the Lua log next to what `print` writes, and
+    /// shown with the Lua error notification.
+    pub(crate) fn report_lua_error(&mut self, message: String) {
+        warn!("{message}");
+        if let Some(sink) = &self.print_log_sink {
+            neori_config::parse_lua::write_log_line(sink, &format!("error: {message}"));
+        }
+        self.neori.config_error_notification.show_lua_error();
+    }
+
+    /// Reports the error of a Lua callback, if it failed (see [`State::report_lua_error`]).
+    fn report_lua_result(&mut self, result: Result<(), String>) {
+        // The error already says which callback failed: "window-focused callback error: …".
         if let Err(err) = result {
-            warn!("Lua {label} callback error: {err}");
-            self.neori.config_error_notification.show();
+            self.report_lua_error(format!("Lua {err}"));
         }
     }
 
@@ -1196,7 +1203,7 @@ impl State {
             state.scripting.begin_open_overrides();
             let result = with_script_context(state, || call.run(LuaWindow(snapshot)));
             let overrides = state.scripting.take_open_overrides();
-            state.report_lua_result("window-opening", result);
+            state.report_lua_result(result);
             overrides
         });
         self.deliver_queued_lua_events();
@@ -1516,10 +1523,11 @@ fn smithay_transform_name(t: smithay::utils::Transform) -> &'static str {
 mod tests {
     use super::*;
 
+    /// An event whose callback fails with `label`, to tell events apart.
     fn event(label: &str) -> DeferredLua {
+        let label = label.to_owned();
         DeferredLua {
-            label: label.to_owned(),
-            run: Box::new(|| Ok(())),
+            run: Box::new(move || Err(label)),
             allow_when_locked: false,
             time: InputTime::now(),
             depth: 0,
@@ -1547,10 +1555,17 @@ mod tests {
 
         let order: Vec<_> = queue
             .queue
-            .iter()
-            .map(|e| (e.label.as_str(), e.depth))
+            .drain(..)
+            .map(|e| ((e.run)().unwrap_err(), e.depth))
             .collect();
-        assert_eq!(order, [("a", 1), ("b", 1), ("c", 5)]);
+        assert_eq!(
+            order,
+            [
+                ("a".to_owned(), 1),
+                ("b".to_owned(), 1),
+                ("c".to_owned(), 5)
+            ]
+        );
     }
 
     #[test]

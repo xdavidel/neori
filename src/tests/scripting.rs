@@ -126,6 +126,64 @@ fn bind_function_error_does_not_crash() {
     f.state.server.dispatch();
 }
 
+/// A Lua log that the test can read back.
+#[derive(Clone, Default)]
+struct TestLog(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for TestLog {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl TestLog {
+    fn install(&self, f: &mut Fixture) {
+        let sink: neori_config::PrintSink =
+            std::sync::Arc::new(std::sync::Mutex::new(Box::new(self.clone())));
+        let state = &mut f.state.server.state;
+        state.scripting.set_print_log(std::sync::Arc::clone(&sink));
+        state.print_log_sink = Some(sink);
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+    }
+}
+
+#[test]
+fn lua_errors_go_to_the_lua_log_with_their_own_notification() {
+    let mut f = fixture_from_lua(
+        r#"
+        neori.bind("Mod+Alt+T", function()
+            print("before")
+            error("intentional")
+        end)
+        "#,
+    );
+    let log = TestLog::default();
+    log.install(&mut f);
+
+    press_first_function_bind(&mut f);
+
+    // The error comes after what the callback printed, with its traceback.
+    let text = log.text();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].ends_with("] before"), "{text}");
+    assert!(
+        lines[1].contains("] error: Lua bind callback error: runtime error: ")
+            && lines[1].contains("intentional"),
+        "{text}"
+    );
+    assert!(text.contains("stack traceback"), "{text}");
+    // Not the "failed to parse the config file" message: the config is fine.
+    assert!(f.neori().config_error_notification.shows_lua_error());
+}
+
 #[test]
 fn neori_action_on_event_takes_effect() {
     let mut f = fixture_from_lua(

@@ -217,6 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("routing Lua print to {}", path.display());
             state.scripting.set_print_log(Arc::clone(&sink));
             state.print_log_sink = Some(sink);
+            state.neori.config_error_notification.set_lua_log(path);
         }
         Err(err) => {
             warn!("could not open Lua print log: {err}");

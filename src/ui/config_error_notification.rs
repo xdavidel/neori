@@ -28,12 +28,24 @@ pub struct ConfigErrorNotification {
     state: State,
     buffers: RefCell<HashMap<NotNan<f64>, Option<TextureBuffer<GlesTexture>>>>,
 
-    // If set, this is a "Created config at {path}" notification. If unset, this is a config error
-    // notification.
-    created_path: Option<PathBuf>,
+    // What the notification says.
+    message: Message,
+
+    // Where Lua errors are written, for the Lua error message.
+    lua_log: Option<PathBuf>,
 
     clock: Clock,
     config: Rc<RefCell<Config>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Message {
+    /// The config file failed to parse.
+    ConfigError,
+    /// A Lua callback failed while running.
+    LuaError,
+    /// A default config file was created at this path.
+    Created(PathBuf),
 }
 
 enum State {
@@ -48,7 +60,8 @@ impl ConfigErrorNotification {
         Self {
             state: State::Hidden,
             buffers: RefCell::new(HashMap::new()),
-            created_path: None,
+            message: Message::ConfigError,
+            lua_log: None,
             clock,
             config,
         }
@@ -65,28 +78,51 @@ impl ConfigErrorNotification {
         )
     }
 
-    pub fn show_created(&mut self, created_path: &Path) {
-        if self.created_path.as_deref() != Some(created_path) {
-            self.created_path = Some(created_path.to_owned());
+    /// Sets the file that Lua errors are written to, which the Lua error message names.
+    pub fn set_lua_log(&mut self, path: PathBuf) {
+        self.lua_log = Some(path);
+        if self.message == Message::LuaError {
             self.buffers.borrow_mut().clear();
         }
+    }
 
+    fn set_message(&mut self, message: Message) {
+        if self.message != message {
+            self.message = message;
+            self.buffers.borrow_mut().clear();
+        }
+    }
+
+    pub fn show_created(&mut self, created_path: &Path) {
+        self.set_message(Message::Created(created_path.to_owned()));
         self.state = State::Showing(self.animation(0., 1.));
     }
 
+    /// Shows that the config file failed to parse.
     pub fn show(&mut self) {
-        let c = self.config.borrow();
-        if c.config_notification.disable_failed {
+        self.show_failure(Message::ConfigError);
+    }
+
+    /// Shows that a Lua callback failed while running. The config itself parsed, so this names
+    /// the log with the error rather than suggesting `neori validate`.
+    pub fn show_lua_error(&mut self) {
+        self.show_failure(Message::LuaError);
+    }
+
+    fn show_failure(&mut self, message: Message) {
+        if self.config.borrow().config_notification.disable_failed {
             return;
         }
-
-        if self.created_path.is_some() {
-            self.created_path = None;
-            self.buffers.borrow_mut().clear();
-        }
+        self.set_message(message);
 
         // Show from scratch even if already showing to bring attention.
         self.state = State::Showing(self.animation(0., 1.));
+    }
+
+    /// Whether it's showing, or about to show, that a Lua callback failed.
+    #[cfg(test)]
+    pub fn shows_lua_error(&self) -> bool {
+        !matches!(self.state, State::Hidden) && self.message == Message::LuaError
     }
 
     pub fn hide(&mut self) {
@@ -102,7 +138,7 @@ impl ConfigErrorNotification {
             State::Hidden => (),
             State::Showing(anim) => {
                 if anim.is_done() {
-                    let duration = if self.created_path.is_some() {
+                    let duration = if matches!(self.message, Message::Created(_)) {
                         // Make this quite a bit longer because it comes with a monitor modeset
                         // (can take a while) and an important hotkeys popup diverting the
                         // attention.
@@ -141,12 +177,15 @@ impl ConfigErrorNotification {
 
         let scale = output.current_scale().fractional_scale();
         let output_size = output_size(output);
-        let path = self.created_path.as_deref();
+        let message = &self.message;
+        let lua_log = self.lua_log.as_deref();
 
         let mut buffers = self.buffers.borrow_mut();
         let buffer = buffers
             .entry(NotNan::new(scale).unwrap())
-            .or_insert_with(move || render(renderer.as_gles_renderer(), scale, path).ok());
+            .or_insert_with(move || {
+                render(renderer.as_gles_renderer(), scale, message, lua_log).ok()
+            });
         let buffer = buffer.clone()?;
 
         let size = buffer.logical_size();
@@ -177,15 +216,19 @@ impl ConfigErrorNotification {
 fn render(
     renderer: &mut GlesRenderer,
     scale: f64,
-    created_path: Option<&Path>,
+    message: &Message,
+    lua_log: Option<&Path>,
 ) -> anyhow::Result<TextureBuffer<GlesTexture>> {
     let _span = tracy_client::span!("config_error_notification::render");
 
     let padding: i32 = to_physical_precise_round(scale, PADDING);
 
-    let mut text = error_text(true);
+    let mut text = match message {
+        Message::LuaError => lua_error_text(true, lua_log),
+        _ => error_text(true),
+    };
     let mut border_color = (1., 0.3, 0.3);
-    if let Some(path) = created_path {
+    if let Message::Created(path) = message {
         text = format!(
             "Created a default config file at \
              <span face='monospace' bgcolor='#000000'>{path:?}</span>",
@@ -255,4 +298,48 @@ pub fn error_text(markup: bool) -> String {
     };
 
     format!("Failed to parse the config file. Please run {command} to see the errors.")
+}
+
+/// The message shown when a Lua callback fails. The config parsed fine, so it names the log that
+/// has the error instead of `neori validate`.
+pub fn lua_error_text(markup: bool, lua_log: Option<&Path>) -> String {
+    let Some(path) = lua_log else {
+        return String::from("A Lua callback failed. The error is in neori's log.");
+    };
+    let path = match std::env::var_os("HOME").map(PathBuf::from) {
+        Some(home) => match path.strip_prefix(&home) {
+            Ok(rest) => format!("~/{}", rest.display()),
+            Err(_) => path.display().to_string(),
+        },
+        None => path.display().to_string(),
+    };
+    if markup {
+        let path = pangocairo::glib::markup_escape_text(&path);
+        format!(
+            "A Lua callback failed. The error is in \
+             <span face='monospace' bgcolor='#000000'>{path}</span>."
+        )
+    } else {
+        format!("A Lua callback failed. The error is in {path}.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lua_error_text_names_the_log() {
+        assert_eq!(
+            lua_error_text(false, None),
+            "A Lua callback failed. The error is in neori's log."
+        );
+        let path = Path::new("/var/log/neori <lua>.log");
+        assert_eq!(
+            lua_error_text(false, Some(path)),
+            "A Lua callback failed. The error is in /var/log/neori <lua>.log."
+        );
+        // The path is escaped for Pango markup.
+        assert!(lua_error_text(true, Some(path)).contains("neori &lt;lua&gt;.log"));
+    }
 }
