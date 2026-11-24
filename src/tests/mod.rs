@@ -11,6 +11,7 @@ mod binds;
 mod floating;
 mod fullscreen;
 mod layer_shell;
+mod lua_rules;
 mod perf;
 mod reload;
 mod remove_output;

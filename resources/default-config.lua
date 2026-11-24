@@ -744,6 +744,18 @@ end
 --   end
 -- end)
 
+-- The same with neori.rules: properties that work before the first frame
+-- apply at window-opening, the rest and `run` once the window opened.
+-- neori.rules.add {
+--   where = { app_id = "^firefox$" },
+--   set = { workspace = "browser", fullscreen = true },
+-- }
+-- neori.rules.add {
+--   where = { title = "^Picture-in-Picture$" },
+--   set = { floating = true, opacity = 0.9 },
+--   run = function(w) w:center() end,
+-- }
+
 -- Post-placement variant (window-opened) — good for toasts, focus swaps, or
 -- anything that doesn't need to land before the first frame.
 -- neori.on("window-opened", function(w)

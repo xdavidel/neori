@@ -24,6 +24,8 @@ enum Type {
     Neori,
     /// A class like `neori.Window`, by name without the `neori.` prefix.
     Class(String),
+    /// A namespace like `neori.rules`, whose functions are called with `.`, by its class.
+    Namespace(String),
     /// A list of values of a type.
     List(Box<Type>),
     /// A function: what it returns, and the parameter types of each way to call it.
@@ -145,6 +147,8 @@ impl Api {
         // The local variable each class is declared on: `local Window = {}`.
         let mut class_vars = HashMap::new();
         let mut current_class = None;
+        // The class declared just above, for a namespace like `neori.rules = {}`.
+        let mut class_above: Option<String> = None;
         let mut last_return = Type::Unknown;
         let mut last_type = Type::Unknown;
         // The `---@param` and `---@overload` annotations of the function that follows.
@@ -152,9 +156,13 @@ impl Api {
         let mut overloads = Vec::new();
 
         for line in STUBS.lines() {
+            if line.is_empty() {
+                class_above = None;
+            }
             if let Some(class) = line.strip_prefix("---@class neori.") {
                 let class = class.split([':', ' ']).next().unwrap().to_owned();
-                current_class = Some(class);
+                current_class = Some(class.clone());
+                class_above = Some(class);
                 continue;
             }
             if let Some(field) = line.strip_prefix("---@field ") {
@@ -215,7 +223,17 @@ impl Api {
             } else if let Some(rest) = line.strip_prefix("function neori.") {
                 let name = rest.split('(').next().unwrap();
                 let ret = std::mem::replace(&mut last_return, Type::Unknown);
-                neori.insert(name.to_owned(), function(ret));
+                // `function neori.rules.add(…)`: a function of a namespace.
+                if let Some((namespace, name)) = name.split_once('.') {
+                    if let Some(Type::Namespace(class)) = neori.get(namespace) {
+                        members
+                            .entry(class.clone())
+                            .or_default()
+                            .insert(name.to_owned(), function(ret));
+                    }
+                } else {
+                    neori.insert(name.to_owned(), function(ret));
+                }
             } else if let Some(rest) = line.strip_prefix("function ") {
                 if let Some((var, method)) = rest.split('(').next().unwrap().split_once(':') {
                     if let Some(class) = class_vars.get(var) {
@@ -228,11 +246,17 @@ impl Api {
                 }
             } else if let Some(rest) = line.strip_prefix("neori.") {
                 if let Some(name) = rest.strip_suffix(" = {}") {
-                    let ty = std::mem::replace(&mut last_type, Type::Unknown);
+                    let mut ty = std::mem::replace(&mut last_type, Type::Unknown);
+                    if ty == Type::Unknown {
+                        if let Some(class) = class_above.take() {
+                            ty = Type::Namespace(class);
+                        }
+                    }
                     neori.insert(name.to_owned(), ty);
                 }
             }
             if !line.is_empty() {
+                class_above = None;
                 last_return = Type::Unknown;
                 last_type = Type::Unknown;
                 params.clear();
@@ -250,6 +274,13 @@ impl Api {
     fn names_after(&self, ty: &Type, separator: char) -> BTreeSet<&str> {
         match (ty, separator) {
             (Type::Neori, '.') => self.neori.keys().map(String::as_str).collect(),
+            (Type::Namespace(class), '.') => self
+                .members
+                .get(class)
+                .into_iter()
+                .flatten()
+                .map(|(name, _)| name.as_str())
+                .collect(),
             (Type::Class(class), _) => self
                 .members
                 .get(class)
@@ -267,7 +298,7 @@ impl Api {
     fn member(&self, ty: &Type, separator: char, name: &str) -> Type {
         match (ty, separator) {
             (Type::Neori, '.') => self.neori.get(name).cloned().unwrap_or(Type::Unknown),
-            (Type::Class(class), _) => self
+            (Type::Namespace(class), '.') | (Type::Class(class), _) => self
                 .members
                 .get(class)
                 .and_then(|m| m.get(name))
@@ -913,6 +944,27 @@ mod tests {
         assert!(offers(
             "local o = neori.focused_output(); o:connect(\"mode-changed\", function(x) x:na",
             "local o = neori.focused_output(); o:connect(\"mode-changed\", function(x) x:name"
+        ));
+    }
+
+    #[test]
+    fn completes_namespace_functions_and_their_tables() {
+        assert_eq!(
+            complete_names("neori.rules.a"),
+            ["neori.rules.add", "neori.rules.apply"]
+        );
+        assert!(!offers("neori.ru", "neori.rules.add"));
+        assert!(offers(
+            "neori.rules.add { wh",
+            "neori.rules.add { where_not"
+        ));
+        assert!(offers(
+            "neori.rules.add { where = { app",
+            "neori.rules.add { where = { app_id"
+        ));
+        assert!(offers(
+            "neori.rules.add { set = { flo",
+            "neori.rules.add { set = { floating"
         ));
     }
 

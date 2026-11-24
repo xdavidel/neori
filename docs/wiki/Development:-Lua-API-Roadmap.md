@@ -68,8 +68,9 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 
 - `neori.util`: table, string and geometry helpers ported from awesome's `gears`
   (GPL-2.0-or-later, notices kept).
-- `neori.rules`: match window properties and run a callback, built on window-opening and property
-  signals.
+- **Rules (done):** `neori.rules.add { where, where_any, where_not, where_not_any, set, run,
+  when }`, after cwc's `cuteful.rules`, for windows, outputs, workspaces, devices and layer
+  surfaces. Window rules set what they can at `window-opening`, before the first frame.
 - Lua-script-driven integration tests, and a strict-mode wiki test.
 - Generated API reference docs.
 

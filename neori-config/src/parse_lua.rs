@@ -2661,6 +2661,12 @@ fn setup_neori_api(
         neori.set("misc", misc).map_err(err)?;
     }
 
+    // neori.rules: match objects when an event fires, then set properties and run a function.
+    {
+        let (rules, _classes) = load_rules(lua, &neori).map_err(err)?;
+        neori.set("rules", rules).map_err(err)?;
+    }
+
     // Whole-section setters that stay plain functions: lists and single values.
     //
     // "outputs" and "workspaces" are deliberately absent here: the collision-free
@@ -3190,6 +3196,54 @@ return setmetatable({}, {
     __metatable = false,
 })
 "#;
+
+/// The Lua side of `neori.rules`.
+pub const RULES_LUA: &str = include_str!("rules.lua");
+
+/// The class of the object that a built-in event passes to its handlers, from its `args`: the
+/// first class name they mention.
+fn signal_object_class(signal: &BuiltinSignal) -> Option<&'static str> {
+    ["Window", "Workspace", "Output", "Device", "LayerSurface"]
+        .into_iter()
+        .filter_map(|class| signal.args.find(class).map(|at| (at, class)))
+        .min()
+        .map(|(_, class)| class)
+}
+
+/// Loads `neori.rules` for the `neori` table, returning the module and its property tables
+/// (class -> { get, set, open }).
+pub fn load_rules(lua: &Lua, neori: &LuaTable) -> LuaResult<(LuaTable, LuaTable)> {
+    // Compiled patterns, by their source. Rules are added once, but `neori.rules.matches` can
+    // be called with patterns built on the fly, so the cache starts over when it gets big.
+    let cache: Arc<Mutex<HashMap<String, regex::Regex>>> = Arc::default();
+    let regex_match = lua.create_function(move |_, (pattern, text): (String, String)| {
+        let mut cache = cache.lock().unwrap();
+        if !cache.contains_key(&pattern) {
+            if cache.len() >= 256 {
+                cache.clear();
+            }
+            let re = regex::Regex::new(&pattern).map_err(LuaError::external)?;
+            cache.insert(pattern.clone(), re);
+        }
+        Ok(cache[&pattern].is_match(&text))
+    })?;
+    let regex_check = lua.create_function(|_, pattern: String| {
+        Ok(regex::Regex::new(&pattern).err().map(|e| e.to_string()))
+    })?;
+    let events = lua.create_table()?;
+    for signal in BUILTIN_SIGNALS {
+        match signal_object_class(signal) {
+            Some(class) => events.set(signal.name, class)?,
+            None => events.set(signal.name, false)?,
+        }
+    }
+    lua.load(RULES_LUA).set_name("neori.rules").call((
+        neori.clone(),
+        regex_match,
+        regex_check,
+        events,
+    ))
+}
 
 /// Wraps the `neori` API table so that its functions can't be overwritten.
 ///

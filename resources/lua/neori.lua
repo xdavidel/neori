@@ -501,6 +501,199 @@ neori.debug = {}
 ---@type neori.Misc
 neori.misc = {}
 
+---What a `where` value matches: a regex (unanchored, like window rules' `match`), a number, a
+---boolean, a function that gets the value and the object and returns whether it matches, or a
+---list of these alternatives.
+---@alias neori.RuleMatch string|number|boolean|fun(value: any, object: any): boolean|(string|number|boolean|fun(value: any, object: any): boolean)[]
+
+---The properties a rule can match. Which ones exist depends on the object: the window keys for
+---window events, the output keys for `monitor-added`, and so on.
+---@class neori.RuleWhere
+---Window, Workspace, LayerSurface.
+---@field id neori.RuleMatch?
+---Window.
+---@field app_id neori.RuleMatch?
+---Window.
+---@field title neori.RuleMatch?
+---Window, LayerSurface.
+---@field pid neori.RuleMatch?
+---Window, Output, Workspace.
+---@field focused neori.RuleMatch?
+---Window.
+---@field floating neori.RuleMatch?
+---Window.
+---@field fullscreen neori.RuleMatch?
+---Window.
+---@field maximized neori.RuleMatch?
+---Window.
+---@field urgent neori.RuleMatch?
+---Window: a string matches the workspace's name, a number its index.
+---@field workspace neori.RuleMatch?
+---Window, Workspace, LayerSurface, Device (the output it's mapped to): the connector name.
+---@field output neori.RuleMatch?
+---Window.
+---@field opacity neori.RuleMatch?
+---Window: the window it's a dialog of; match it with a function.
+---@field parent neori.RuleMatch?
+---Output, Workspace, Device.
+---@field name neori.RuleMatch?
+---Output.
+---@field make neori.RuleMatch?
+---Output.
+---@field model neori.RuleMatch?
+---Output.
+---@field serial neori.RuleMatch?
+---Output: a table; match it with a function.
+---@field mode neori.RuleMatch?
+---Output.
+---@field scale neori.RuleMatch?
+---Output.
+---@field transform neori.RuleMatch?
+---Output: a table; match it with a function.
+---@field position neori.RuleMatch?
+---Output.
+---@field virtual neori.RuleMatch?
+---Output: whether it's turned off.
+---@field off neori.RuleMatch?
+---Output.
+---@field vrr_supported neori.RuleMatch?
+---Output.
+---@field vrr_enabled neori.RuleMatch?
+---Workspace.
+---@field idx neori.RuleMatch?
+---Device.
+---@field sysname neori.RuleMatch?
+---Device.
+---@field product_id neori.RuleMatch?
+---Device.
+---@field vendor_id neori.RuleMatch?
+---Device.
+---@field pointer neori.RuleMatch?
+---Device.
+---@field keyboard neori.RuleMatch?
+---Device.
+---@field touch neori.RuleMatch?
+---Device.
+---@field touchpad neori.RuleMatch?
+---LayerSurface.
+---@field namespace neori.RuleMatch?
+---LayerSurface.
+---@field layer neori.RuleMatch?
+---LayerSurface.
+---@field keyboard_interactivity neori.RuleMatch?
+
+---The properties a rule can set, each with the object's setter.
+---@class neori.RuleSet
+---Window: `float()`, or `open_floating()` before the window opens.
+---@field floating boolean?
+---Window: `fullscreen()`, or `open_fullscreen()` before the window opens.
+---@field fullscreen boolean?
+---Window: `maximize()`, or `open_maximized()` before the window opens.
+---@field maximized boolean?
+---Window: `send_to_workspace()`, or `open_on_workspace()` before the window opens (names only).
+---@field workspace integer|string?
+---Window: `send_to_output()`, or `open_on_output()` before the window opens. Workspace:
+---`send_to_output()`. Device: `map_to_output()`.
+---@field output string?
+---Window: `set_opacity()`.
+---@field opacity number?
+---Output: `enable()`.
+---@field enabled boolean?
+---Output: `set_mode()`.
+---@field mode string?
+---Output: `set_scale()`.
+---@field scale number?
+---Output: `set_transform()`.
+---@field transform string?
+---Output: `set_position()`.
+---@field position neori.Point?
+---Output: `set_vrr()`.
+---@field vrr boolean?
+---Workspace: `set_name()`.
+---@field name string?
+---Device: `set_tap()`.
+---@field tap boolean?
+---Device: `set_natural_scroll()`.
+---@field natural_scroll boolean?
+---Device: `set_accel()`.
+---@field accel number?
+---Device: `set_accel_profile()`.
+---@field accel_profile string?
+---Device: `set_left_handed()`.
+---@field left_handed boolean?
+---Device: `set_disabled()`.
+---@field disabled boolean?
+---Device: `set_scroll_method()`.
+---@field scroll_method string?
+---Device: `set_click_method()`.
+---@field click_method string?
+---Device: `set_dwt()`.
+---@field dwt boolean?
+---Device: `set_middle_emulation()`.
+---@field middle_emulation boolean?
+
+---A rule for `neori.rules.add`. It needs `set`, `run` or both.
+---@class neori.Rule
+---Names the rule for `neori.rules.remove`; a number is given when left out.
+---@field id string?
+---Every property must match.
+---@field where neori.RuleWhere?
+---At least one property must match.
+---@field where_any neori.RuleWhere?
+---Not every property may match: the rule is skipped when all of them do.
+---@field where_not neori.RuleWhere?
+---No property may match: the rule is skipped when any of them does.
+---@field where_not_any neori.RuleWhere?
+---Properties to set when the rule matches.
+---@field set neori.RuleSet?
+---Called with the object when the rule matches, after `set`.
+---@field run fun(object: any)?
+---The events that apply the rule. Without it, the rule is a window rule: `set` keys that work
+---before the window's first frame apply at `window-opening`, and the rest and `run` at
+---`window-opened`.
+---@field when neori.Signal|neori.Signal[]?
+
+---Rules: match windows, outputs, workspaces, devices or layer surfaces when an event fires, and
+---set their properties or run a function.
+---
+---```lua
+---neori.rules.add {
+---    where = { app_id = "^firefox$" },
+---    set = { workspace = "web" },
+---}
+---neori.rules.add {
+---    where = { title = "Picture-in-Picture" },
+---    set = { floating = true, opacity = 0.9 },
+---    run = function(w) w:center() end,
+---}
+---neori.rules.add {
+---    when = "monitor-added",
+---    where = { name = "^HDMI-" },
+---    set = { scale = 1.5 },
+---}
+---```
+---@class neori.Rules
+neori.rules = {}
+---Adds a rule and returns its id.
+---@param rule neori.Rule
+---@return string id
+function neori.rules.add(rule) end
+---Removes the rule with this id, or this rule table. Returns whether one was removed.
+---@param rule string|neori.Rule
+---@return boolean
+function neori.rules.remove(rule) end
+---Whether the object matches the rule's `where` conditions.
+---@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
+---@param rule neori.Rule
+---@return boolean
+function neori.rules.matches(object, rule) end
+---Applies the rule to the object now, if it matches: sets `set` with the setters and calls
+---`run`. Returns whether it matched.
+---@param object neori.Window|neori.Output|neori.Workspace|neori.Device|neori.LayerSurface
+---@param rule neori.Rule
+---@return boolean
+function neori.rules.apply(object, rule) end
+
 ---Ask apps to not draw their own title bars and borders. Same as `neori.misc.prefer_no_csd`.
 ---@param prefer boolean
 function neori.prefer_no_csd(prefer) end

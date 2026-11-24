@@ -619,6 +619,108 @@ top, and anything it sets wins. The `window-opened` event still fires after
 placement, so you can keep using it for post-placement side effects
 (notifications, focus swaps, …) that don't belong in placement decisions.
 
+## Rules (`neori.rules`)
+
+`neori.rules.add { … }` matches objects by their properties when an event fires, then sets
+properties and runs a function. It's built on `neori.on`: a rule is a shorter way to write a
+handler that checks a few properties first. Unlike `neori.window_rule { … }`, which covers what
+only static rules can do (borders, corner radius, `block_out_from`, …), it works for outputs,
+workspaces, devices and layer surfaces too, and `run` can do anything a handler can.
+
+```lua
+-- Firefox opens on the "web" workspace.
+neori.rules.add {
+    where = { app_id = "^firefox$" },
+    set = { workspace = "web" },
+}
+
+-- Picture-in-Picture floats, see-through, in the middle of the screen.
+neori.rules.add {
+    where = { title = "^Picture-in-Picture$" },
+    set = { floating = true, opacity = 0.9 },
+    run = function(w) w:center() end,
+}
+
+-- File managers float, except their dialogs.
+neori.rules.add {
+    where_any = { app_id = { "^org.gnome.Nautilus$", "^thunar$" } },
+    where_not = { title = "^(Open|Save)" },
+    set = { floating = true },
+}
+
+-- HDMI monitors get scale 1.5 when plugged in.
+neori.rules.add {
+    when = "monitor-added",
+    where = { name = "^HDMI-" },
+    set = { scale = 1.5 },
+}
+```
+
+A rule has these keys. It needs `set`, `run` or both.
+
+| key | meaning |
+|---|---|
+| `where` | Every property must match. |
+| `where_any` | At least one property must match. |
+| `where_not` | The rule is skipped when every property matches. |
+| `where_not_any` | The rule is skipped when any property matches. |
+| `set` | Properties to set, with the object's setters. |
+| `run` | A function called with the object, after `set`. |
+| `when` | An event or a list of events that apply the rule. Without it, it's a window rule (see below). |
+| `id` | A name for `neori.rules.remove`; a number is given when left out. |
+
+A `where` value is:
+
+- a string: a regex, unanchored like the `match` of `window_rule` (`"^firefox$"` for the whole
+  app id, `"(?i)firefox"` to ignore case). Numbers like `pid` are matched as text.
+- a number or a boolean: compared as is. For a window's `workspace`, a string matches the name
+  and a number the index.
+- a function: called with the value and the object, and matches when it returns true.
+- a list of the above: matches when any of them does.
+
+### Window rules
+
+Without `when`, a rule is a window rule and applies in two steps, so that a window opens where it
+should without moving there afterwards:
+
+1. At `window-opening`, before the window's first frame, `floating`, `fullscreen`, `maximized`,
+   `output` and a workspace name apply through the `w:open_*` methods.
+2. At `window-opened`, the other keys (`opacity`, a workspace index) apply, and `run` is called.
+
+Each step checks `where` again. At `window-opening` only `app_id` and `title` are known.
+
+With `when`, the rule applies at each of those events instead. `when = { "window-opened",
+"window-title-changed" }` catches a window whose title arrives late. With `"window-opening"` in
+`when`, only the keys that `open_*` methods set can be in `set`, and `run` gets the pre-placement
+window.
+
+### Properties
+
+The keys depend on the object that the events pass, and a key that the object doesn't have is an
+error when the rule is added.
+
+| object | events | `where` keys | `set` keys |
+|---|---|---|---|
+| `Window` | `window-*` | `id`, `app_id`, `title`, `pid`, `focused`, `floating`, `fullscreen`, `maximized`, `urgent`, `workspace`, `output`, `opacity`, `parent` | `floating`, `fullscreen`, `maximized`, `workspace`, `output`, `opacity` |
+| `Output` | `monitor-added`, `monitor-removed`, `output-focused`, `output-mode-changed` | `name`, `make`, `model`, `serial`, `mode`, `scale`, `transform`, `position`, `focused`, `virtual`, `off`, `vrr_supported`, `vrr_enabled` | `enabled`, `mode`, `scale`, `transform`, `position`, `vrr` |
+| `Workspace` | `workspace-*` | `id`, `idx`, `name`, `output`, `focused` | `name`, `output` |
+| `Device` | `device-added`, `device-removed` | `name`, `sysname`, `product_id`, `vendor_id`, `pointer`, `keyboard`, `touch`, `touchpad`, `output` | `tap`, `natural_scroll`, `accel`, `accel_profile`, `left_handed`, `disabled`, `scroll_method`, `click_method`, `dwt`, `middle_emulation`, `output` |
+| `LayerSurface` | `layer-added`, `layer-removed` | `id`, `namespace`, `layer`, `output`, `pid`, `keyboard_interactivity` | none, use `run` |
+
+Each key reads or calls the method of the same name (`title` → `w:title()`, `focused` →
+`w:is_focused()`, `scale = 2` → `out:set_scale(2)`, `floating = true` → `w:float(true)`).
+
+### Other functions
+
+- `neori.rules.remove(id)` removes a rule by its id or its table, and returns whether one was
+  removed.
+- `neori.rules.matches(object, rule)` returns whether an object matches a rule's conditions.
+- `neori.rules.apply(object, rule)` applies a rule to an object now, if it matches, and returns
+  whether it did.
+
+Rules run in the order they were added. A rule that raises an error is reported and the others
+still run.
+
 ## Pointer & keyboard
 
 Inside any Lua callback, `neori.pointer()` returns the current seat pointer

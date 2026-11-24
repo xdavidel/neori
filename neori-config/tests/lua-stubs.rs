@@ -90,6 +90,7 @@ fn stubs_declare_every_neori_function_and_namespace() {
     let sections: BTreeSet<String> = CONFIG_SECTIONS.iter().map(|s| s.to_string()).collect();
     let mut expected = sections.clone();
     expected.insert("misc".to_owned());
+    expected.insert("rules".to_owned());
     assert_eq!(names("namespaces"), expected);
 }
 
@@ -170,4 +171,63 @@ fn stubs_list_every_bind_option() {
         &fields,
         &set(BIND_OPTIONS.iter().copied()),
     );
+}
+
+/// The `---@field` names of the class `class` in the stubs.
+fn class_fields(class: &str) -> BTreeSet<String> {
+    annotation_block(&format!("---@class {class}"))
+        .iter()
+        .filter_map(|l| l.strip_prefix("---@field "))
+        .map(|l| l.split([' ', '?']).next().unwrap().to_owned())
+        .collect()
+}
+
+#[test]
+fn stubs_declare_neori_rules() {
+    let lua = mlua::Lua::new();
+    let neori = lua.create_table().unwrap();
+    let (rules, classes) = neori_config::parse_lua::load_rules(&lua, &neori).unwrap();
+
+    let functions: BTreeSet<String> = rules
+        .pairs::<String, mlua::Value>()
+        .map(|pair| pair.unwrap().0)
+        .collect();
+    let re = Regex::new(r"(?m)^function neori\.rules\.(\w+)\(").unwrap();
+    let declared: BTreeSet<String> = re.captures_iter(STUBS).map(|c| c[1].to_owned()).collect();
+    assert_same("neori.rules functions", &declared, &functions);
+
+    // Every method a rule calls exists in the stubs of its class, and the rule tables list every
+    // key of every class.
+    let mut get_keys = BTreeSet::new();
+    let mut set_keys = BTreeSet::new();
+    for pair in classes.pairs::<String, mlua::Table>() {
+        let (class, properties) = pair.unwrap();
+        let re = Regex::new(&format!(r"(?m)^function {class}:(\w+)\(")).unwrap();
+        let methods: BTreeSet<String> = re.captures_iter(STUBS).map(|c| c[1].to_owned()).collect();
+        assert!(!methods.is_empty(), "no methods of {class} in the stubs");
+        for kind in ["get", "set", "open"] {
+            let Ok(table) = properties.get::<mlua::Table>(kind) else {
+                continue;
+            };
+            let keys = if kind == "get" {
+                &mut get_keys
+            } else {
+                &mut set_keys
+            };
+            for pair in table.pairs::<String, String>() {
+                let (key, method) = pair.unwrap();
+                assert!(
+                    methods.contains(&method),
+                    "{class}.{kind}.{key} calls {class}:{method}, which isn't in the stubs"
+                );
+                keys.insert(key);
+            }
+        }
+    }
+    assert_same(
+        "neori.RuleWhere",
+        &class_fields("neori.RuleWhere"),
+        &get_keys,
+    );
+    assert_same("neori.RuleSet", &class_fields("neori.RuleSet"), &set_keys);
 }
