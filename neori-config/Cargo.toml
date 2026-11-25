@@ -13,8 +13,8 @@ csscolorparser = "0.8"
 libc = "0.2.189"
 miette = { version = "5.10.0", features = ["fancy-no-backtrace"] }
 mlua = { workspace = true, features = ["serialize"] }
-neori-config-derive = { version = "0.1.0", path = "../neori-config-derive" }
-neori-ipc = { version = "0.1.0", path = "../neori-ipc" }
+neori-config-derive = { version = "0.2.0", path = "../neori-config-derive" }
+neori-ipc = { version = "0.2.0", path = "../neori-ipc" }
 regex = "1.13.1"
 smithay = { workspace = true, features = ["backend_libinput"] }
 tracing.workspace = true

@@ -48,7 +48,7 @@ neori.layer_rule {
 }
 ```
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 You can also set `kind = "hide"` to hide the surface entirely instead of drawing a black rectangle.
 Careful: this way you could unintentionally expose sensitive data.
 

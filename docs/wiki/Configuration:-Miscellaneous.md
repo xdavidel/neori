@@ -197,7 +197,7 @@ neori.cursor {
 
 #### `shake-to-find`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Enlarges the cursor when you shake the mouse, to help find it. Set it to `true` to enable it with the defaults, or to a table to tune its appearance, timing, and sensitivity.
 

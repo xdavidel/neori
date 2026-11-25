@@ -1,146 +1,72 @@
 This is a checklist of things to release a new neori version.
 
-We'll use `26.04` as the example new version.
-When making a patch release, append the patch number like `26.04.1`.
+neori numbers its own versions as `major.minor.patch`, separate from niri's `year.month`
+versions. `0.x` versions can still change the Lua API; a minor bump (`0.2.0` → `0.3.0`) adds
+features, and a patch bump (`0.2.1`) only fixes bugs. We'll use `0.3.0` as the example new
+version.
 
-## Prepare the release notes
+## Write the release notes
 
-Plan for a few days of work, this usually takes a while.
+Go through the commits since the last tag (`git log v0.2.0..`) and sum up what changed for users:
+new features, fixes, and anything that needs a config change. They go into the tag's message.
 
-During this process, also check:
+While doing this, also check:
 
-- that all additions are marked with "next release" on the wiki,
-- if anything needs updating in `README.md`.
+- that additions are marked with `<sup>Since: next release</sup>` on the wiki,
+- if anything needs updating in `README.md` (the "Neori features" list).
 
-## Bump version
+## Bump the version
 
-We use `year.month.patch` versioning.
-If the month contains a leading zero, drop it from the crate version (Cargo requirement).
-
-You can use the command from [cargo-edit](https://github.com/killercup/cargo-edit):
+The version lives in the workspace's `Cargo.toml` and is shared by every crate. With
+[cargo-edit](https://github.com/killercup/cargo-edit):
 
 ```
-cargo set-version 26.4.0
+cargo set-version 0.3.0
 ```
 
-Then, manually update version in:
+Or edit it by hand: `[workspace.package]` and the `version = "…"` of the internal dependencies
+(`neori-config`, `neori-ipc`, `neori-config-derive`, `neori`) in the `Cargo.toml` files.
 
-- `[package.metadata.generate-rpm]` in Cargo.toml
-- Dependency example in `neori-ipc/README.md`
-- Dependency example in `neori-ipc/src/lib.rs`
+Then update the version in:
 
-Do a full text search for the old version to make sure there are no other places.
+- `[package.metadata.generate-rpm]` in `Cargo.toml`,
+- the dependency example in `neori-ipc/README.md`,
+- the dependency example in `neori-ipc/src/lib.rs`.
 
-## Replace all "Since: next release" mentions
+Do a full text search for the old version to make sure there are no other places. The Nix
+package reads the version from `Cargo.toml`, as `0.3.0-<commit>`, and `neori --version` prints
+`0.3.0 (<commit>)`.
 
-Do a full text search for `next release`, replace everything with the new version number.
+## Replace all "Since: next release" mentions
 
-## Build, test, push, and have the CI run
+Do a full text search for `next release` in `docs/wiki` and replace each with the new version:
+`<sup>Since: 0.3.0</sup>`. Older markers like `Since: 25.08` are niri versions, from before
+neori had its own.
 
-Run all tests:
+## Build and test
 
 ```
 RUN_SLOW_TESTS=1 cargo test --release --all
 ```
 
-- Run `cargo package -p neori-ipc` and make sure it succeeds.
-- Make sure the CI passes.
-- Make sure the niri-git COPR build passes.
+Also make sure the Nix package builds: `nix build`.
 
-## Trigger the "Prepare release" workflow on GitHub Actions
+## Commit, tag and push
 
-Set the "Public version" input to a version like `26.04`.
-
-This workflow will:
-
-- do some pre-release checks like grepping the wiki for "next version",
-- make a vendored dependency archive,
-- build and test neori with that dependency archive,
-- draft a new GitHub release with the archive attached.
-It will NOT override an existing draft release with the same name so the release notes are safe.
-
-Make sure it succeeds and grab the vendored dependency archive that it produces.
-
-## Update the neori COPR spec, update licenses in .spec.rpkg
-
-You can grab the previous spec from [the last build](https://copr.fedorainfracloud.org/coprs/yalter/niri/builds/) in the COPR.
-
-- Update version global to `26.04`.
-- Update commit global to the commit hash corresponding to the release commit.
-You can use `git rev-parse HEAD`.
-- Reset the `Release:` number to 1 if it was higher.
-
-To run a test build, you can download the vendored dependency archive from the last step.
-Comment/uncomment `Source:` and `%autosetup` lines accordingly.
-
-Download the source files:
+Commit the version bump, then make an annotated tag, with the release notes as its message:
 
 ```
-spectool -g neori.spec
+git tag -a v0.3.0
+git push origin main v0.3.0
 ```
 
-Build RPMs:
+The tag starts with a `v`. Use an annotated tag rather than a lightweight one: it records who made
+it and when, and works better with tools like `git describe`.
 
-```
-fedpkg --release 44 mockbuild
-```
+## Publish on GitLab
 
-During the build, it will print the list of licenses.
-Update it in both the COPR spec and in `neori.spec.rpkg` accordingly.
+Create a release from the tag on GitLab, with the release notes.
 
-If you had to update `neori.spec.rpkg` and therefore make another commit to the neori repo, make sure to update the commit hash in the COPR spec again.
+## Update the systems that use it
 
-Revert any temporary changes that you did to the COPR spec for local testing.
-
-## Create and push the release git tag
-
-The tag starts with a `v`:
-
-```
-git tag -am "v26.04 release" v26.04
-git push origin v26.04
-```
-
-While you can let GitHub create the tag automatically upon creating the release, this is not recommended.
-GitHub creates a *lightweight* tag, but we want an annotated tag that plays better with various tooling.
-
-## Publish the release on GitHub
-
-- Either upload the vendored dependencies file to your draft release with the release notes, or move the release notes to the GitHub-created release (the difference is that it's attributed to github-actions).
-- Set the tag to `v26.04`.
-- Set the release title to `v26.04`.
-- Check "Create a discussion for this release".
-
-## Publish the neori-ipc crate
-
-```
-cargo publish -p neori-ipc
-```
-
-## Kick off the COPR build
-
-Upload on the web or:
-
-```
-copr-cli build neori neori.spec
-```
-
-## Announce the release
-
-Chat rooms, social media, etc.
-
-## Update wayland.app protocol data
-
-- Install [wlprobe](https://github.com/PolyMeilex/wlprobe).
-- Clone https://github.com/vially/wayland-explorer.
-- Generate data:
-
-    ```
-    wlprobe > ./src/data/compositors/neori.json
-    ```
-
-- Manually add `"version": "26.04"`, then clean up the diff from unrelated changes, for example:
-    - The number of `wl_output`s will change depending on how many monitors you have connected.
-    - The number of `wp_drm_lease_device_v1` will change depending on your number of GPUs.
-    - `org_kde_kwin_server_decoration_manager` and `zxdg_decoration_manager_v1` will only appear with `prefer-no-csd`.
-- Create a pull request.
+Systems that use the flake pick it up with `nix flake update neori`.

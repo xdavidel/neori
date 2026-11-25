@@ -496,7 +496,7 @@ neori.animations {
 
 ### Specifying `custom-shader` by Path
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 For animations that accept a `custom-shader`, you can also attach the shader by path, rather than writing it out inline.
 Relative paths are resolved against the directory of the config file, and `~` expands to your home directory.

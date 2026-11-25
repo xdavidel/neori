@@ -56,7 +56,7 @@ $ socat STDIO "$NEORI_SOCKET"
 
 The reply is an `Ok` or an `Err` wrapping the same JSON object as you get from `neori msg --json`.
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 For more complex requests, you can pass `--print-request` to `neori msg` to see how the request should be formatted:
 
 ```sh

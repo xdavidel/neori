@@ -9,5 +9,5 @@ This crate is primarily used by `neori` itself (for IPC), but can also be used b
 Add this to your `Cargo.toml`:
 
 ```toml
-neori-ipc = "=0.1.0"
+neori-ipc = "=0.2.0"
 ```

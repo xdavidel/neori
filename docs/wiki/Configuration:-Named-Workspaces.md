@@ -48,7 +48,7 @@ Before, it could only use the connector name.
 This means that named workspaces "stick" to their original output in more cases, reflecting their more permanent nature.
 Explicitly moving a named workspace to a different monitor will still update its original output.
 
-<sup>Since: next release</sup> You can also give `open_on_output` a list of outputs.
+<sup>Since: 0.2.0</sup> You can also give `open_on_output` a list of outputs.
 If the first output is not connected, the workspace will open on the second output, and so on.
 
 ```lua

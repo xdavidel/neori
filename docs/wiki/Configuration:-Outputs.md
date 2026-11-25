@@ -276,7 +276,7 @@ neori.output("HDMI-A-1", {
 
 ### `drm-lease`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Force this output to be offered for [DRM leasing](https://wayland.app/protocols/drm-lease-v1) instead of being used as a regular monitor.
 
@@ -345,7 +345,7 @@ neori.output("HDMI-A-1", {
 
 ### `max-bpc`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Set the maximum bits per channel (BPC) for this output.
 

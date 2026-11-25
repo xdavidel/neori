@@ -18,7 +18,7 @@ runtime API (`neori.bind("key", function() … end)`, `neori.action(name, args)`
 handlers).
 
 The hotkey consists of modifiers separated by `+` signs, followed by a trigger key in the end.
-The trigger key can be either an XKB key name or <sup>Since: next release</sup> a modifier.
+The trigger key can be either an XKB key name or <sup>Since: 0.2.0</sup> a modifier.
 
 Valid modifiers are:
 
@@ -52,7 +52,7 @@ neori.bind("Alt+Alt_L", neori.spawn("the Alt here is unnecessary but allowed"))
 
 Modifier keys always match by keysym, even though other keys match by keycode by default.
 
-<sup>Since: next release</sup> Generic modifiers like `Shift` or `Alt` can be used as trigger keys.
+<sup>Since: 0.2.0</sup> Generic modifiers like `Shift` or `Alt` can be used as trigger keys.
 Binds consisting only of generic modifiers do not depend on the order that you press them:
 
 ```lua
@@ -105,7 +105,7 @@ neori.bind("Ctrl+Shift_L", neori.spawn("alacritty"))
 > Also, binds that spell out the typed character have priority over binds that spell out an unshifted character.
 > For example, on US QWERTY, `Mod+Shift+At` will have priority over `Mod+Shift+2` if both are configured.
 >
-> <sup>Since: next release</sup> You used to need to spell out the *unshifted* version of the trigger key.
+> <sup>Since: 0.2.0</sup> You used to need to spell out the *unshifted* version of the trigger key.
 > So to bind <kbd>&lt;</kbd> on US QWERTY you could use only `Mod+Shift+Comma` (since <kbd>,</kbd> is the unshifted version of that key).
 > This is no longer the case: you can spell out either version of the key.
 
@@ -126,7 +126,7 @@ This is mostly useful for the scroll bindings.
 
 ### Press and Release Bindings
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Binds can be set to trigger on key press, on key release, or both.
 By default, binds trigger on key press.
@@ -230,7 +230,7 @@ neori.bind("Mod+TouchpadScrollUp", neori.spawn("wpctl", "set-volume", "@DEFAULT_
 Both mouse wheel and touchpad scroll binds will prevent applications from receiving any scroll events when their modifiers are held down.
 For example, if you have a `Mod+WheelScrollDown` bind, then while holding `Mod`, all mouse wheel scrolling will be consumed by neori.
 
-<sup>Since: next release</sup> Mouse wheel bindings are consumed by neori per axis.
+<sup>Since: 0.2.0</sup> Mouse wheel bindings are consumed by neori per axis.
 If you bind just `Mod+WheelScrollDown` and hold `Mod`, neori will consume vertical scrolling, but not horizontal scrolling.
 
 ### Mouse Click Bindings
@@ -253,7 +253,7 @@ Note that binding `Mod+MouseLeft` or `Mod+MouseRight` will override the correspo
 
 ### Tablet Stylus Bindings
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 You can bind tablet stylus buttons using the following syntax.
 
@@ -573,7 +573,7 @@ neori.bind("Super+Alt+L", neori.spawn("swaylock", { allow_inhibiting = false }))
 
 #### `toggle-touchpad`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Toggle the touchpad on or off at runtime.
 This provides a quick way to disable the touchpad without editing the config file.

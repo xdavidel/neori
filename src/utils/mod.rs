@@ -146,18 +146,13 @@ pub fn version() -> String {
         return String::from(v);
     }
 
-    const MAJOR: &str = env!("CARGO_PKG_VERSION_MAJOR");
-    const MINOR: &str = env!("CARGO_PKG_VERSION_MINOR");
-    const PATCH: &str = env!("CARGO_PKG_VERSION_PATCH");
+    // neori numbers its own versions (major.minor.patch), unlike niri's year.month.
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
 
     let commit =
         option_env!("NEORI_BUILD_COMMIT").unwrap_or(git_version!(fallback = "unknown commit"));
 
-    if PATCH == "0" {
-        format!("{MAJOR}.{MINOR:0>2} ({commit})")
-    } else {
-        format!("{MAJOR}.{MINOR:0>2}.{PATCH} ({commit})")
-    }
+    format!("{VERSION} ({commit})")
 }
 
 pub fn get_monotonic_time() -> Duration {

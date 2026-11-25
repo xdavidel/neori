@@ -40,7 +40,8 @@
 
         rustPlatform.buildRustPackage {
           pname = "neori";
-          version = revision;
+          # The crate version, then the commit it was built from.
+          version = "${(lib.importTOML ./Cargo.toml).workspace.package.version}-${revision}";
 
           src = lib.fileset.toSource {
             root = ./.;

@@ -84,7 +84,7 @@ You can customize the look of the window insertion preview in the [`insert-hint`
 
 #### Interactive Move
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 You can move windows by holding <kbd>Mod</kbd> and dragging the window with a tablet pen.
 

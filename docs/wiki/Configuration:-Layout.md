@@ -623,7 +623,7 @@ You can also set the color per-output [in the output config](./Configuration:-Ou
 
 ### `fullscreen-backdrop-color`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Set the backdrop color that neori draws behind fullscreen windows.
 By default, it is black.

@@ -230,7 +230,7 @@ neori.layer_rule {
 
 #### `focus-on-type-in-overview`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Set to `true` to make neori focus this surface when typing in the [Overview](./Overview.md).
 It is intended for app launchers, to enable "type to search" integration.

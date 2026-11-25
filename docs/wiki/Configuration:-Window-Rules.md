@@ -503,7 +503,7 @@ neori.window_rule {
 <sup>Since: 0.1.9</sup> `open-on-output` can now use monitor manufacturer, model, and serial.
 Before, it could only use the connector name.
 
-<sup>Since: next release</sup> You can also give `open_on_output` a list of outputs.
+<sup>Since: 0.2.0</sup> You can also give `open_on_output` a list of outputs.
 If the first output is not connected, the window will open on the second output, and so on.
 
 ```lua
@@ -719,7 +719,7 @@ neori.window_rule {
 > This is because window title (and app ID) are not double-buffered in the Wayland protocol, so they are not tied to specific window contents.
 > There's no robust way for Firefox to synchronize visibly showing a different tab and changing the window title.
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 You can set `kind = "hide"` to hide the window completely instead of drawing a black rectangle.
 
 > [!WARNING]
@@ -743,7 +743,7 @@ neori.window_rule {
 
 #### `on-xdg-activate`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Set what neori does when a window requests activation through [xdg-activation](https://wayland.app/protocols/xdg-activation-v1).
 
@@ -817,7 +817,7 @@ neori.window_rule {
 }
 ```
 
-<sup>Since: next release</sup> You can set `variable-refresh-rate` to `"fullscreen-only"` to activate on-demand VRR only when this window is fullscreen on this output.
+<sup>Since: 0.2.0</sup> You can set `variable-refresh-rate` to `"fullscreen-only"` to activate on-demand VRR only when this window is fullscreen on this output.
 The window must cover the entire screen (when neori hides the top layer-shell layer).
 
 This mode will work even when there are overlays over the fullscreen window.
@@ -939,7 +939,7 @@ neori.window_rule {
 
 #### `pinch-sensitivity`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Set the sensitivity of pinch gestures sent to a window.
 
@@ -1276,7 +1276,7 @@ neori.window_rule {
 }
 ```
 
-<sup>Since: next release</sup> Size override rules also apply to windows that are fullscreen and maximized-to-edges.
+<sup>Since: 0.2.0</sup> Size override rules also apply to windows that are fullscreen and maximized-to-edges.
 This can be useful to letterbox games on ultrawide monitors.
 
 ```lua

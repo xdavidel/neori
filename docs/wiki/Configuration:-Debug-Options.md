@@ -165,7 +165,7 @@ neori.debug {
 
 ### `disable-pipewire-dmabuf`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Disable DMA-BUF sharing for PipeWire screencasts, forcing shared-memory buffers instead.
 
@@ -183,7 +183,7 @@ Make neori create its D-Bus interfaces even if it's not running as a `--session`
 
 Useful for testing screencasting changes without having to relogin.
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 The main neori instance will automatically take back the interfaces once the new instance quits.
 
 ```lua
@@ -346,7 +346,7 @@ neori.debug {
 
 ### `disable-10bit-output`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 By default, neori will try to output a 10-bit color format to the monitor (before falling back to 8-bit).
 However, this can currently cause problems on some Intel + NVIDIA mixed-GPU setups: the screen doesn't light up, or displays only white, etc.
@@ -397,7 +397,7 @@ neori.bind("Mod+Shift+Ctrl+D", "debug-toggle-damage")
 
 ### `nested-show-host-cursor`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.2.0</sup>
 
 Shows the host cursor when running neori as a nested window, on top of the nested neori cursor.
 
