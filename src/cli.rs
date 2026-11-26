@@ -98,6 +98,8 @@ pub enum Sub {
         #[arg(long)]
         print_request: bool,
     },
+    /// Start a Lua REPL in the running neori: the same as `neori msg lua` without code.
+    Repl,
     /// Validate the config file.
     Validate {
         /// Path to config file (default: `$XDG_CONFIG_HOME/neori/config.lua`).
@@ -192,9 +194,12 @@ pub enum Msg {
     ///
     /// An expression prints its value: `neori msg lua 'neori.focused_window():title()'`.
     /// Statements can `return` values. Changes apply right away.
+    ///
+    /// Without code, in a terminal, starts a REPL (like `neori repl`); with input piped in, runs
+    /// that.
     Lua {
         /// The Lua code to run.
-        #[arg(required_unless_present_any = ["file", "complete"], conflicts_with_all = ["file", "complete"])]
+        #[arg(conflicts_with_all = ["file", "complete"])]
         code: Option<String>,
         /// Run the Lua code in this file instead.
         #[arg(short, long, conflicts_with = "complete")]

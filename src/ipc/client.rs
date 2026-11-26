@@ -1,4 +1,4 @@
-use std::io::{BufRead as _, ErrorKind};
+use std::io::{BufRead as _, ErrorKind, IsTerminal as _, Read as _};
 use std::iter::Peekable;
 use std::path::Path;
 use std::{env, slice};
@@ -18,7 +18,7 @@ use crate::utils::version;
 /// The string keys of the global table at `path` in the running compositor's Lua state (the
 /// globals for an empty path), for completing `neori msg lua`. Only walks tables with `rawget`,
 /// so no metamethod or other code of the config runs. Nothing if neori isn't reachable.
-fn lua_table_keys(path: &[String]) -> Vec<String> {
+pub(crate) fn lua_table_keys(path: &[String]) -> Vec<String> {
     let path: Vec<String> = path
         .iter()
         // Names only, so they're safe to put in the code.
@@ -113,7 +113,17 @@ pub fn handle_msg(mut msg: Msg, json: bool, print_request: bool) -> anyhow::Resu
                 (Some(code), _) => code.clone(),
                 (None, Some(file)) => std::fs::read_to_string(file)
                     .with_context(|| format!("error reading {}", file.display()))?,
-                (None, None) => unreachable!("clap requires code or --file"),
+                // No code: a REPL in a terminal, or the code piped in.
+                (None, None) if std::io::stdin().is_terminal() => {
+                    return crate::ipc::repl::run();
+                }
+                (None, None) => {
+                    let mut code = String::new();
+                    std::io::stdin()
+                        .read_to_string(&mut code)
+                        .context("error reading Lua code from stdin")?;
+                    code
+                }
             };
             Request::Lua { code }
         }

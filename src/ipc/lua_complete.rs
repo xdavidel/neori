@@ -808,6 +808,136 @@ pub fn complete(text: &str, table_keys: &dyn Fn(&[String]) -> Vec<String>) -> Ve
         .collect()
 }
 
+/// A function of the stubs: its parameters as `(key, action, options?)`, and its documentation.
+struct FunctionDoc {
+    params: String,
+    returns: Option<String>,
+    doc: String,
+}
+
+/// The documented functions of the stubs, by name: `neori.bind`, `neori.rules.add`, and methods
+/// as `Window:title`.
+fn function_docs() -> HashMap<String, FunctionDoc> {
+    let mut docs = HashMap::new();
+    let mut block: Vec<&str> = Vec::new();
+    for line in STUBS.lines() {
+        if let Some(text) = line.strip_prefix("---") {
+            block.push(text);
+            continue;
+        }
+        if let Some(rest) = line
+            .strip_prefix("function ")
+            .and_then(|f| f.strip_suffix(" end"))
+        {
+            let (name, args) = rest.split_once('(').unwrap_or((rest, ""));
+            let args = args.trim_end_matches(')');
+            // Optional parameters are marked in their `---@param name? …`.
+            let optional = |arg: &str| {
+                block
+                    .iter()
+                    .any(|l| l.starts_with(&format!("@param {arg}? ")))
+            };
+            let params: Vec<String> = args
+                .split(", ")
+                .filter(|a| !a.is_empty())
+                .map(|a| {
+                    if optional(a) {
+                        format!("{a}?")
+                    } else {
+                        a.to_owned()
+                    }
+                })
+                .collect();
+            let returns: Vec<&str> = block
+                .iter()
+                .filter_map(|l| l.strip_prefix("@return "))
+                .map(|r| r.split_whitespace().next().unwrap_or(""))
+                .collect();
+            let doc = block
+                .iter()
+                .filter(|l| !l.starts_with('@') && !l.starts_with('|'))
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n");
+            docs.insert(
+                name.to_owned(),
+                FunctionDoc {
+                    params: format!("({})", params.join(", ")),
+                    returns: (!returns.is_empty()).then(|| returns.join(", ")),
+                    doc: doc.trim().to_owned(),
+                },
+            );
+        }
+        block.clear();
+    }
+    docs
+}
+
+/// The name of the function called by the `(` that ends `chars`, as [`function_docs`] has it.
+fn callee_name(code: &Code, chars: &[char]) -> Option<String> {
+    let paren = chars.len().checked_sub(1)?;
+    if chars[paren] != '(' {
+        return None;
+    }
+    let (name, name_start) = name_before(chars, paren);
+    if name.is_empty() {
+        return None;
+    }
+    let separator = name_start.checked_sub(1).map(|i| chars[i]);
+    match separator {
+        Some(separator @ ('.' | ':')) => {
+            let receiver_end = name_start - 1;
+            let receiver = &chars[chain_start(chars, receiver_end)..receiver_end];
+            match code.chain_type(receiver) {
+                // `w:title(`: a method of the receiver's class.
+                Type::Class(class) if separator == ':' => Some(format!("{class}:{name}")),
+                // `neori.bind(`, `neori.rules.add(`: written out in full.
+                Type::Neori | Type::Namespace(_) => {
+                    let receiver: String = receiver.iter().collect();
+                    Some(format!("{receiver}.{name}"))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The parameters still to type when `text` ends right after the `(` of a call to a function of
+/// the API, as a hint: `"key, action, options?)"` for `neori.bind(`.
+pub fn signature_hint(text: &str) -> Option<String> {
+    let chars: Vec<char> = text.chars().collect();
+    let api = Api::parse();
+    let code = Code::new(&api, &chars);
+    if code.brackets.in_string {
+        return None;
+    }
+    let name = callee_name(&code, &chars)?;
+    let docs = function_docs();
+    let doc = docs.get(&name)?;
+    let params = doc.params.strip_prefix('(').unwrap_or(&doc.params);
+    Some(match &doc.returns {
+        Some(returns) => format!("{params} -> {returns}"),
+        None => params.to_owned(),
+    })
+}
+
+/// The documentation of a function of the API (`neori.bind`, `Window:title`): its signature,
+/// then its description.
+pub fn doc(name: &str) -> Option<String> {
+    let docs = function_docs();
+    let doc = docs.get(name)?;
+    let mut text = format!("{name}{}", doc.params);
+    if let Some(returns) = &doc.returns {
+        text.push_str(&format!(" -> {returns}"));
+    }
+    if !doc.doc.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&doc.doc);
+    }
+    Some(text)
+}
+
 /// The keys of the global table `chain` names, when it's a plain path like `string` or
 /// `my.helpers` that isn't `neori` nor a variable of the code.
 fn global_table_keys(
@@ -1006,6 +1136,42 @@ mod tests {
             "neori.rules.add { set = { flo",
             "neori.rules.add { set = { floating"
         ));
+    }
+
+    #[test]
+    fn hints_the_parameters_of_calls() {
+        assert_eq!(
+            signature_hint("neori.bind(").as_deref(),
+            Some("key, action, options?)")
+        );
+        assert_eq!(
+            signature_hint("local w = neori.focused_window(); w:set_opacity(").as_deref(),
+            Some("opacity)")
+        );
+        assert_eq!(
+            signature_hint("neori.rules.add(").as_deref(),
+            Some("rule) -> string")
+        );
+        assert_eq!(
+            signature_hint("neori.focused_window(").as_deref(),
+            Some(") -> neori.Window?")
+        );
+        // Only right after the `(`, and not inside strings or for unknown functions.
+        assert_eq!(signature_hint("neori.bind(\"Mod+Q\", "), None);
+        assert_eq!(signature_hint("print(\"neori.bind("), None);
+        assert_eq!(signature_hint("string.format("), None);
+    }
+
+    #[test]
+    fn documents_functions_and_methods() {
+        let bind = doc("neori.bind").unwrap();
+        assert!(
+            bind.starts_with("neori.bind(key, action, options?)\n\nBinds a key"),
+            "{bind}"
+        );
+        let title = doc("Window:title").unwrap();
+        assert!(title.starts_with("Window:title() -> string?"), "{title}");
+        assert_eq!(doc("neori.nothing"), None);
     }
 
     #[test]

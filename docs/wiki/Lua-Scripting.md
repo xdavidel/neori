@@ -1397,6 +1397,49 @@ tail -f ~/.local/state/neori/lua.log
 The code can change anything a config callback can, so only processes of your own user can use
 it, through the IPC socket, like `neori msg action spawn`.
 
+
+### The REPL
+
+`neori repl`, or `neori msg lua` with no code, starts a Lua REPL in the running compositor. Each
+entry runs like `neori msg lua 'code'`: in the config's Lua state, with live reads and changes that
+apply right away, so binds, handlers, rules and config changes take effect as you type them.
+
+```
+$ neori repl
+neori Lua REPL. Tab completes, .help lists the commands, Ctrl+D leaves.
+lua> local w = neori.focused_window()
+lua> w:title()
+Terminal
+lua> neori.on("window-focused", function(w) print("focused", w:app_id()) end)
+lua>
+│ focused	firefox
+```
+
+- **Completion:** Tab completes like the shell completion above, and knows the variables of
+  earlier entries: after `local w = neori.focused_window()`, `w:` offers the `Window` methods.
+- **Hints:** after the `(` of a call to the API, the parameters show in grey:
+  `neori.bind(` hints `key, action, options?)`.
+- **Unfinished code continues** on the next line, like an open `function` or `{`. Code with
+  other errors runs, and shows its error.
+- **Variables:** the entries share the config's globals. A `local` that starts an entry becomes
+  a global, so `local w = …` is still there in the next entry; `.reload` clears them.
+- **Live output:** what callbacks print and the errors they raise (the [Lua log](#print-output))
+  show above the prompt while the REPL is open. `.log off` hides them.
+- **History** is kept in `~/.local/state/neori/repl_history`, with Ctrl+R to search it.
+
+| command | what it does |
+|---|---|
+| `.help` | Lists the commands. |
+| `.doc NAME` | The signature and documentation of a function: `.doc neori.bind`, `.doc Window:title`. |
+| `.signals` | The signals, with how many handlers each has. |
+| `.load FILE` | Runs a Lua file. |
+| `.log on` / `.log off` | Shows or hides the live output. |
+| `.reload` | Reloads the config file, which starts a new Lua state. |
+| `.quit` | Leaves the REPL; so does Ctrl+D. |
+
+With input piped in instead of a terminal, `neori msg lua` runs it once:
+`echo 'neori.focused_window():title()' | neori msg lua`.
+
 ## Editor support
 
 neori ships type definitions of this API for [lua-language-server](https://luals.github.io/)

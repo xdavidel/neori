@@ -115,6 +115,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handle_msg(msg, json, print_request)?;
                 return Ok(());
             }
+            Sub::Repl => {
+                neori::ipc::repl::run()?;
+                return Ok(());
+            }
             Sub::Panic => cause_panic(),
             Sub::Completions { shell } => {
                 match shell {
