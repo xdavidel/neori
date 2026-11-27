@@ -2096,7 +2096,7 @@ dependencies = [
 
 [[package]]
 name = "neori"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2158,7 +2158,7 @@ dependencies = [
 
 [[package]]
 name = "neori-config"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bitflags",
  "csscolorparser",
@@ -2178,7 +2178,7 @@ dependencies = [
 
 [[package]]
 name = "neori-config-derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "neori-ipc"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "schemars",
@@ -2197,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "neori-visual-tests"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "gtk4",
