@@ -1,6 +1,6 @@
 -- Neori default configuration using the neori.* config API.
 -- Check the wiki for a full description of the configuration:
--- https://neori-wm.github.io/neori/Configuration:-Introduction
+-- https://xdavidel.github.io/neori/Configuration:-Introduction
 --
 -- This file is written so that an EMPTY config behaves identically to this one
 -- when the active settings are removed. The commented examples below show every
@@ -10,7 +10,7 @@
 -- Input
 --------------------------------------------------------------------------------
 --
--- See https://neori-wm.github.io/neori/Configuration:-Input for the full
+-- See https://xdavidel.github.io/neori/Configuration:-Input for the full
 -- description of every option.
 
 neori.input {
@@ -320,7 +320,7 @@ neori.screenshot_path("~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.
 -- Configure physical outputs by connector name (e.g. "eDP-1", "DP-3"), or
 -- declare a virtual (headless) one with `create_virtual = true`. Virtual outputs
 -- are useful for Sunshine / Moonlight streaming and for headless workstations;
--- see https://neori-wm.github.io/neori/Virtual-Outputs.
+-- see https://xdavidel.github.io/neori/Virtual-Outputs.
 
 -- neori.output("eDP-1", {
 --   -- off = false,
@@ -442,7 +442,7 @@ neori.window_rule {
 -- Any of these accept a string action ("spawn foo"), a table action
 -- (neori.spawn("foo"), { close_window = true }, …), or a Lua function. Lua
 -- functions get a connector-name string for the monitor events; see
--- https://neori-wm.github.io/neori/Lua-Scripting for the runtime API.
+-- https://xdavidel.github.io/neori/Lua-Scripting for the runtime API.
 
 neori.on("startup", neori.spawn("waybar"))
 -- neori.on("startup", neori.spawn_sh("sleep 1 && mako"))
@@ -663,7 +663,7 @@ end
 -- function, call neori.action(name, args) to run any IPC action. Actions run
 -- right away, in order, so the next line already sees their result.
 --
--- See https://neori-wm.github.io/neori/Lua-Scripting for the full API and its
+-- See https://xdavidel.github.io/neori/Lua-Scripting for the full API and its
 -- known limitations.
 --
 -- Timers: neori.after(ms, fn) runs fn once, neori.every(ms, fn) repeatedly. Both

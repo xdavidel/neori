@@ -1,14 +1,11 @@
-neori's documentation files are found in `docs/wiki/` and should be viewable and browsable in at least three systems:
+neori's documentation files are found in `docs/wiki/` and should be viewable and browsable in two systems:
 
-- The GitHub repo's markdown file preview
-- [The GitHub repo's wiki](https://github.com/neori-wm/neori/wiki)
-- [The documentation site](https://neori-wm.github.io/neori/)
+- The repository's Markdown file preview, on GitLab or on the GitHub mirror
+- [The documentation site](https://xdavidel.github.io/neori/)
 
-## The GitHub repo's wiki
-
-This is generated with the `publish-wiki` job in `.github/workflows/ci.yml`.
-In order to have this job run as expected in your fork, you'll need to enable the wiki feature in your repo's settings on GitHub.
-This could be useful as a contributor to verify that the wiki generates the way you expect it to.
+The repository lives on [GitLab](https://gitlab.com/xdavidel/neori), which mirrors every push to
+[GitHub](https://github.com/xdavidel/neori). GitHub Actions run the CI there, and build and publish
+the documentation site to GitHub Pages on pushes to `main`.
 
 ## The documentation site
 

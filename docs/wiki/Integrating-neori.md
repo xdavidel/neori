@@ -4,7 +4,7 @@ First, for creating a neori package, see the [Packaging](./Packaging-neori.md) p
 ### Configuration
 
 Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.lua` or `~/.config/neori/config.lua`, falling back to `/etc/neori/config.lua`.
-If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
+If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://gitlab.com/xdavidel/neori/-/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
 
 This means that you can customize your distribution defaults by creating `/etc/neori/config.lua`.
 When this file is present, neori *will not* automatically create a config at `~/.config/neori/`, so you'll need to direct your users how to do it themselves.
@@ -36,7 +36,7 @@ Make sure your system installer sets the keyboard layout via systemd-localed, an
 ### Autostart
 
 Neori works with the normal systemd autostart.
-The default [neori.service](https://github.com/neori-wm/neori/blob/main/resources/neori.service) brings up `graphical-session.target` as well as `xdg-desktop-autostart.target`.
+The default [neori.service](https://gitlab.com/xdavidel/neori/-/blob/main/resources/neori.service) brings up `graphical-session.target` as well as `xdg-desktop-autostart.target`.
 
 To make a program run at neori startup without editing the neori config, you can either link its .desktop to `~/.config/autostart/`, or use a .service file with `WantedBy=graphical-session.target`.
 See the [example systemd setup](./Example-systemd-Setup.md) page for some examples.

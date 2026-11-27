@@ -12,7 +12,7 @@ description = "A scrollable-tiling Wayland compositor with extended features"
 authors = ["neori contributors"]
 license = "GPL-3.0-or-later"
 edition = "2021"
-repository = "https://github.com/neori-wm/neori"
+repository = "https://gitlab.com/xdavidel/neori"
 rust-version = "1.88"
 
 [workspace.lints.clippy]

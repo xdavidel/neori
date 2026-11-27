@@ -154,7 +154,7 @@
 
           meta = {
             description = "Scrollable-tiling Wayland compositor";
-            homepage = "https://github.com/neori-wm/neori";
+            homepage = "https://gitlab.com/xdavidel/neori";
             license = lib.licenses.gpl3Only;
             mainProgram = "neori";
             platforms = lib.platforms.linux;

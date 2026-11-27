@@ -1,10 +1,4 @@
 contact_links:
-  - name: Feature request
-    url: https://github.com/neori-wm/neori/discussions/new?category=ideas
-    about: Ideas for new features and functionality (start a Discussion)
-  - name: Ask a question
-    url: https://github.com/neori-wm/neori/discussions/new?category=q-a
-    about: Question about neori (start a Discussion)
-  - name: Matrix room
-    url: https://matrix.to/#/#niri:matrix.org
-    about: Chat about neori with other users
+  - name: Report a bug or request a feature
+    url: https://gitlab.com/xdavidel/neori/-/issues
+    about: neori's issues are on GitLab; this GitHub repository is a mirror

@@ -35,7 +35,7 @@ To get a taste of the events, run `neori msg event-stream`.
 Though, this is more of a debug function than anything.
 You can get raw events from `neori msg --json event-stream`, or by connecting to the neori socket and requesting an event stream manually.
 
-You can find the full list of events along with documentation [here](https://neori-wm.github.io/neori/neori_ipc/enum.Event.html).
+You can find the full list of events along with documentation [here](https://xdavidel.github.io/neori/neori_ipc/enum.Event.html).
 
 ### Programmatic Access
 
@@ -72,7 +72,7 @@ $ echo '{"Action":{"FocusWorkspace":{"reference":{"Id":8}}}}' | neori msg raw-re
 "Handled"
 ```
 
-You can find all available requests and response types in the [neori-ipc sub-crate documentation](https://neori-wm.github.io/neori/neori_ipc/).
+You can find all available requests and response types in the [neori-ipc sub-crate documentation](https://xdavidel.github.io/neori/neori_ipc/).
 
 ### Backwards Compatibility
 

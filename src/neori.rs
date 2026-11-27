@@ -372,7 +372,7 @@ pub struct Neori {
     // verified that a black single-pixel-buffer background lets the foreground surface to be
     // unredirected.
     //
-    // https://github.com/neori-wm/neori/issues/619
+    // https://github.com/niri-wm/niri/issues/619
     #[cfg(test)]
     pub single_pixel_buffer_state: SinglePixelBufferState,
 

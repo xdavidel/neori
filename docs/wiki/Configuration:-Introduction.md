@@ -19,7 +19,7 @@ You can find documentation for various sections of the config on these wiki page
 ### Loading
 
 Neori will load configuration from `$XDG_CONFIG_HOME/neori/config.lua` or `~/.config/neori/config.lua`, falling back to `/etc/neori/config.lua`.
-If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://github.com/neori-wm/neori/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
+If both of these files are missing, neori will create `$XDG_CONFIG_HOME/neori/config.lua` with the contents of [the default configuration file](https://gitlab.com/xdavidel/neori/-/blob/main/resources/default-config.lua), which are embedded into the neori binary at build time.
 Please use the default configuration file as the starting point for your custom configuration.
 
 The configuration is live-reloaded.

@@ -1,8 +1,8 @@
 site_name: neori
 docs_dir: wiki
-site_url: https://neori-wm.github.io/neori
-repo_url: https://github.com/neori-wm/neori
-edit_uri: edit/main/docs/wiki/
+site_url: https://xdavidel.github.io/neori
+repo_url: https://gitlab.com/xdavidel/neori
+edit_uri: -/edit/main/docs/wiki/
 use_directory_urls: false
 
 theme:
@@ -96,6 +96,9 @@ nav:
     - Introduction: Configuration:-Introduction.md
     - Input: Configuration:-Input.md
     - Outputs: Configuration:-Outputs.md
+    - Virtual Outputs: Virtual-Outputs.md
+    - Lua Scripting: Lua-Scripting.md
+    - Lua API Reference: Lua-API-Reference.md
     - Key Bindings: Configuration:-Key-Bindings.md
     - Switch Events: Configuration:-Switch-Events.md
     - Layout: Configuration:-Layout.md

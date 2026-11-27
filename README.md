@@ -47,7 +47,7 @@ Windows are arranged in columns on an infinite horizontal strip. Opening a new w
 
 ### Getting started
 
-Follow the [neori getting started guide](https://neori-wm.github.io/neori/Getting-Started.html) for build/runtime details. The main difference is configuration: use `~/.config/neori/config.lua` (or `/etc/neori/config.lua`, or `NEORI_CONFIG`). See `resources/default-config.lua` for a reference.
+Follow the [neori getting started guide](https://xdavidel.github.io/neori/Getting-Started.html) for build/runtime details. The main difference is configuration: use `~/.config/neori/config.lua` (or `/etc/neori/config.lua`, or `NEORI_CONFIG`). See `resources/default-config.lua` for a reference.
 
 ### Development: testing in a nested session
 

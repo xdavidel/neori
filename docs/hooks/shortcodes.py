@@ -40,5 +40,10 @@ def _badge_for_version(preposition: str, version: str):
         # we might fail to make real links to release notes on other cases too, but for now this is the one i've found
         return f"<span class=\"badge\">{preposition}: {version}</span>"
     else:
-        path = f"https://github.com/neori-wm/neori/releases/tag/v{version}"
+        if version.startswith("0."):
+            # neori's own versions.
+            path = f"https://gitlab.com/xdavidel/neori/-/tags/v{version}"
+        else:
+            # Older markers are niri versions, from before neori had its own.
+            path = f"https://github.com/niri-wm/niri/releases/tag/v{version}"
         return f"<span class=\"badge\">[{preposition}: {version}]({path})</span>"
