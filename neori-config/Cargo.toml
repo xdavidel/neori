@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 bitflags.workspace = true
-csscolorparser = "0.8"
+csscolorparser = "0.9"
 libc = "0.2.189"
 miette = { version = "5.10.0", features = ["fancy-no-backtrace"] }
 mlua = { workspace = true, features = ["serialize"] }
