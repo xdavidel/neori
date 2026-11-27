@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 description = "A scrollable-tiling Wayland compositor with extended features"
 authors = ["neori contributors"]
 license = "GPL-3.0-or-later"
@@ -86,8 +86,8 @@ keyframe = { version = "1.1.1", default-features = false }
 libc = "0.2.189"
 libdisplay-info = "0.3.0"
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_debug"] }
-neori-config = { version = "0.3.1", path = "neori-config" }
-neori-ipc = { version = "0.3.1", path = "neori-ipc", features = ["clap"] }
+neori-config = { version = "0.3.2", path = "neori-config" }
+neori-ipc = { version = "0.3.2", path = "neori-ipc", features = ["clap"] }
 ordered-float = "5"
 pango = { version = "0.21.5", features = ["v1_44"] }
 pangocairo = "0.21.5"
@@ -181,7 +181,7 @@ similar.opt-level = 3
 png.opt-level = 3
 
 [package.metadata.generate-rpm]
-version = "0.3.1"
+version = "0.3.2"
 assets = [
     { source = "target/release/neori", dest = "/usr/bin/", mode = "755" },
     { source = "resources/neori-session", dest = "/usr/bin/", mode = "755" },

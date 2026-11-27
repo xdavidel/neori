@@ -41,7 +41,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! neori-ipc = "=0.3.1"
+//! neori-ipc = "=0.3.2"
 //! ```
 //!
 //! ## Features

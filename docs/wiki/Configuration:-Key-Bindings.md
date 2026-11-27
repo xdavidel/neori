@@ -468,7 +468,7 @@ neori.bind("Mod+Ctrl+W", { move_window_to_workspace = "web" })
 
 #### `focus` on move actions
 
-<sup>Since: next release</sup>
+<sup>Since: 0.3.2</sup>
 
 By default, the focus follows what a move action moves. Set `focus = false` next to the action
 to keep the focus where it is. This works for `move-column-to-workspace`,
@@ -487,7 +487,7 @@ false })`.
 
 #### `switch-layout`
 
-<sup>Since: next release</sup>
+<sup>Since: 0.3.2</sup>
 
 Switches the keyboard layout: to the next or previous configured layout, or to one by its index,
 from 0.
