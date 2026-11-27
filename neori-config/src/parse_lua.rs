@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mlua::prelude::*;
 use mlua::Value;
-use neori_ipc::{ConfiguredMode, SizeChange};
+use neori_ipc::{ConfiguredMode, LayoutSwitchTarget, SizeChange};
 
 use crate::animations::*;
 use crate::appearance::*;
@@ -4718,7 +4718,7 @@ fn parse_bind_entry(
                 match aks.as_str() {
                     "skip_confirmation" | "skip-confirmation" | "write_to_disk"
                     | "write-to-disk" | "show_pointer" | "show-pointer" | "delay_ms"
-                    | "delay-ms" | "path" => {}
+                    | "delay-ms" | "path" | "focus" => {}
                     _ => unknown_key("bind entry", &aks)?,
                 }
             }
@@ -4868,7 +4868,7 @@ fn parse_bind_slot_action(value: &Value) -> Result<Action, String> {
                         // Arguments of the action itself.
                         "skip_confirmation" | "skip-confirmation" | "write_to_disk"
                         | "write-to-disk" | "show_pointer" | "show-pointer" | "delay_ms"
-                        | "delay-ms" | "path" => {}
+                        | "delay-ms" | "path" | "focus" => {}
                         _ => {
                             return Err(format!(
                                 "unexpected key `{aks}` (bind options go on the bind itself)"
@@ -5193,6 +5193,14 @@ fn parse_action_string(s: &str) -> Result<Action, String> {
         }
         "toggle_scratchpad" | "toggle-scratchpad" => Action::ToggleScratchpad { name: None },
         "exit_mode" | "exit-mode" => Action::ExitMode {},
+        _ if let Some(target) = s
+            .strip_prefix("switch-layout ")
+            .or_else(|| s.strip_prefix("switch_layout ")) =>
+        {
+            Action::SwitchLayout {
+                layout: target.trim().parse().map_err(|e: &str| e.to_owned())?,
+            }
+        }
         _ if let Some(name) = s
             .strip_prefix("enter-mode ")
             .or_else(|| s.strip_prefix("enter_mode ")) =>
@@ -5397,6 +5405,67 @@ fn scratchpad_name_from_value(value: &Value) -> Result<Option<String>, String> {
 
 /// Maps a single action-table key (e.g. `spawn`) to its `Action`. Returns `None` for
 /// keys that are not actions (bind metadata such as `repeat` or `cooldown_ms`).
+/// Whether a move action's focus follows what it moves: `focus = false` next to the action
+/// (`{ move_column_left = true, focus = false }`) or in its value (`{ move_column_to_workspace =
+/// { 2, focus = false } }`, as `neori.action` gets it). True by default.
+fn action_focus(table: &LuaTable, value: &Value) -> Result<bool, String> {
+    let from_value = match value {
+        Value::Table(t) => t.get::<Value>("focus").map_err(|e| format!("{e}"))?,
+        _ => Value::Nil,
+    };
+    let focus = match from_value {
+        Value::Nil => table.get::<Value>("focus").map_err(|e| format!("{e}"))?,
+        other => other,
+    };
+    match focus {
+        Value::Nil => Ok(true),
+        Value::Boolean(b) => Ok(b),
+        other => Err(format!(
+            "focus: expected a boolean, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// The workspace an action refers to: a global index, a name, or either of them as the first
+/// item of a table that also holds the action's options (`{ 2, focus = false }`).
+fn workspace_reference_arg(action: &str, value: &Value) -> Result<WorkspaceReference, String> {
+    let value = match value {
+        Value::Table(t) => t.get::<Value>(1).map_err(|e| format!("{e}"))?,
+        other => other.clone(),
+    };
+    match value {
+        Value::Integer(i) => u8::try_from(i)
+            .map(WorkspaceReference::Index)
+            .map_err(|_| format!("{action}: workspace index {i} is out of range")),
+        Value::String(s) => Ok(WorkspaceReference::Name(
+            s.to_str().map_err(|e| format!("{e}"))?.to_string(),
+        )),
+        other => Err(format!(
+            "{action}: expected a workspace index or name, got {}",
+            other.type_name()
+        )),
+    }
+}
+
+/// The layout `switch_layout` switches to: `"next"`, `"prev"` or a layout index.
+fn layout_switch_target(value: &Value) -> Result<LayoutSwitchTarget, String> {
+    match value {
+        Value::String(s) => s
+            .to_str()
+            .map_err(|e| format!("{e}"))?
+            .parse()
+            .map_err(|e: &str| format!("switch_layout: {e}")),
+        Value::Integer(i) => u8::try_from(*i)
+            .map(LayoutSwitchTarget::Index)
+            .map_err(|_| format!("switch_layout: layout index {i} is out of range")),
+        other => Err(format!(
+            "switch_layout: expected \"next\", \"prev\" or a layout index, got {}",
+            other.type_name()
+        )),
+    }
+}
+
 fn action_from_table_key(
     table: &LuaTable,
     key: &str,
@@ -5490,34 +5559,24 @@ fn action_from_table_key(
         "expel_window_from_column" | "expel-window-from-column" => {
             Some(Action::ExpelWindowFromColumn {})
         }
-        "focus_workspace" | "focus-workspace" => Some(match value {
-            Value::Integer(i) => Action::FocusWorkspace {
-                reference: WorkspaceReference::Index(*i as u8),
-            },
-            Value::String(s) => Action::FocusWorkspace {
-                reference: WorkspaceReference::Name(
-                    s.to_str().map_err(|e| format!("{e}"))?.to_string(),
-                ),
-            },
-            _ => Action::FocusWorkspace {
-                reference: WorkspaceReference::Index(0),
-            },
+        "focus_workspace" | "focus-workspace" => Some(Action::FocusWorkspace {
+            reference: workspace_reference_arg(key, value)?,
         }),
-        "move_column_to_workspace" | "move-column-to-workspace" => Some(match value {
-            Value::Integer(i) => Action::MoveColumnToWorkspace {
-                reference: WorkspaceReference::Index(*i as u8),
-                focus: true,
-            },
-            Value::String(s) => Action::MoveColumnToWorkspace {
-                reference: WorkspaceReference::Name(
-                    s.to_str().map_err(|e| format!("{e}"))?.to_string(),
-                ),
-                focus: true,
-            },
-            _ => Action::MoveColumnToWorkspace {
-                reference: WorkspaceReference::Index(0),
-                focus: true,
-            },
+        "move_column_to_workspace" | "move-column-to-workspace" => {
+            Some(Action::MoveColumnToWorkspace {
+                reference: workspace_reference_arg(key, value)?,
+                focus: action_focus(table, value)?,
+            })
+        }
+        "move_window_to_workspace" | "move-window-to-workspace" => {
+            Some(Action::MoveWindowToWorkspace {
+                window_id: None,
+                reference: workspace_reference_arg(key, value)?,
+                focus: action_focus(table, value)?,
+            })
+        }
+        "switch_layout" | "switch-layout" => Some(Action::SwitchLayout {
+            layout: layout_switch_target(value)?,
         }),
         "focus_column_left" | "focus-column-left" => Some(Action::FocusColumnLeft {}),
         "focus_column_right" | "focus-column-right" => Some(Action::FocusColumnRight {}),
@@ -5532,10 +5591,18 @@ fn action_from_table_key(
         "focus_workspace_previous" | "focus-workspace-previous" => {
             Some(Action::FocusWorkspacePrevious {})
         }
-        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft { focus: true }),
-        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight { focus: true }),
-        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown { focus: true }),
-        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp { focus: true }),
+        "move_column_left" | "move-column-left" => Some(Action::MoveColumnLeft {
+            focus: action_focus(table, value)?,
+        }),
+        "move_column_right" | "move-column-right" => Some(Action::MoveColumnRight {
+            focus: action_focus(table, value)?,
+        }),
+        "move_window_down" | "move-window-down" => Some(Action::MoveWindowDown {
+            focus: action_focus(table, value)?,
+        }),
+        "move_window_up" | "move-window-up" => Some(Action::MoveWindowUp {
+            focus: action_focus(table, value)?,
+        }),
         "switch_preset_column_width" | "switch-preset-column-width" => {
             Some(Action::SwitchPresetColumnWidth {})
         }
@@ -5633,16 +5700,24 @@ fn action_from_table_key(
         }
         "focus_window_previous" | "focus-window-previous" => Some(Action::FocusWindowPrevious {}),
         "move_window_to_workspace_down" | "move-window-to-workspace-down" => {
-            Some(Action::MoveWindowToWorkspaceDown { focus: true })
+            Some(Action::MoveWindowToWorkspaceDown {
+                focus: action_focus(table, value)?,
+            })
         }
         "move_window_to_workspace_up" | "move-window-to-workspace-up" => {
-            Some(Action::MoveWindowToWorkspaceUp { focus: true })
+            Some(Action::MoveWindowToWorkspaceUp {
+                focus: action_focus(table, value)?,
+            })
         }
         "move_column_to_workspace_down" | "move-column-to-workspace-down" => {
-            Some(Action::MoveColumnToWorkspaceDown { focus: true })
+            Some(Action::MoveColumnToWorkspaceDown {
+                focus: action_focus(table, value)?,
+            })
         }
         "move_column_to_workspace_up" | "move-column-to-workspace-up" => {
-            Some(Action::MoveColumnToWorkspaceUp { focus: true })
+            Some(Action::MoveColumnToWorkspaceUp {
+                focus: action_focus(table, value)?,
+            })
         }
         "toggle_column_tabbed_display" | "toggle-column-tabbed-display" => {
             Some(Action::ToggleColumnTabbedDisplay {})
@@ -5652,12 +5727,12 @@ fn action_from_table_key(
         }
         "focus_column_first" | "focus-column-first" => Some(Action::FocusColumnFirst {}),
         "focus_column_last" | "focus-column-last" => Some(Action::FocusColumnLast {}),
-        "move_column_to_first" | "move-column-to-first" => {
-            Some(Action::MoveColumnToFirst { focus: true })
-        }
-        "move_column_to_last" | "move-column-to-last" => {
-            Some(Action::MoveColumnToLast { focus: true })
-        }
+        "move_column_to_first" | "move-column-to-first" => Some(Action::MoveColumnToFirst {
+            focus: action_focus(table, value)?,
+        }),
+        "move_column_to_last" | "move-column-to-last" => Some(Action::MoveColumnToLast {
+            focus: action_focus(table, value)?,
+        }),
         "move_column_to_monitor_left" | "move-column-to-monitor-left" => {
             Some(Action::MoveColumnToMonitorLeft {})
         }

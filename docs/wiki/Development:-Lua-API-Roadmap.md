@@ -81,13 +81,6 @@ Existing APIs keep working as aliases until the new ones fully replace them.
 - **API reference (done):** the wiki's [Lua API Reference](./Lua-API-Reference.md), generated
   from `resources/lua/neori.lua` by the `lua-reference` test, which fails when it's stale.
 
-### Known gaps to fold in
-
-These Lua config options are documented but not parsed yet, and get fixed along the way:
-recent-windows actions, most `debug` keys, the window-rule `scroll_factor`, most layer-rule
-options, `on` in focus ring / insert hint / tab indicator, `place_within_column`, the
-`switch-layout` action, and `focus = false` on move actions.
-
 ### Risks
 
 - Phase 0 is a big refactor of `src/script.rs` and `neori-config/src/parse_lua.rs`.

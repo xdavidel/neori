@@ -456,6 +456,48 @@ new window into that scratchpad, so the first press opens the window. Toggling a
 and toggling once more shows it again — the command is only re-run when the scratchpad has
 become empty again (for example after the window was closed or removed).
 
+#### `focus-workspace`, `move-column-to-workspace`, `move-window-to-workspace`
+
+These take a workspace: a global index, or the name of a named workspace.
+
+```lua
+neori.bind("Mod+1", { focus_workspace = 1 })
+neori.bind("Mod+Shift+1", { move_column_to_workspace = 1 })
+neori.bind("Mod+Ctrl+W", { move_window_to_workspace = "web" })
+```
+
+#### `focus` on move actions
+
+<sup>Since: next release</sup>
+
+By default, the focus follows what a move action moves. Set `focus = false` next to the action
+to keep the focus where it is. This works for `move-column-to-workspace`,
+`move-window-to-workspace`, their `-up` and `-down` forms, `move-column-left`,
+`move-column-right`, `move-column-to-first`, `move-column-to-last`, `move-window-up` and
+`move-window-down`.
+
+```lua
+-- Send the column to workspace 2 and stay here.
+neori.bind("Mod+Shift+2", { move_column_to_workspace = 2, focus = false })
+neori.bind("Mod+Ctrl+Left", { move_column_left = true, focus = false })
+```
+
+From Lua code, give it with the workspace: `neori.action("move-column-to-workspace", { 2, focus =
+false })`.
+
+#### `switch-layout`
+
+<sup>Since: next release</sup>
+
+Switches the keyboard layout: to the next or previous configured layout, or to one by its index,
+from 0.
+
+```lua
+neori.bind("Mod+Space", "switch-layout next")
+neori.bind("Mod+Shift+Space", "switch-layout prev")
+neori.bind("Mod+F1", { switch_layout = 0 })
+```
+
 #### `quit`
 
 Exit neori after showing a confirmation dialog to avoid accidentally triggering it.
